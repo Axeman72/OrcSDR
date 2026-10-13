@@ -2,6 +2,7 @@ set(ORCSDR_EMBED_FILES
     "orc_badge_104.png"
     "orc_badge_104.rgb565"
     "orcsdr_splash_1280x720.jpg"
+    "sstv_testpattern_320x240.rgb"
     "../ui/web_console.html"
     "../ui/web_audio.js")
 set(ORCSDR_LDFRAGMENTS)
@@ -65,6 +66,15 @@ idf_component_register(
         "../ui/ft8_runtime.cpp"
         "../ui/ft8_hunter.cpp"
         "../ui/ft8_dashboard.cpp"
+        "../ui/sstv_receiver.cpp"
+        "../ui/sstv_modes.cpp"
+        "../ui/sstv_auto_detect.cpp"
+        "../ui/sstv_archive.cpp"
+        "../ui/sstv_status.cpp"
+        "../ui/sstv_settings.cpp"
+        "../ui/sstv_app.cpp"
+        "../ui/sstv_diag.cpp"
+        "../ui/sstv_dashboard.cpp"
         "../ui/ft8_tuning.cpp"
         "../ui/ft8_info_text.cpp"
         "../ui/ft8_heard_db.cpp"
