@@ -10,7 +10,7 @@ enum class Mode : uint8_t {
   scottie_s1, scottie_s2, scottie_dx,
   pd50, pd90, pd120, pd160, pd180, pd240, pd290
 };
-enum class Page : uint8_t { receive, gallery, analyzer, frequencies, setup, count };
+enum class Page : uint8_t { receive, gallery, analyzer, tune, setup, count };
 // VIS is authoritative when valid; sync fallback is always labeled provisional.
 enum class AutoStrategy : uint8_t { vis_only, vis_sync };
 enum class Identification : uint8_t { none, vis, sync, manual };
@@ -50,7 +50,10 @@ struct Metrics {
   uint32_t partial_frames = 0;
   uint32_t auto_sync_locks = 0;
   uint32_t observed_sync_pulses = 0;
+  uint32_t frame_alloc_failures = 0; // pictures that could not start because no image frame could be allocated, even after giving up gallery pictures
   float sync_pulse_ms = 0.0f;     // width of the most recent 1200 Hz pulse
+  float sync_tone_hz = 0.0f;      // average frequency of the settled part of recent sync pulses (nominal 1200 Hz); 0 = none yet
+  uint16_t sync_tone_pulses = 0;  // how many pulses that average rests on (saturates; reset with each new reception)
   float sync_interval_ms = 0.0f;  // spacing between the two most recent pulse starts
   Identification identification = Identification::none;
   uint8_t identification_score = 0; // heuristic; not a probability
@@ -111,6 +114,9 @@ Mode selected_mode();
 void set_auto_strategy(AutoStrategy strategy);
 AutoStrategy auto_strategy();
 void set_frequency(uint32_t hz);
+#ifdef ORCSDR_SSTV_TESTING
+void testing_fail_next_frames(unsigned count);   // host tests only: the next `count` image-frame allocations fail
+#endif
 // Ends the image in progress (kept as a partial gallery entry, EndReason::aborted) and returns to
 // searching. Unlike stop()+start() it keeps the audio stream, counters and settings untouched.
 void abort_image();
@@ -122,6 +128,9 @@ void abort_image();
 void end_of_stream();
 // SPSC PCM tap: called from DSP producer at exactly 48000 Hz, *never* draws or blocks.
 void offer_audio_48k(const int16_t* samples, size_t count);
+// Called from service() with the decoder-rate (12 kHz) samples it consumes, in batches. Null stops it. The observer
+// must be quick and must not call back into the receiver.
+void set_audio_observer(void (*observer)(const int16_t* samples, size_t count));
 // The on-device self-test generates its own audio. While it runs the live radio audio is dropped, otherwise the
 // receiver's noise is mixed into the test signal; the test audio itself uses offer_injected_48k.
 void set_live_audio_muted(bool muted);

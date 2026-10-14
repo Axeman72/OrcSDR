@@ -108,6 +108,12 @@ bool g_ac_lut_ready=false;
 // explicit uint32_t subtraction instead.
 uint64_t g_ticks=0;
 uint32_t g_sync_run=0;
+// Sync-tone measurement: the estimator is slow to settle, so only the middle of a pulse (after the first 40 samples
+// and before the last 10) is averaged. Short pulses (Martin) have no settled part and are not measured.
+constexpr uint32_t kSyncPlateaus=24u;
+constexpr uint32_t kMinToneSamples=48u;   // 4 ms at 12 kHz: shorter than any real sync pulse's settled part
+float g_plat[kSyncPlateaus]{};uint32_t g_plat_n=0;uint32_t g_sync_pulses=0;uint64_t g_sync_tone_tick=0;
+void (*g_observer)(const int16_t*,size_t)=nullptr;
 uint64_t g_last_sync_start=0;
 bool g_have_sync_start=false;
 double g_line_origin=0;
@@ -122,6 +128,13 @@ uint16_t g_session_locked=0,g_session_missed=0;
 uint8_t g_session_vis=0;
 bool g_line_sync=false;
 uint8_t g_consecutive_missed=0;
+// Lines in a row that may pass without a sync pulse before the picture is given up (sync lost). At the edge of sensitivity misses
+// come in bursts; the line timing is held by the clock between pulses, so a few more lines can safely be predicted. Chosen on 22
+// recordings of Robot 36 at about -113 dBm: 4 split 15 of them into pieces and made 6 junk images; 8 or more gave one image each.
+#ifndef SSTV_MAX_MISSED
+#define SSTV_MAX_MISSED 8
+#endif
+constexpr uint8_t kMaxConsecutiveMissed=SSTV_MAX_MISSED;
 enum class VisStage:uint8_t { lead1, break1200, lead2, start1200, bits };
 VisStage g_vis_stage=VisStage::lead1;
 uint32_t g_phase_samples=0,g_phase_age=0;
@@ -139,7 +152,13 @@ struct Frame {
   uint32_t bytes;
 };
 std::atomic<uint32_t> g_frames_alive{0},g_frame_bytes{0};
+#ifdef ORCSDR_SSTV_TESTING
+unsigned g_test_fail_frames=0;   // host tests: make the next N frame allocations fail, as a fragmented PSRAM would
+#endif
 Frame* frame_create(size_t pixel_count) {
+#ifdef ORCSDR_SSTV_TESTING
+  if(g_test_fail_frames) { --g_test_fail_frames; return nullptr; }
+#endif
   const size_t bytes=sizeof(Frame)+pixel_count*sizeof(uint16_t);
 #ifdef ESP_PLATFORM
   void* raw=heap_caps_malloc(bytes,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
@@ -312,7 +331,17 @@ void begin_picture(const ModeSpec* spec,uint8_t vis,
   g_live={};
   const size_t n=static_cast<size_t>(spec->width)*spec->height;
   Frame* frame=frame_create(n);
+  // A valid header must not be lost to a full or fragmented PSRAM: give up the oldest gallery pictures one at a time
+  // (the gallery is a convenience, the reception is the point) and try again. A picture the UI or archive still holds stays
+  // alive until it lets go, so this only frees what nothing else needs.
+  while(!frame && g_saved_count>0) {
+    frame_release(g_saved[g_saved_count-1].frame);
+    g_saved[g_saved_count-1]={};
+    --g_saved_count;
+    frame=frame_create(n);
+  }
   if(!frame) {
+    ++g_stats.frame_alloc_failures;
     std::snprintf(g_stats.status,sizeof(g_stats.status),"INSUFFICIENT PSRAM");
     reset_picture();
     return;
@@ -385,7 +414,11 @@ void commit_line() {
   if(!g_line_sync) {
     g_stats.sync_missed_lines++;
     if(g_session_missed<0xffffu)++g_session_missed;
-    if(++g_consecutive_missed>=4) {
+    if(++g_consecutive_missed>=kMaxConsecutiveMissed) {
+      // The lines committed since the last sync pulse were only predictions; the signal is gone, so they are not kept.
+      const uint16_t per_line=g_spec->family==3?2:1;
+      const uint16_t tail=static_cast<uint16_t>((g_consecutive_missed-1)*per_line);
+      g_live.decoded_rows=g_live.decoded_rows>tail?static_cast<uint16_t>(g_live.decoded_rows-tail):0;   // 0 rows: discarded
       finish_picture(true,EndReason::sync_lost);
       return;
     }
@@ -422,9 +455,18 @@ void commit_line() {
   g_line_sync=false;
   clear_pixel_marks();
   clear_line_scans();
-  if(g_stats.row>=g_live.height)
-    finish_picture(g_live.start_unknown||g_consecutive_missed>0,
-                   EndReason::complete);
+  if(g_stats.row>=g_live.height) {
+    if(g_consecutive_missed>0) {
+      // The picture ran out while the last lines were only predicted (no sync pulse): those rows are not received data,
+      // so it is an interrupted reception, not a complete one.
+      const uint16_t per_line=g_spec->family==3?2:1;
+      const uint16_t tail=static_cast<uint16_t>(g_consecutive_missed*per_line);
+      g_live.decoded_rows=g_live.decoded_rows>tail?static_cast<uint16_t>(g_live.decoded_rows-tail):0;
+      finish_picture(true,EndReason::sync_lost);
+    } else {
+      finish_picture(g_live.start_unknown,EndReason::complete);
+    }
+  }
 }
 double sync_offset_samples(const ModeSpec& m) {
   if(m.family!=2)return 0.;
@@ -588,11 +630,100 @@ void skip_gap(uint32_t count) {
   g_sync_run=0;
   reset_vis();
 }
+// The frequency estimator settles geometrically after the transition into a sync pulse, in steps every few samples, and
+// swings back as the pulse ends. Take the plateaus before that final swing and extrapolate their geometric decay
+// (Aitken) to the tone the pulse really carries. False if the pulse gave too little to measure.
+bool sync_tone_estimate(float& tone) {
+  if(g_plat_n==0)return false;
+  uint32_t m=g_plat_n-1;
+  while(m>0&&g_plat[m]>g_plat[m-1]+0.5f)--m;   // drop the closing swing upward
+  const float x2=g_plat[m];
+  if(m==0){
+    if(g_plat_n>1)return false;                // only a rising series: the first sample after the crossing, not a tone
+    tone=x2;return true;                       // steady from the start: already the tone
+  }
+  if(m==1){
+    if(std::fabs(x2-g_plat[0])>3.f)return false;
+    tone=x2;return true;
+  }
+  const float d0=g_plat[m-1]-g_plat[m-2],d1=x2-g_plat[m-1];
+  if(std::fabs(d1)<=3.f){tone=x2;return true;}
+  const float ratio=d0!=0.f?d1/d0:0.f;
+  if(ratio<=0.2f||ratio>=0.95f)return false;   // not a clean geometric settle
+  tone=x2+d1*ratio/(1.f-ratio);
+  return tone>900.f&&tone<1500.f;
+}
+
+// Adaptive noise band-limit for weak signals. SSTV tones sit between 1100 and 2300 Hz, so a clean demodulated signal has almost no
+// energy above 4.6 kHz (pixel detail reaches at most about 4.4 kHz) while FM noise has plenty (about 1.5% of the power at
+// -113 dBm, under 0.02% on a strong signal). The
+// front end measures that ratio and fades from the original wide path (clean signal: unchanged, fine pixel detail intact) to a
+// second-order 1000-2600 Hz band-pass as noise grows. Evaluated on 11 recordings of Robot 36 at -113 dBm: row correlation with
+// the test pattern 0.28 -> 0.44. Define SSTV_NO_ADAPTIVE_BP to switch it off for A/B tests.
+#ifndef SSTV_NO_ADAPTIVE_BP
+#define SSTV_ADAPTIVE_BP 1
+#endif
+#ifdef SSTV_ADAPTIVE_BP
+struct Biquad {
+  float b0=1,b1=0,b2=0,a1=0,a2=0,x1=0,x2=0,y1=0,y2=0;
+  float run(float x) {
+    const float y=b0*x+b1*x1+b2*x2-a1*y1-a2*y2;
+    x2=x1;x1=x;y2=y1;y1=y;
+    return y;
+  }
+};
+#ifndef SSTV_BP_HP_HZ
+#define SSTV_BP_HP_HZ 1000.f
+#endif
+#ifndef SSTV_BP_LP_HZ
+#define SSTV_BP_LP_HZ 2600.f
+#endif
+#ifndef SSTV_BP_Q
+#define SSTV_BP_Q .70710678f
+#endif
+#ifndef SSTV_NOISE_CUT_HZ
+#define SSTV_NOISE_CUT_HZ 4600.f
+#endif
+Biquad g_bq_hp,g_bq_lp,g_bq_noise;
+float g_e_hi=0,g_e_all=0,g_blend=0;
+uint32_t g_blend_tick=0;
+// Audio EQ cookbook (Butterworth when Q is 1/sqrt 2) at the 12 kHz decoder rate.
+Biquad make_biquad(bool high_pass,float corner_hz,float q) {
+  const float w=2.f*3.14159265358979323846f*corner_hz/kRate,c=std::cos(w),alpha=std::sin(w)/(2.f*q);
+  const float a0=1.f+alpha;
+  Biquad bq{};
+  const float edge=high_pass?(1.f+c)/2.f:(1.f-c)/2.f;
+  bq.b0=edge/a0;bq.b1=(high_pass?-2.f*edge:2.f*edge)/a0;bq.b2=edge/a0;
+  bq.a1=-2.f*c/a0;bq.a2=(1.f-alpha)/a0;
+  return bq;
+}
+// One sample through the adaptive stage: the band-limited signal is blended in as the out-of-band noise fraction rises.
+float adaptive_front(float raw) {
+  const float band=g_bq_lp.run(g_bq_hp.run(raw));
+  const float hi=g_bq_noise.run(raw);
+  g_e_hi+=(hi*hi-g_e_hi)*(1.f/800.f);
+  g_e_all+=(raw*raw-g_e_all)*(1.f/800.f);
+  if((++g_blend_tick&15u)==0) {
+    float target=0.f;
+    if(g_e_all>1.0e4f) {   // ignore near-silence
+      const float ratio=g_e_hi/g_e_all;
+      // 0 at a 0.3% ratio, 1 at 1% (noise measured at about 1.5%); the picture's own pixel detail stays below that.
+      target=std::clamp((std::log10(std::max(ratio,1e-6f))+2.52f)*1.92f,0.f,1.f);
+    }
+    g_blend+=0.05f*(target-g_blend);   // about 15 ms per step of 16 samples: smooth, not jumpy
+  }
+  return raw+g_blend*(band-raw);
+}
+#endif
 void accept_sample(int16_t pcm) {
   ++g_ticks;
   // One pole high-pass (~120 Hz) followed by LP (~2.6 kHz).  Damping is
   // deliberately mild; preserves 1100-2300-Hz SSTV tone transitions.
+#ifdef SSTV_ADAPTIVE_BP
+  const float x=adaptive_front(static_cast<float>(pcm));
+#else
   const float x=static_cast<float>(pcm);
+#endif
   g_hp=.94f*(g_hp+x-g_in_prev);g_in_prev=x;
   g_lp+=.78f*(g_hp-g_lp);
   g_level=std::max(std::fabs(g_lp)/32768.f,g_level*.9995f);
@@ -621,6 +752,7 @@ void accept_sample(int16_t pcm) {
     g_last_edge_frac=frac;
     g_have_edge=true;
   }
+
   // Normalized adjacent-sample autocorrelation: for a sinusoid at f Hz,
   // P/Q = 2*cos(2*pi*f/kRate). This provides a new tone estimate on every
   // 12k sample instead of waiting ~5-10 samples for each zero crossing.
@@ -643,9 +775,22 @@ void accept_sample(int16_t pcm) {
   // from a coherent pulse train without instantiating parallel decoders.
   const bool is_sync=g_freq>1030.f&&g_freq<1400.f;
   if(is_sync) {
-    if(g_sync_run<60000u)++g_sync_run;
+    if(g_sync_run<60000u) {
+      if(g_sync_run==0)g_plat_n=0;
+      if(g_plat_n==0||std::fabs(g_freq-g_plat[g_plat_n-1])>0.5f) {
+        if(g_plat_n<kSyncPlateaus)g_plat[g_plat_n++]=g_freq;
+      }
+      ++g_sync_run;
+    }
   } else if(g_sync_run) {
     const uint32_t n=g_sync_run;
+    float tone=0;
+    if(n>=kMinToneSamples&&sync_tone_estimate(tone)) {   // a noise blip in the band is not a sync pulse to measure
+      g_stats.sync_tone_hz=g_sync_pulses?0.8f*g_stats.sync_tone_hz+0.2f*tone:tone;
+      if(g_sync_pulses<60000u)++g_sync_pulses;
+      g_stats.sync_tone_pulses=static_cast<uint16_t>(g_sync_pulses);
+      g_sync_tone_tick=g_ticks;
+    }
     g_sync_run=0;
     const uint64_t sync_start=g_ticks-n;
     ++g_stats.observed_sync_pulses;
@@ -714,6 +859,12 @@ void start(uint32_t freq) {
     g_ac_lut_ready=true;
   }
   g_ticks=0;
+#ifdef SSTV_ADAPTIVE_BP
+  g_bq_hp=make_biquad(true,SSTV_BP_HP_HZ,SSTV_BP_Q);
+  g_bq_lp=make_biquad(false,SSTV_BP_LP_HZ,SSTV_BP_Q);
+  g_bq_noise=make_biquad(true,SSTV_NOISE_CUT_HZ,SSTV_BP_Q);
+  g_e_hi=g_e_all=g_blend=0.f;g_blend_tick=0;
+#endif
   if(!g_queue) {
 #ifdef ESP_PLATFORM
     g_queue=static_cast<int16_t*>(heap_caps_calloc(kRingSize,sizeof(int16_t),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
@@ -762,13 +913,18 @@ void abort_image(){
   if(g_stats.receiving)finish_picture(true,EndReason::aborted);
   reset_vis();reset_picture();auto_detect::reset();
 }
+#ifdef ORCSDR_SSTV_TESTING
+void testing_fail_next_frames(unsigned count){g_test_fail_frames=count;}
+#endif
 void set_frequency(uint32_t hz){
   if(g_stats.receiving)finish_picture(true,EndReason::retune);
   g_frequency=hz;reset_picture();reset_vis();auto_detect::reset();
+  g_sync_pulses=0;g_stats.sync_tone_hz=0;g_stats.sync_tone_pulses=0;   // a new frequency starts a new tone reading
 }
 std::atomic<bool> g_live_muted{false};
 void offer_core(const int16_t* src,size_t n);
 void set_live_audio_muted(bool muted){g_live_muted.store(muted,std::memory_order_relaxed);}
+void set_audio_observer(void (*observer)(const int16_t*,size_t)){g_observer=observer;}
 void offer_audio_48k(const int16_t* src,size_t n){
   if(g_live_muted.load(std::memory_order_relaxed))return;
   offer_core(src,n);
@@ -848,6 +1004,8 @@ void service(size_t budget){
     if(fill>g_stats.ring_fill_max)g_stats.ring_fill_max=static_cast<uint16_t>(fill>0xffffu?0xffffu:fill);
   }
   size_t n=0;
+  auto* const observer=g_observer;
+  int16_t batch[128];size_t batch_n=0;
   uint32_t tail=g_gap_tail.load(std::memory_order_relaxed);
   const uint32_t head=g_gap_head.load(std::memory_order_acquire);
   while(r!=end&&n<budget){
@@ -855,10 +1013,19 @@ void service(size_t budget){
       skip_gap(g_gap_count[tail%kGapMarks]);
       ++tail;
     }
-    accept_sample(g_queue[r&kMask]);++r;++n;
+    const int16_t sample=g_queue[r&kMask];
+    accept_sample(sample);++r;++n;
+    if(observer) {
+      batch[batch_n++]=sample;
+      if(batch_n==sizeof(batch)/sizeof(batch[0])) { observer(batch,batch_n); batch_n=0; }
+    }
   }
+  if(observer&&batch_n)observer(batch,batch_n);
   g_gap_tail.store(tail,std::memory_order_release);
   g_read.store(r,std::memory_order_release);
+  if(g_sync_pulses&&g_ticks-g_sync_tone_tick>5ull*kRate) {   // no sync pulse for 5 s: the reading is stale
+    g_sync_pulses=0;g_stats.sync_tone_hz=0;g_stats.sync_tone_pulses=0;
+  }
   g_stats.samples+=static_cast<uint32_t>(n);
   g_stats.tone_hz=g_freq;g_stats.audio_peak=g_level;
   g_stats.signal=g_level>.01f;

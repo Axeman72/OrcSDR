@@ -4,11 +4,13 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "sstv_archive.hpp"
 #include "sstv_dashboard.hpp"
 #include "sstv_receiver.hpp"
+#include "sstv_status.hpp"
 
 #ifdef ESP_PLATFORM
 #include <esp_heap_caps.h>
@@ -237,7 +239,8 @@ void print_status() {
   const Metrics m = metrics();
   say("SSTV_STATUS active=%d dashboard=%d state=\"%s\" mode=\"%s\" ident=%d score=%u row=%u/%u receiving=%d "
       "start_unknown=%d vis_ok=%lu vis_bad=%lu sync_locked=%u sync_missed=%u overruns=%lu gaps=%lu "
-      "frames=%lu partial=%lu auto_locks=%lu tone_hz=%d audio_level_milli=%d audio_offered=%lu samples=%lu",
+      "frames=%lu partial=%lu auto_locks=%lu tone_hz=%d audio_level_milli=%d audio_offered=%lu samples=%lu "
+      "sync_tone_hz=%d sync_tone_pulses=%u status=\"%s\"",
       active() ? 1 : 0, ui_active() ? 1 : 0, state_name(m.state),
       m.receiving ? mode_name(m.received_mode) : "-", static_cast<int>(m.identification),
       static_cast<unsigned>(m.identification_score), static_cast<unsigned>(m.row),
@@ -247,7 +250,13 @@ void print_status() {
       static_cast<unsigned long>(m.audio_overruns), static_cast<unsigned long>(m.audio_gaps),
       static_cast<unsigned long>(m.frames), static_cast<unsigned long>(m.partial_frames),
       static_cast<unsigned long>(m.auto_sync_locks), static_cast<int>(m.tone_hz), static_cast<int>(m.audio_peak * 1000.0f),
-      static_cast<unsigned long>(m.audio_offered), static_cast<unsigned long>(m.samples));
+      static_cast<unsigned long>(m.audio_offered), static_cast<unsigned long>(m.samples),
+      static_cast<int>(m.sync_tone_hz + 0.5f), static_cast<unsigned>(m.sync_tone_pulses), m.status);
+  if (g_hooks && g_hooks->tune_summary) {
+    char tune[160];
+    g_hooks->tune_summary(tune, sizeof(tune));
+    say("SSTV_TUNE %s", tune);
+  }
   const UiStats ui = ui_stats();
   say("SSTV_PERF service_us_last=%lu service_us_max=%lu service_us_avg=%lu service_cpu_pct=%u ring_max=%u/4096 "
       "frames_alive=%lu frame_kb=%lu draw_us_last=%lu draw_us_max=%lu draws=%lu",
@@ -257,7 +266,8 @@ void print_status() {
       static_cast<unsigned long>(m.frame_bytes / 1024u), static_cast<unsigned long>(ui.draw_us_last),
       static_cast<unsigned long>(ui.draw_us_max), static_cast<unsigned long>(ui.draws));
 #ifdef ESP_PLATFORM
-  say("SSTV_MEM internal_free=%u internal_min=%u internal_largest=%u psram_free=%u psram_min=%u psram_largest=%u",
+  say("SSTV_MEM frame_alloc_failures=%lu internal_free=%u internal_min=%u internal_largest=%u psram_free=%u psram_min=%u psram_largest=%u",
+      static_cast<unsigned long>(m.frame_alloc_failures),
       static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
       static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),
       static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
@@ -352,6 +362,19 @@ bool handle_command(const char* command, bool authenticated, const Hooks& hooks)
   const char* args = command + 5;
   if (std::strcmp(args, "STATUS") == 0) { print_status(); return true; }
   if (std::strcmp(args, "INDEX") == 0) { print_index_tail(); return true; }
+  if (std::strcmp(args, "LAST") == 0) {
+    const auto image = orcsdr::sstv::archived_image(0);
+    if (!image.pixels) { say("SSTV_LAST none=1"); return true; }
+    orcsdr::sstv_status::ImageChips chips;
+    orcsdr::sstv_status::image_chips(image, &chips);
+    say("SSTV_LAST serial=%lu mode=\"%s\" rows=%u of=%u partial=%d sync_locked=%u sync_missed=%u start_unknown=%d "
+        "ident=\"%s\" end=\"%s\" frequency_hz=%lu",
+        static_cast<unsigned long>(image.serial), orcsdr::sstv::mode_name(image.mode),
+        static_cast<unsigned>(image.decoded_rows), static_cast<unsigned>(image.height), image.partial ? 1 : 0,
+        static_cast<unsigned>(image.sync_locked), static_cast<unsigned>(image.sync_missed), image.start_unknown ? 1 : 0,
+        chips.identification, chips.ending, static_cast<unsigned long>(image.frequency_hz));
+    return true;
+  }
   if (denied(hooks, authenticated)) return true;
   if (std::strcmp(args, "OPEN") == 0) {
     if (hooks.open_dashboard) hooks.open_dashboard();
@@ -385,6 +408,23 @@ bool handle_command(const char* command, bool authenticated, const Hooks& hooks)
     say("SSTV_OK selftest=%s speed=%u", scenario_name(scenario), g_script.speed);
     return true;
   }
+  if (std::strncmp(args, "MODE ", 5) == 0 || std::strncmp(args, "IFBW ", 5) == 0 || std::strncmp(args, "STEP ", 5) == 0 ||
+      std::strncmp(args, "RAILS ", 6) == 0 || std::strncmp(args, "REC ", 4) == 0) {
+    char reply[96] = {};
+    if (hooks.tune_command && hooks.tune_command(args, reply, sizeof(reply))) say("SSTV_OK %s", reply);
+    else say("SSTV_ERROR %s", reply[0] ? reply : "unavailable");
+    return true;
+  }
+  if (std::strncmp(args, "TUNE ", 5) == 0) {
+    char* end = nullptr;
+    const char first = args[5];
+    const unsigned long long hz = (first >= '0' && first <= '9') ? std::strtoull(args + 5, &end, 10) : 0ull;   // digits only: no sign
+    const bool ok = end != nullptr && end != args + 5 && *end == 0 && hz <= 0xFFFFFFFFull && hooks.tune &&
+                    hooks.tune(static_cast<uint32_t>(hz));
+    if (ok) say("SSTV_OK tuned_hz=%llu", hz);
+    else say("SSTV_ERROR tune refused (dashboard closed or frequency out of range) use=SSTV TUNE <hz>");
+    return true;
+  }
   if (std::strncmp(args, "SAVE ", 5) == 0) {
     const bool live = std::strcmp(args + 5, "LIVE") == 0;
     if (!live && std::strcmp(args + 5, "NEWEST") != 0) {
@@ -395,7 +435,7 @@ bool handle_command(const char* command, bool authenticated, const Hooks& hooks)
     say("SSTV_OK queued=%d", queued ? 1 : 0);
     return true;
   }
-  say("SSTV_ERROR usage=SSTV STATUS|INDEX|OPEN|SELFTEST <scenario> [SPEED n]|SELFTEST STOP|SAVE LIVE|NEWEST");
+  say("SSTV_ERROR usage=SSTV STATUS|INDEX|LAST|OPEN|REC START <s>|TUNE <hz>|MODE <m>|IFBW <hz>|STEP <hz>|RAILS <arg>|SAVE LIVE|SAVE NEWEST|SELFTEST <scenario> [SPEED n]|SELFTEST STOP");
   return true;
 }
 

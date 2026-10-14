@@ -3011,14 +3011,30 @@ static bool sstv_owns_audio(RtlBand band) {
   return orcsdr::sstv::active() && (band == RtlBand::browse || band == RtlBand::shortwave);
 }
 
+// The TUNE tab's demodulator: 0 = the band's own choice, 1 = NFM, 2 = USB, 3 = LSB.
+static std::atomic<uint8_t> g_sstv_demod{0};
+// The TUNE tab's IF filter width ahead of the FM discriminator in Hz; 0 = the radio's own setting.
+static std::atomic<uint32_t> g_sstv_if_hz{0};
+
 HomeDemod effective_demod(RtlBand band) {
   // Receiver DSP never reads screen ownership or UI-only frequency state.
   if (orcsdr::sstv::active() &&
-      (band == RtlBand::shortwave || band == RtlBand::browse))
-    return band == RtlBand::shortwave ? HomeDemod::usb : HomeDemod::nfm;
+      (band == RtlBand::shortwave || band == RtlBand::browse)) {
+    switch (g_sstv_demod.load(std::memory_order_relaxed)) {
+      case 1: return HomeDemod::nfm;
+      case 2: return HomeDemod::usb;
+      case 3: return HomeDemod::lsb;
+      default: return band == RtlBand::shortwave ? HomeDemod::usb : HomeDemod::nfm;
+    }
+  }
   const auto chosen = static_cast<HomeDemod>(rtl_home_demod.load(std::memory_order_relaxed));
   return chosen != HomeDemod::by_band && home_demod_band(band) && orcsdr::home::active() ? chosen
                                                                                        : band_demod(band);
+}
+
+// The SSTV TUNE tab shows an RF spectrum while it is on screen: the spectrum gates below treat it like a browser scope.
+static bool sstv_tune_spectrum_wanted() {
+  return orcsdr::sstv_app::wants_spectrum() && orcsdr::screens::owns(orcsdr::screens::Id::sstv);
 }
 
 uint32_t rtl_clamp_filter_hz(RtlBand band, uint32_t bandwidth_hz) {
@@ -3042,8 +3058,11 @@ uint32_t rtl_clamp_filter_hz(RtlBand band, uint32_t bandwidth_hz) {
 
 float rtl_filter_alpha(RtlBand band, uint32_t sample_rate_sps = kRtlSampleRateSps) {
   constexpr float kPi = 3.14159265358979323846f;
+  // The SSTV tuner picks its own IF width: an SSTV signal fits in about 10 kHz, and a wider filter only adds noise.
+  const uint32_t sstv_if = g_sstv_if_hz.load(std::memory_order_relaxed);
   const float bandwidth = static_cast<float>(
-      rtl_clamp_filter_hz(band, rtl_filter_bandwidth_hz.load(std::memory_order_relaxed)));
+      sstv_if != 0 && orcsdr::sstv::active() ? sstv_if
+                                             : rtl_clamp_filter_hz(band, rtl_filter_bandwidth_hz.load(std::memory_order_relaxed)));
   return 1.0f - expf(-kPi * bandwidth / static_cast<float>(sample_rate_sps));
 }
 
@@ -5397,7 +5416,7 @@ void spectrum_offer_iq_snapshot(const uint8_t* iq, size_t bytes) {
   // The CB scanner measures channels from this spectrum, so CB keeps it with
   // graphics off; draw_spectrum() then skips only the drawing.
   if (!rtl_graphics_enabled.load(std::memory_order_relaxed) &&
-      !orcsdr::web_console::spectrum_demanded() && g_stream_band != RtlBand::cb) return;
+      !orcsdr::web_console::spectrum_demanded() && !sstv_tune_spectrum_wanted() && g_stream_band != RtlBand::cb) return;
   const size_t need = sizeof(rtl_spectrum_iq_snap);
   const size_t n = bytes < need ? bytes : need;
   portENTER_CRITICAL(&rtl_spectrum_snap_mux);
@@ -7284,7 +7303,7 @@ void draw_band_edges() {
  * Two-window Welch averaging keeps the single render core responsive.
  */
 void draw_spectrum(const uint8_t* iq, size_t bytes) {
-  const bool web_scope = orcsdr::web_console::spectrum_demanded();
+  const bool web_scope = orcsdr::web_console::spectrum_demanded() || sstv_tune_spectrum_wanted();
   if (!web_scope && !orcsdr::home::active() && rtl_ui_band == RtlBand::lora &&
       !orcsdr::lora::spectrum_active()) return;
   if (!web_scope && !orcsdr::home::active() && rtl_ui_band == RtlBand::airband &&
@@ -7321,7 +7340,7 @@ void draw_spectrum(const uint8_t* iq, size_t bytes) {
   const uint32_t now = millis();
   // LoRa and the Airband scope want a livelier trace than the 100 ms default.
   const uint32_t spectrum_interval =
-      rtl_ui_band == RtlBand::lora ||
+      rtl_ui_band == RtlBand::lora || sstv_tune_spectrum_wanted() ||
               (rtl_ui_band == RtlBand::airband && orcsdr::airband::spectrum_active()) ||
               (rtl_ui_band == RtlBand::fm && orcsdr::fm::spectrum_active()) ||
               (rtl_ui_band == RtlBand::shortwave && orcsdr::shortwave::spectrum_active()) ||
@@ -7551,6 +7570,13 @@ void draw_spectrum(const uint8_t* iq, size_t bytes) {
   }
   if (rtl_ui_band == RtlBand::p25 && orcsdr::screens::owns(orcsdr::screens::Id::p25)) {
     orcsdr::p25::draw_spectrum(rtl_spectrum_levels, first_bin, visible_bins, floor);
+    rtl_spectrum_trace_last_ms = now;
+    rtl_spectrum_trace_valid = true;
+    return;
+  }
+  if (sstv_tune_spectrum_wanted()) {
+    orcsdr::sstv_app::feed_spectrum(rtl_spectrum_levels, kRtlSpectrumBins,
+                                    rtl_active_sample_rate_sps.load(std::memory_order_relaxed));
     rtl_spectrum_trace_last_ms = now;
     rtl_spectrum_trace_valid = true;
     return;
@@ -9602,7 +9628,7 @@ static void rtl_driver_app_task(void *) {
           }
           const bool gfx_on = rtl_graphics_enabled.load(std::memory_order_acquire);
           const bool web_scope = orcsdr::web_console::spectrum_demanded();
-          if (web_scope ||
+          if (web_scope || sstv_tune_spectrum_wanted() ||
               (g_stream_band == RtlBand::cb && !orcsdr::settings::active() &&
                orc_tool_current() != OrcTool::Capture) ||
               (!orcsdr::settings::active() && !orcsdr::home::active() &&
@@ -9613,7 +9639,7 @@ static void rtl_driver_app_task(void *) {
                 sound_on && rtl_audio.dropped_chunks > 0 &&
                 rtl_audio.dropped_chunks * 2u > rtl_audio.queued_chunks + 2u;
             const uint32_t normal_visual_interval =
-                g_stream_band == RtlBand::lora ||
+                g_stream_band == RtlBand::lora || sstv_tune_spectrum_wanted() ||
                         (g_stream_band == RtlBand::airband && orcsdr::airband::spectrum_active()) ||
                         (g_stream_band == RtlBand::fm && orcsdr::fm::spectrum_active()) ||
                         (g_stream_band == RtlBand::shortwave && orcsdr::shortwave::spectrum_active()) ||
@@ -13658,7 +13684,39 @@ orcsdr::sstv_app::Hooks sstv_app_hooks() {
       rtl_rate_override_sps.store(240000u, std::memory_order_release);
     (void)queue_local_rtl_listen(hz < 30000000u ? RtlBand::shortwave : RtlBand::browse, hz, false);
   };
+  hooks.set_demod = [](uint8_t demod) { g_sstv_demod.store(static_cast<uint8_t>(demod + 1), std::memory_order_relaxed); };
+  hooks.sample_rate = [] { return rtl_active_sample_rate_sps.load(std::memory_order_acquire); };
+  hooks.set_if_bandwidth = [](uint32_t hz) { g_sstv_if_hz.store(hz, std::memory_order_relaxed); };
+  hooks.if_bandwidth = [] {
+    const uint32_t override_hz = g_sstv_if_hz.load(std::memory_order_relaxed);
+    return override_hz ? override_hz : rtl_clamp_filter_hz(RtlBand::wx, rtl_filter_bandwidth_hz.load(std::memory_order_relaxed));
+  };
+  hooks.gain_auto = [] { (void)rtl_gain_set_auto("SSTV"); };
+  hooks.gain_manual = [](int tenth_db) { (void)rtl_gain_set_manual("SSTV", tenth_db); };
+  hooks.gain_info = [](orcsdr::sstv_app::GainInfo* info) {
+#if !RTL_USE_LEGACY_USB
+    if (g_rtl == nullptr || !rtl_tuner_gain_available(rtl_ui_frequency_hz) || !rtl_has_device_capability(ESP_RTL_SDR_CAP_GAIN))
+      return false;
+    esp_rtl_sdr_gain_mode_t mode = ESP_RTL_SDR_GAIN_MODE_MANUAL;
+    info->available = true;
+    info->is_auto = esp_rtl_sdr_get_tuner_gain_mode(g_rtl, &mode) == ESP_OK && mode == ESP_RTL_SDR_GAIN_MODE_AUTO;
+    int gain = 0;
+    if (esp_rtl_sdr_get_tuner_gain(g_rtl, &gain) == ESP_OK) info->tenth_db = gain;
+    int steps[32]{};
+    size_t count = 0;
+    if (esp_rtl_sdr_get_tuner_gains(g_rtl, steps, std::size(steps), &count) == ESP_OK) {
+      info->step_count = std::min<size_t>(count, std::size(info->steps));
+      for (size_t i = 0; i < info->step_count; ++i) info->steps[i] = steps[i];
+    }
+    return true;
+#else
+    (void)info;
+    return false;
+#endif
+  };
   hooks.release_tuning = [] {
+    g_sstv_demod.store(0, std::memory_order_relaxed);
+    g_sstv_if_hz.store(0, std::memory_order_relaxed);
     rtl_rate_override_sps.store(0, std::memory_order_release);
     // A hot retune keeps the stream's rate, so a stream still running at SSTV's 240 kS/s on a dashboard band is
     // restarted once at the normal rate (the same rule the FT8 decoder follows when it gives up its rate).
@@ -13676,6 +13734,8 @@ orcsdr::sstv_app::Hooks sstv_app_hooks() {
   hooks.store.put_bool = [](const char* key, bool value) { preferences.putBool(key, value); };
   hooks.store.get_u8 = [](const char* key, uint8_t fallback) { return preferences.getUChar(key, fallback); };
   hooks.store.put_u8 = [](const char* key, uint8_t value) { preferences.putUChar(key, value); };
+  hooks.store.get_u32 = [](const char* key, uint32_t fallback) { return preferences.getUInt(key, fallback); };
+  hooks.store.put_u32 = [](const char* key, uint32_t value) { preferences.putUInt(key, value); };
   return hooks;
 }
 void open_sstv_dashboard() {
@@ -13688,7 +13748,10 @@ void open_sstv_dashboard() {
 const orcsdr::sstv_diag::Hooks kSstvDiagHooks = {
     [](const char* text) { Serial.print(text); },
     open_sstv_dashboard,
-    [](int32_t which) { return orcsdr::sstv_app::save_image(which); }};
+    [](int32_t which) { return orcsdr::sstv_app::save_image(which); },
+    [](uint32_t hz) { return orcsdr::sstv_app::tune_to(hz); },
+    [](const char* args, char* reply, size_t size) { return orcsdr::sstv_app::tune_command(args, reply, size); },
+    [](char* out, size_t size) { orcsdr::sstv_app::tune_summary(out, size); }};
 void open_dashboard(orcsdr::dashboards::Id id) {
   using Id = orcsdr::dashboards::Id;
   if (id != Id::settings && orcsdr::settings::active()) close_global_settings();
@@ -15416,6 +15479,7 @@ orc::Dashboard orcdial_active_dashboard() {
   if (screen == Screen::rf_lab) return orc::Dashboard::rf_lab;
   if (screen == Screen::wifi_analysis) return orc::Dashboard::wifi_analysis;
   if (screen == Screen::ft8) return orc::Dashboard::ft8;
+  if (screen == Screen::sstv) return orc::Dashboard::sstv;
   if (rtl_ui_band == RtlBand::browse && screen == Screen::radio &&
       rtl_ui_frequency_hz > 137000000 && rtl_ui_frequency_hz < 138000000)
     return orc::Dashboard::satellite;
@@ -15461,6 +15525,10 @@ void orcdial_fill_state(orc::Packet& p) {
     p.item_count = 4; // supported range choices, not a fabricated aircraft count
   } else if (id == orc::Dashboard::ft8) {
     fill_orcdial_ft8_state(p);
+  } else if (id == orc::Dashboard::sstv) {
+    p.frequency_hz = orcsdr::sstv_app::frequency_hz();
+    p.step_hz = orcsdr::sstv_app::step_hz();
+    p.mode = static_cast<uint8_t>(effective_demod(rtl_ui_band));
   }
   // rtl_signal_dbfs_smooth is relative dBFS, not a calibrated dBm reading.
   p.flags = 0;
@@ -15480,7 +15548,7 @@ bool orcdial_apply(const orc::Packet& p) {
   using Dash = orc::Dashboard;
   const Dash active = orcdial_active_dashboard();
   if (p.type == orc::Type::set_dashboard) {
-    if (p.value < 0 || p.value > 17 || !orc::valid_dashboard(static_cast<uint8_t>(p.value))) return false;
+    if (p.value < 0 || p.value > 18 || !orc::valid_dashboard(static_cast<uint8_t>(p.value))) return false;
     if (p.value == 0) show_home();
     else open_dashboard(orcsdr::dashboards::Id(p.value));
     return true;
@@ -15489,6 +15557,7 @@ bool orcdial_apply(const orc::Packet& p) {
     // The Dial's keypad: any frequency on Home, or one inside the band of the dashboard on screen.
     if (p.value < 24000 || p.value > 1766000000) return false;
     const uint32_t hz = static_cast<uint32_t>(p.value);
+    if (active == Dash::sstv) return orcsdr::sstv_app::tune_to(hz);   // the SSTV tuner owns its frequency and demodulator
     if (active == Dash::home) return p.value >= 24000000 && home_tune_to(hz, true);
     if (active == Dash::fm) {
       if (hz < kRtlFmMinHz || hz > kRtlFmMaxHz) return false;
@@ -15505,6 +15574,10 @@ bool orcdial_apply(const orc::Packet& p) {
     if (rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running) return request_hot_retune(hz);
     return queue_local_rtl_listen(rtl_ui_band, hz);
   }
+  if (p.type == orc::Type::set_mode && active == Dash::sstv) {
+    orcsdr::sstv_app::cycle_demod();   // AUTO -> NFM -> USB -> LSB; the Dial's requested value is not used
+    return true;
+  }
   if (p.type == orc::Type::set_mode) {
     if (active != Dash::home || !home_full_range() || p.value < 1 || p.value > 5) return false;
     home_select_mode(static_cast<HomeDemod>(p.value));
@@ -15515,6 +15588,17 @@ bool orcdial_apply(const orc::Packet& p) {
       p.value > 1000000000) return false;
   const Kind kind = Kind(p.action);
   if (active == Dash::ft8) return orcdial_apply_ft8(p.action, p.value);
+  if (active == Dash::sstv) {
+    if (kind == Kind::tune)   // a Hz offset: the Dial multiplies its detents by the step this device reported
+      return orcsdr::sstv_app::tune_to(static_cast<uint32_t>(std::clamp<int64_t>(
+          int64_t(orcsdr::sstv_app::frequency_hz()) + p.value, 0, 2000000000)));
+    if (kind == Kind::step && p.value >= -4 && p.value <= 4 && p.value != 0) {
+      for (int i = 0; i < abs(p.value); ++i)
+        (void)orcsdr::sstv_app::set_step(orcsdr::sstv_app::next_step_hz(p.value > 0));
+      return true;
+    }
+    return false;
+  }
   if (active == Dash::home && kind == Kind::tune) {
     // On Home the value is a count of steps; the Tab5 applies the step of the band it is in.
     if (p.value == 0 || p.value < -64 || p.value > 64) return false;
@@ -21755,7 +21839,7 @@ void loop() {
   orcsdr::realtime_log::drain([](const char* line) { Serial.print(line); });
   if (rtl_stream_spectrum_pending.exchange(false, std::memory_order_acq_rel) &&
       !orcsdr::visualizer::active() && !orcsdr::rf_lab::active() &&
-      (orcsdr::web_console::spectrum_demanded() || fm_ui || am_ui || shortwave_ui || cb_ui ||
+      (orcsdr::web_console::spectrum_demanded() || sstv_tune_spectrum_wanted() || fm_ui || am_ui || shortwave_ui || cb_ui ||
        (rtl_ui_band == RtlBand::cb &&
         rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running) ||
        p25_ui ||
