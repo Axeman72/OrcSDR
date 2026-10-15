@@ -68,6 +68,7 @@
 #include "ft8_hunter.hpp"
 #include "ft8_model.hpp"
 #include "ft8_runtime.hpp"
+#include "memory_reclaim.hpp"
 #include "shortwave_model.hpp"
 #include "shortwave_audio_dsp.hpp"
 #include "shortwave_dashboard.hpp"
@@ -1572,6 +1573,10 @@ constexpr uint32_t kLoraSustainedHighMs = 4000;
 static uint8_t* g_iq_rec_buf = nullptr;
 static uint8_t* g_lora_decode_buf = nullptr;
 static uint8_t* g_lora_pre_roll_buf = nullptr;
+// Handshake between lora_iq_release_buffers() and the DSP task, which touches the buffers from lora_iq_offer(): the DSP task backs off
+// while a release is pending or done (until lora_iq_ensure_buffers() has allocated them again) and flags when it is inside the call.
+static std::atomic<bool> g_lora_iq_releasing{false};
+static std::atomic<bool> g_lora_iq_in_use{false};
 static std::atomic<size_t> g_iq_rec_write{0};
 static std::atomic<bool> g_iq_rec_active{false};
 static std::atomic<uint32_t> g_iq_rec_last_append_ms{0};
@@ -4336,7 +4341,47 @@ bool iq_rec_ensure_buffer() {
   return g_iq_rec_buf != nullptr;
 }
 
+// The LoRa receiver keeps two 7.7 MB capture buffers and a pre-roll buffer (15.9 MB of PSRAM) for the rest of the session once the
+// LoRa screen has been opened. Measured on a Tab5: free PSRAM fell from 20.9 MB to 5.0 MB on the first visit and stayed there, which
+// left the FT8 decoder (about 4 MB) unable to start after a long session. They are registered as reclaimable: given back on request
+// (the FT8 screen's FREE MEMORY, RTL_MEM RECLAIM) when nothing is using them, and re-allocated by lora_iq_ensure_buffers() the next
+// time LoRa opens.
+size_t lora_iq_held_bytes() {
+  return (g_iq_rec_buf ? kIqRecMaxBytes : 0u) + (g_lora_decode_buf ? kIqRecMaxBytes : 0u) + (g_lora_pre_roll_buf ? kLoraPreRollBytes : 0u);
+}
+
+size_t lora_iq_release_buffers() {
+  // Never while LoRa is on screen or is still the receiver's band, a capture is running or waiting to be read or exported, or the
+  // decoder task is working on one of the buffers.
+  const auto in_use_elsewhere = [] {
+    return orcsdr::screens::owns(orcsdr::screens::Id::lora) || rtl_ui_band == RtlBand::lora ||
+           g_iq_rec_active.load(std::memory_order_acquire) || g_iq_rec_ready.load(std::memory_order_acquire) ||
+           g_iq_rec_export_pending.load(std::memory_order_acquire) || lora_native_decode_busy.load(std::memory_order_acquire) ||
+           g_iq_get.active || g_lora_replay_put.active;   // a serial download or replay upload is reading or filling the buffer
+  };
+  if (in_use_elsewhere()) return 0;
+  // Tell the DSP task to stay out, then wait for a call that is already inside lora_iq_offer() to finish (a few milliseconds).
+  g_lora_iq_releasing.store(true, std::memory_order_seq_cst);
+  for (int i = 0; i < 25 && g_lora_iq_in_use.load(std::memory_order_seq_cst); ++i) vTaskDelay(pdMS_TO_TICKS(2));
+  if (g_lora_iq_in_use.load(std::memory_order_seq_cst) || in_use_elsewhere()) {   // busy, or a capture started meanwhile: leave them alone
+    g_lora_iq_releasing.store(false, std::memory_order_seq_cst);
+    return 0;
+  }
+  const size_t held = lora_iq_held_bytes();
+  uint8_t* capture = g_iq_rec_buf;
+  uint8_t* decode = g_lora_decode_buf;
+  uint8_t* pre_roll = g_lora_pre_roll_buf;
+  g_iq_rec_buf = nullptr;   // clear first: every user of these checks for null and the next LoRa visit allocates them again
+  g_lora_decode_buf = nullptr;
+  g_lora_pre_roll_buf = nullptr;
+  heap_caps_free(capture);
+  heap_caps_free(decode);
+  heap_caps_free(pre_roll);
+  return held;
+}
+
 bool lora_iq_ensure_buffers() {
+  (void)orcsdr::memory_reclaim::register_holder({"LoRa IQ buffers", lora_iq_held_bytes, lora_iq_release_buffers});
   if (!iq_rec_ensure_buffer()) return false;
   if (g_lora_decode_buf == nullptr) {
     g_lora_decode_buf = static_cast<uint8_t*>(
@@ -4348,8 +4393,9 @@ bool lora_iq_ensure_buffers() {
   }
   // Best effort: without the preamble detector the energy trigger still works.
   (void)orcsdr::lora_preamble::configure(lora_sf.load(std::memory_order_relaxed));
-  return g_iq_rec_buf != nullptr && g_lora_decode_buf != nullptr &&
-         g_lora_pre_roll_buf != nullptr;
+  const bool ready = g_iq_rec_buf != nullptr && g_lora_decode_buf != nullptr && g_lora_pre_roll_buf != nullptr;
+  if (ready) g_lora_iq_releasing.store(false, std::memory_order_seq_cst);   // the DSP task may use them again
+  return ready;
 }
 
 void lora_iq_reset_detector() {
@@ -4836,6 +4882,17 @@ bool lora_native_decoder_start() {
 
 void lora_iq_offer(const uint8_t* iq, size_t bytes) {
   if (iq == nullptr || bytes == 0) return;
+  if (g_lora_iq_releasing.load(std::memory_order_seq_cst)) {
+    // The buffers are being, or have been, given back. A block that arrives after the band moved away is stale: drop it. When LoRa
+    // is the band again, allocate them here (the same call this function makes below) and carry on; that also clears the flag.
+    if (rtl_ui_band != RtlBand::lora || !lora_iq_ensure_buffers()) return;
+  }
+  g_lora_iq_in_use.store(true, std::memory_order_seq_cst);
+  if (g_lora_iq_releasing.load(std::memory_order_seq_cst)) {   // a release started between the check and the flag
+    g_lora_iq_in_use.store(false, std::memory_order_seq_cst);
+    return;
+  }
+  struct Leave { ~Leave() { g_lora_iq_in_use.store(false, std::memory_order_seq_cst); } } leave_guard;
   if (orcsdr::lora_channel::survey_active()) return;
   if (lora_detector_relearn_requested.exchange(false, std::memory_order_acq_rel)) {
     g_lora_noise_floor_dbfs = rtl_signal_dbfs.load(std::memory_order_relaxed);
@@ -13365,6 +13422,75 @@ size_t ft8_selected_band() {
 
 // Fills the snapshot in place: it holds 64 decodes (about 8 KB), too much to build on the stack and then copy twice on the main task
 // (a stack protection fault was seen when the screen opened while the decoder ran).
+// The FT8 screen retries start() while it is not running. When memory is short that fails every time, so the retry backs off
+// (a failed start allocates, frees and logs); FREE MEMORY and a successful start reset it.
+uint32_t g_ft8_next_start_ms = 0;
+
+// Fills the NOT ENOUGH MEMORY details: PSRAM state and the largest features that hold memory they could give up.
+EXT_RAM_BSS_ATTR char g_ft8_mem_holders[72];   // PSRAM: internal RAM has almost no slack at boot
+uint32_t g_ft8_mem_holders_rev = 0;
+void ft8_fill_memory_details(orcsdr::ft8::Snapshot& snapshot) {
+  const auto report = orcsdr::ft8_runtime::last_start_report();
+  snapshot.mem_free = report.psram_free;
+  snapshot.mem_largest = report.psram_largest;
+  snapshot.mem_needed = report.requested_bytes;
+  char text[sizeof(g_ft8_mem_holders)];
+  text[0] = 0;
+  orcsdr::memory_reclaim::Report holders[orcsdr::memory_reclaim::kMaxHolders];
+  const size_t n = orcsdr::memory_reclaim::list(holders, orcsdr::memory_reclaim::kMaxHolders);
+  size_t used = 0;
+  for (size_t i = 0; i < n && i < 3 && holders[i].held >= 65536u; ++i) {
+    const int w = snprintf(text + used, sizeof(text) - used, "%s%s %.1f MB", used ? ", " : "",
+                           holders[i].name, static_cast<double>(holders[i].held) / 1048576.0);
+    if (w < 0 || static_cast<size_t>(w) >= sizeof(text) - used) break;
+    used += static_cast<size_t>(w);
+  }
+  if (strcmp(text, g_ft8_mem_holders) != 0) {   // the screen repaints when the revision changes
+    memcpy(g_ft8_mem_holders, text, sizeof(text));
+    ++g_ft8_mem_holders_rev;
+  }
+  snapshot.mem_holders = g_ft8_mem_holders[0] ? g_ft8_mem_holders : nullptr;
+  snapshot.mem_holders_rev = g_ft8_mem_holders_rev;
+}
+
+// Bench aid for RTL_MEM HOG: holds PSRAM in 256 KiB blocks so the NOT ENOUGH MEMORY path can be exercised on demand. It registers
+// as a reclaimable holder, so FREE MEMORY and RTL_MEM RECLAIM give it back.
+EXT_RAM_BSS_ATTR void* g_mem_hog[160];   // PSRAM, not internal RAM
+size_t g_mem_hog_blocks = 0;
+constexpr size_t kMemHogBlock = 256u * 1024u;
+size_t mem_hog_held() { return g_mem_hog_blocks * kMemHogBlock; }
+size_t mem_hog_release() {
+  const size_t held = mem_hog_held();
+  while (g_mem_hog_blocks) heap_caps_free(g_mem_hog[--g_mem_hog_blocks]);
+  return held;
+}
+// Allocates until `leave_free` bytes of PSRAM remain (or `limit_blocks` blocks are held). Returns the bytes held.
+size_t mem_hog_fill(size_t leave_free) {
+  (void)orcsdr::memory_reclaim::register_holder({"Test allocation", mem_hog_held, mem_hog_release});
+  while (g_mem_hog_blocks < sizeof(g_mem_hog) / sizeof(g_mem_hog[0]) &&
+         heap_caps_get_free_size(MALLOC_CAP_SPIRAM) > leave_free + kMemHogBlock) {
+    void* block = heap_caps_malloc(kMemHogBlock, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!block) break;
+    g_mem_hog[g_mem_hog_blocks++] = block;
+  }
+  return mem_hog_held();
+}
+
+void ft8_free_memory_and_retry() {
+  orcsdr::memory_reclaim::Report released[orcsdr::memory_reclaim::kMaxHolders];
+  size_t n = 0;
+  const size_t total = orcsdr::memory_reclaim::reclaim_all(released, orcsdr::memory_reclaim::kMaxHolders, &n);
+  Serial.printf("ORC_MEMORY_RECLAIM total=%u\n", static_cast<unsigned>(total));
+  for (size_t i = 0; i < n; ++i)
+    if (released[i].held) Serial.printf("ORC_MEMORY_RECLAIM %s=%u\n", released[i].name, static_cast<unsigned>(released[i].held));
+  g_ft8_next_start_ms = 0;   // try again on the next screen update
+  // Opening the FT8 screen also starts the radio on the selected band, and that start needs memory too. When memory was short
+  // it did not happen, and nothing asks again: the decoder would then report "listening" with no waterfall because no samples
+  // arrive. Start the radio now if it is not already queued or running.
+  if (orcsdr::screens::owns(orcsdr::screens::Id::ft8) && !rtl_should_resume_after_disconnect(rtl_capture_state.load(std::memory_order_acquire)))
+    (void)ft8_select_band(ft8_selected_band());   // "queued or running" is exactly what that predicate tests
+}
+
 void ft8_dashboard_fill_snapshot(orcsdr::ft8::Snapshot& snapshot) {
   new (&snapshot) orcsdr::ft8::Snapshot();
   const auto clock = orcsdr::time_service::now();
@@ -13378,9 +13504,12 @@ void ft8_dashboard_fill_snapshot(orcsdr::ft8::Snapshot& snapshot) {
   snapshot.battery_percent = M5.Power.getBatteryLevel();
   snapshot.selected_band = ft8_selected_band();
   orcsdr::ft8_runtime::touch();
-  if (!orcsdr::ft8_runtime::active() &&
-      orcsdr::ft8_runtime::start(g_ft8_mode, ft8_native_on_decode, nullptr, ft8_native_clock_valid, ft8_native_dial_offset_hz))
-    Serial.println("ORC_FT8_NATIVE bound");
+  if (!orcsdr::ft8_runtime::active() && static_cast<int32_t>(millis() - g_ft8_next_start_ms) >= 0) {
+    if (orcsdr::ft8_runtime::start(g_ft8_mode, ft8_native_on_decode, nullptr, ft8_native_clock_valid, ft8_native_dial_offset_hz))
+      Serial.println("ORC_FT8_NATIVE bound");
+    else if (orcsdr::ft8_runtime::last_start_report().failure == orcsdr::ft8_runtime::StartFailure::memory)
+      g_ft8_next_start_ms = millis() + 5000u;   // out of memory: a retry every few seconds is plenty
+  }
   orcsdr::ftx::snr::set_user_offset_db(static_cast<float>(preferences.getInt("ft8_snr_off10", 0)) / 10.0f);   // stored in tenths of a dB
   ft8_native_drain_pending();
   g_ft8_capabilities = orcsdr::ft8_runtime::active() ? (orcsdr::ft8::decoder_cap_ft8 | orcsdr::ft8::decoder_cap_ft4 | orcsdr::ft8::decoder_cap_js8_normal) : 0u;
@@ -13388,7 +13517,11 @@ void ft8_dashboard_fill_snapshot(orcsdr::ft8::Snapshot& snapshot) {
     const auto rt = orcsdr::ft8_runtime::status();
     using RS = orcsdr::ft8_runtime::State;
     using DS = orcsdr::ft8::DecoderState;
-    snapshot.decoder_state = !orcsdr::ft8_runtime::active() ? DS::unbound
+    const bool short_of_memory = !orcsdr::ft8_runtime::active() &&
+        orcsdr::ft8_runtime::last_start_report().failure == orcsdr::ft8_runtime::StartFailure::memory;
+    if (short_of_memory) ft8_fill_memory_details(snapshot);
+    snapshot.decoder_state = short_of_memory ? DS::no_memory
+                             : !orcsdr::ft8_runtime::active() ? DS::unbound
                              : rt.state == RS::listening ? DS::listening
                              : rt.state == RS::decoding ? DS::decoding
                              : rt.state == RS::ready ? DS::ready
@@ -13548,6 +13681,7 @@ void handle_ft8_dashboard_action(const orcsdr::ft8::Action& action) {
         (void)ft8_select_band_table(ft8_selected_band());
       }
       break;
+    case Kind::free_memory: ft8_free_memory_and_retry(); break;
     case Kind::clear_decodes: g_ft8_store.clear(); g_ft8_item = 0; break;
     case Kind::select_mode:
       // A mode is selectable only when the bound decoder reports it; the dashboard already enforces this.
@@ -18867,6 +19001,36 @@ void process_command(char* command) {
       return;
     }
     Serial.printf("RTL_RF24_PAGE_OK page=%u\n", page);
+    return;
+  }
+  if(!strcmp(command,"RTL_MEM STATUS")) {
+    // What is free and which features hold memory they could give up (largest first), plus why the FT8 decoder last failed to start.
+    Serial.printf("RTL_MEM psram_free=%u psram_largest=%u internal_free=%u internal_largest=%u\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    orcsdr::memory_reclaim::Report holders[orcsdr::memory_reclaim::kMaxHolders];
+    const size_t n=orcsdr::memory_reclaim::list(holders,orcsdr::memory_reclaim::kMaxHolders);
+    for(size_t i=0;i<n;++i)Serial.printf("RTL_MEM_HOLDER %s bytes=%u\n",holders[i].name,(unsigned)holders[i].held);
+    const auto report=orcsdr::ft8_runtime::last_start_report();
+    Serial.printf("RTL_MEM_FT8 active=%d last_failure=%s needed=%u failures=%u\n",orcsdr::ft8_runtime::active()?1:0,
+                  report.failure==orcsdr::ft8_runtime::StartFailure::memory?"memory":report.failure==orcsdr::ft8_runtime::StartFailure::backend?"backend":"none",
+                  (unsigned)report.requested_bytes,(unsigned)report.failures);
+    return;
+  }
+  if(!strncmp(command,"RTL_MEM HOG ",12)) {   // bench aid: RTL_MEM HOG <kib to leave free>; undone by RTL_MEM RECLAIM
+    if(!authenticated){Serial.println("RTL_MEM_ERROR auth_required");return;}
+    const unsigned long leave_kib=strtoul(command+12,nullptr,10);
+    if(leave_kib<64||leave_kib>32768){Serial.println("RTL_MEM_ERROR use=RTL_MEM HOG <64..32768 KiB to leave free>");return;}
+    const size_t held=mem_hog_fill(static_cast<size_t>(leave_kib)*1024u);
+    Serial.printf("RTL_MEM_OK held=%u psram_free=%u psram_largest=%u\n",(unsigned)held,(unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+    return;
+  }
+  if(!strcmp(command,"RTL_MEM RECLAIM")) {
+    if(!authenticated){Serial.println("RTL_MEM_ERROR auth_required");return;}
+    ft8_free_memory_and_retry();   // releases every registered holder and lets the FT8 screen try to start again at once
+    Serial.printf("RTL_MEM_OK psram_free=%u psram_largest=%u\n",(unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
     return;
   }
 #if ORCSDR_ORCDIAL
