@@ -1722,6 +1722,17 @@ bool wifi_hosted_update_required = false;
 #if ORCSDR_ORCDIAL
 bool orcdial_transport_ready = false;
 bool orcdial_has_peer = false;
+// A Pair or Connect request that could not start the bridge because internal DMA RAM was too low (see orcdial_poll). Shown as the
+// failure text in Settings and in RTL_ORCDIAL_STATUS until the bridge starts.
+bool orcdial_memory_blocked = false;
+// Set by orcdial_action() for the requests that need the bridge to exist (Pair, Connect, Forget and re-pair). Cancel, Confirm,
+// Disconnect, Forget and the boot toggle mean nothing when no bridge is running and must not start one.
+std::atomic<bool> orcdial_bridge_requested{false};
+// Internal DMA RAM that must be free to start the bridge on request. The firmware's own budget check (RTL_DRAM_BUDGET) warns below
+// 20 KB; a freshly restarted Tab5 settles at about 20.8 KB free with the bridge off, so this is the lowest limit that still lets a
+// first pairing start after a restart. The bridge itself takes up to about 19 KB (22.5 KB to 3.7 KB measured at boot), so even at this
+// limit Wi-Fi is left tight: shrinking the bridge (stack size, tx task) is the remaining work, and needs a Dial to measure the peak.
+constexpr size_t kOrcDialOnDemandDmaNeed = 20u * 1024u;
 uint32_t orcdial_pair_until = 0;
 orc::secure::Runtime orcdial_secure;
 bool orcdial_secure_started=false;
@@ -12503,7 +12514,7 @@ const orcsdr::settings::State& global_settings_state() {
   state.orcdial_code=accessory.code;
   snprintf(state.orcdial_identity,sizeof state.orcdial_identity,"%02X%02X-%02X%02X",accessory.peer_identity[0],accessory.peer_identity[1],accessory.peer_identity[14],accessory.peer_identity[15]);
   strlcpy(state.orcdial_connection,orc::secure::state_name(accessory.state),sizeof state.orcdial_connection);
-  strlcpy(state.orcdial_failure,orc::secure::failure_name(accessory.failure),sizeof state.orcdial_failure);
+  strlcpy(state.orcdial_failure,orcdial_memory_blocked?"Low memory: restart to pair":orc::secure::failure_name(accessory.failure),sizeof state.orcdial_failure);
 #endif
   state.wifi_c6_image_embedded = c6_update.image_embedded;
   state.wifi_c6_update_percent = c6_update.progress_percent;
@@ -15832,8 +15843,20 @@ void orcdial_action(orc::secure::Action action,uint32_t value) {
   // Keep local requests ordered while splash/Wi-Fi staging delays the worker.
   if(!orcdial_pending_actions)orcdial_pending_actions=xQueueCreate(8,sizeof(OrcDialAction));
   const OrcDialAction request{action,value};
+  if(action==orc::secure::Action::cancel && !orcdial_transport_ready && orcdial_pending_actions) {
+    // Cancel arrived before the bridge exists (for example Pair then Cancel in one serial burst): the pairing it cancels must not start
+    // the bridge. Drop the queued Pair and Forget-and-re-pair requests, keep anything else, and recompute whether a request is left.
+    OrcDialAction keep[8]{};size_t kept=0;OrcDialAction queued{};
+    while(kept<8&&xQueueReceive(orcdial_pending_actions,&queued,0)==pdTRUE)
+      if(queued.kind!=orc::secure::Action::pair&&queued.kind!=orc::secure::Action::forget_repair)keep[kept++]=queued;
+    bool still_requested=false;
+    for(size_t i=0;i<kept;++i){(void)xQueueSend(orcdial_pending_actions,&keep[i],0);if(keep[i].kind==orc::secure::Action::connect)still_requested=true;}
+    orcdial_bridge_requested.store(still_requested,std::memory_order_release);
+  }
   if(!orcdial_pending_actions || xQueueSend(orcdial_pending_actions,&request,0)!=pdTRUE)
     Serial.println("RTL_ORCDIAL_ERROR action_queue_full");
+  else if(action==orc::secure::Action::pair||action==orc::secure::Action::connect||action==orc::secure::Action::forget_repair)
+    orcdial_bridge_requested.store(true,std::memory_order_release);
 }
 void orcdial_poll() {
   static uint32_t ready_since_ms=0;
@@ -15841,14 +15864,23 @@ void orcdial_poll() {
   if(!ready_since_ms)ready_since_ms=millis();
   const uint32_t elapsed=millis()-ready_since_ms;
   if(elapsed<3000 || (elapsed<20000 && (wifi_connecting||wifi_connect_requested.load(std::memory_order_acquire))))return;
-  const bool action_pending=orcdial_pending_actions && uxQueueMessagesWaiting(orcdial_pending_actions)>0;
-  static bool store_checked=false,boot_trust=false;
+  bool action_pending=orcdial_pending_actions && uxQueueMessagesWaiting(orcdial_pending_actions)>0;
+  static bool store_checked=false,boot_trust=false,stored_trust=false;
   if(!store_checked){nvs_handle_t handle;uint8_t record[76]{};size_t length=sizeof record;
-    if(nvs_open("orcdial4",NVS_READONLY,&handle)==ESP_OK){
-      boot_trust=nvs_get_blob(handle,"trust",record,&length)==ESP_OK && length==sizeof record &&
-          !memcmp(record,"ODT4",4) && record[74]==1 && record[75]==1;
+    const esp_err_t opened=nvs_open("orcdial4",NVS_READONLY,&handle);
+    if(opened==ESP_OK){
+      const bool valid=nvs_get_blob(handle,"trust",record,&length)==ESP_OK && length==sizeof record && !memcmp(record,"ODT4",4);
+      stored_trust=valid && record[74]==1;
+      boot_trust=stored_trust && record[75]==1;
       nvs_close(handle);orc::secure::wipe(record,sizeof record);
-    }store_checked=true;}
+    }
+    // Checked once. A namespace that does not exist yet means "never paired"; any other open error is retried on the next poll.
+    if(opened==ESP_OK||opened==ESP_ERR_NVS_NOT_FOUND)store_checked=true;}
+  // With no bridge, no stored pairing and no request that needs the bridge, queued Cancel/Confirm/Disconnect/Forget/boot actions are
+  // meaningless: drop them so they neither start the bridge nor bring Wi-Fi up.
+  if(!orcdial_transport_ready&&!stored_trust&&!boot_trust&&action_pending&&!orcdial_bridge_requested.load(std::memory_order_acquire)){
+    xQueueReset(orcdial_pending_actions);action_pending=false;
+  }
   if(orcdial_transport_ready&&!orcsdr::wifi::hosted_transport_ready()){orcdial_transport_ready=false;orcdial_secure.enabled(false);(void)eh_host_feat_peer_data_deinit();}
   static uint32_t radio_retry_ms=0;
   if(!wifi_station_ready && !orcsdr::wifi::link_failed() && !wifi_link_recovery_due_ms &&
@@ -15866,7 +15898,35 @@ void orcdial_poll() {
   }
   static uint32_t initialization_retry_ms=0;
   if(!orcdial_secure_started && initialization_retry_ms && static_cast<int32_t>(millis()-initialization_retry_ms)<0)return;
-  if(!orcdial_transport_ready&&orcsdr::wifi::hosted_transport_ready()) {
+  // The bridge costs about 19 KB of internal DMA RAM (the 12 KB secure task stack and its peer-data link), which Wi-Fi, the C6 link, USB
+  // and the SD card also need: on a Tab5 with no Dial it left about 3 KB for everything else (issue 194). Start it only when something
+  // asks for it: a stored pairing (the Dial may connect, and Settings shows the pairing), or the user pressing Pair or Connect.
+  static bool bridge_wanted_logged=false;
+  const bool bridge_requested=orcdial_bridge_requested.load(std::memory_order_acquire);
+  const bool bridge_wanted=stored_trust||boot_trust||bridge_requested;
+  if(!bridge_wanted&&!orcdial_transport_ready&&!bridge_wanted_logged&&orcsdr::wifi::hosted_transport_ready()){
+    bridge_wanted_logged=true;
+    Serial.printf("RTL_ORCDIAL_BRIDGE_NOT_STARTED reason=no_pairing_and_no_request dma_free=%u dma_largest=%u\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA));
+  }
+  if(orcdial_transport_ready)orcdial_memory_blocked=false;
+  if(!orcdial_transport_ready&&bridge_requested&&!stored_trust&&!boot_trust&&orcsdr::wifi::hosted_transport_ready()) {
+    // A request to pair or connect with no stored pairing (so the bridge is not already running from boot): start it only if Wi-Fi and
+    // the C6 link keep enough DMA RAM afterwards. If not, say so and drop the request; restarting OrcSDR restores the memory.
+    const size_t dma_free=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA);
+    if(dma_free>=kOrcDialOnDemandDmaNeed)orcdial_memory_blocked=false;   // this attempt is not a memory refusal, whatever happens next
+    if(dma_free<kOrcDialOnDemandDmaNeed) {
+      xQueueReset(orcdial_pending_actions);
+      orcdial_bridge_requested.store(false,std::memory_order_release);
+      orcdial_memory_blocked=true;
+      // The request may have brought Wi-Fi up for this accessory-only session (Wi-Fi power setting off); the idle shutdown later in
+      // this function needs a running bridge, so stop it here and restore the configured state.
+      if(!settings_wifi_power_enabled&&wifi_station_ready)stop_wifi();
+      Serial.printf("RTL_ORCDIAL_ERROR low_dma_memory free=%u need=%u restart_to_pair\n",(unsigned)dma_free,(unsigned)kOrcDialOnDemandDmaNeed);
+      return;
+    }
+  }
+  if(!orcdial_transport_ready&&bridge_wanted&&orcsdr::wifi::hosted_transport_ready()) {
     // The two frame queues hold 36 frames (about 24 KB). Allocated in internal RAM they took almost all of the internal DMA
     // memory the SD card and Wi-Fi need (largest DMA block 27 KB -> 3 KB at ORCDIAL_V4_BRIDGE_READY), so keep them in PSRAM.
     if(!orcdial_inbox){orcdial_inbox=xQueueCreateWithCaps(20,sizeof(OrcDialFrame),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!orcdial_inbox)orcdial_inbox=xQueueCreate(20,sizeof(OrcDialFrame));}
@@ -15879,8 +15939,7 @@ void orcdial_poll() {
       if(esp_wifi_get_mac(WIFI_IF_STA,mac)!=ESP_OK)return;
       if(!orcdial_secure_started){orcdial_secure_started=orcdial_secure.begin(2,mac,preferences.getBytesLength("dial_mac")==6,orcdial_raw_transmit);log_dram_budget("orcdial_secure_begin");}
       if(!orcdial_secure_started){initialization_retry_ms=millis()+5000;return;}
-      orcdial_sender=esp_random();orcdial_transport_ready=true;orcdial_secure.enabled(true);Serial.println("ORCDIAL_V4_BRIDGE_READY");
-      // The existing C6 gates RX until the P4 sends its first relay request.
+      orcdial_sender=esp_random();orcdial_transport_ready=true;orcdial_secure.enabled(true);Serial.println("ORCDIAL_V4_BRIDGE_READY");      // The existing C6 gates RX until the P4 sends its first relay request.
       // This invalid frame only enables that relay gate; no endpoint accepts
       // it as discovery, pairing, authentication or a control command.
       uint8_t relay_ready[64]{};orcdial_raw_transmit(orcdial_broadcast,relay_ready);
@@ -15892,8 +15951,11 @@ void orcdial_poll() {
     if(!orcdial_secure.action(queued.kind,queued.value))break;
     xQueueReceive(orcdial_pending_actions,&queued,0);
   }
+  if(!orcdial_pending_actions||uxQueueMessagesWaiting(orcdial_pending_actions)==0)
+    orcdial_bridge_requested.store(false,std::memory_order_release);   // everything asked for has reached the running bridge
   OrcDialFrame frame{};while(xQueueReceive(orcdial_inbox,&frame,0)==pdTRUE)orcdial_secure.receive(frame.mac,frame.wire,64);
   const auto status=orcdial_secure.status();orcdial_has_peer=status.trusted;boot_trust=status.trusted && status.boot_connect;
+  stored_trust=status.trusted;   // follow Pair and Forget while the bridge runs, so a restart after a transport drop uses the current state
   orcdial_pair_until=(status.state==orc::secure::State::searching||status.state==orc::secure::State::exchanging||status.state==orc::secure::State::verify)?millis()+1000:0;
   static uint32_t accessory_idle_ms=0;
   const bool pairing_active=status.state==orc::secure::State::searching || status.state==orc::secure::State::exchanging || status.state==orc::secure::State::verify;
@@ -19008,6 +19070,13 @@ void process_command(char* command) {
     Serial.printf("RTL_MEM psram_free=%u psram_largest=%u internal_free=%u internal_largest=%u\n",
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    // Internal RAM that DMA can use (Wi-Fi/C6 link, USB host, SD card, I2S) is the scarce one: the figures that predict a Wi-Fi failure.
+    Serial.printf("RTL_MEM_DMA dma_free=%u dma_largest=%u\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA));
+#if ORCSDR_ORCDIAL
+    Serial.printf("RTL_MEM_ORCDIAL bridge=%d secure_stack_free_min=%u\n",orcdial_transport_ready?1:0,(unsigned)orcdial_secure.stack_free_min());
+#endif
     orcsdr::memory_reclaim::Report holders[orcsdr::memory_reclaim::kMaxHolders];
     const size_t n=orcsdr::memory_reclaim::list(holders,orcsdr::memory_reclaim::kMaxHolders);
     for(size_t i=0;i<n;++i)Serial.printf("RTL_MEM_HOLDER %s bytes=%u\n",holders[i].name,(unsigned)holders[i].held);
@@ -19036,7 +19105,7 @@ void process_command(char* command) {
 #if ORCSDR_ORCDIAL
   if(!strcmp(command,"RTL_ORCDIAL_STATUS")||!strcmp(command,"RTL_ORCDIAL_PROBE")) {
     const auto state=orcdial_secure.status();
-    Serial.printf("RTL_ORCDIAL_STATUS bridge=%d trust=%d connection=%s boot=%d failure=%s protocol=4\n",orcdial_transport_ready,state.trusted,orc::secure::state_name(state.state),state.boot_connect,orc::secure::failure_name(state.failure));
+    Serial.printf("RTL_ORCDIAL_STATUS bridge=%d trust=%d connection=%s boot=%d failure=%s protocol=4\n",orcdial_transport_ready,state.trusted,orc::secure::state_name(state.state),state.boot_connect,orcdial_memory_blocked?"low_memory":orc::secure::failure_name(state.failure));
     if(authenticated && state.state==orc::secure::State::verify)Serial.printf("RTL_ORCDIAL_PAIR_CODE %06lu\n",(unsigned long)state.code);
     return;
   }
