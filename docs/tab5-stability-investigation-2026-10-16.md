@@ -39,11 +39,13 @@ function with allocator stubs. It failed before the change and passed afterward,
 checking allocator selection, alignment/size, optional zeroing and allocation
 failure handling:
 
-```powershell
-wsl -d Ubuntu -- python3 /mnt/f/AI/OrcSDR-TEMP/tab5-lora-history/tools/test-hosted-sdio-dma.py
+From the repository root in Linux or WSL (after native IDF configure):
+
+```sh
+python3 tools/test-hosted-sdio-dma.py
 # HOSTED_SDIO_DMA_TEST_PASS
 
-wsl -d Ubuntu -- bash /mnt/f/AI/OrcSDR-TEMP/tab5-lora-history/tools/test-tab5-cadence-history.sh
+bash tools/test-tab5-cadence-history.sh
 # home_cadence PASS; waterfall_style PASS; lora_history PASS
 ```
 

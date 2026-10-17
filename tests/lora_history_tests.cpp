@@ -52,6 +52,21 @@ int main() {
   n=lora_log::format_csv(line,sizeof(line),r);assert(n);
   assert(std::strstr(line,"\"text, \"\"quoted\"\"\"")!=nullptr);
   assert(std::strstr(line,"\"Name, \"\"quoted\"\"\",1,1\n")!=nullptr);
+  for (char prefix : {'=', '+', '-', '@', '\t', '\r'}) {
+    r.text[0]=r.short_name[0]=r.long_name[0]=prefix;
+    r.text[1]=r.short_name[1]=r.long_name[1]=0;
+    assert(lora_log::format_csv(line,sizeof(line),r));
+    const std::string escaped = std::string("\"'") + prefix + "\"";
+    const std::string csv(line);
+    size_t at=0;
+    for (int field=0;field<3;++field) {
+      at=csv.find(escaped,at);assert(at!=std::string::npos);at+=escaped.size();
+    }
+    n=lora_history::format_line(r,line,sizeof(line));assert(n);
+    assert(lora_history::parse_line(line,n,&replay));
+    assert(replay.text[0]==prefix && replay.short_name[0]==prefix && replay.long_name[0]==prefix);
+  }
+  n=lora_log::format_csv(line,sizeof(line),r);assert(n);
   for(size_t capacity=1;capacity<=n;++capacity)
     assert(lora_log::format_csv(line,capacity,r)==0);
   r.received_ms=r.received_utc=r.frequency_hz=r.sender=r.destination=r.packet_id=UINT32_MAX;

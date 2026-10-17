@@ -27,20 +27,24 @@ size_t format_csv(char* output, size_t output_size, const Record& record) {
       static_cast<long>(record.latitude_e7), static_cast<long>(record.longitude_e7));
   if (used < 0 || static_cast<size_t>(used) + 3 > output_size) return 0;
   size_t position = static_cast<size_t>(used);
-  for (const char* text = record.text; *text && position + 4 < output_size; ++text) {
-    if (*text == '"') output[position++] = '"';
-    output[position++] = *text;
-  }
-  output[position++] = '"';
-  auto append = [&](const char* value) {
-    if (position + 3 >= output_size) return false;
-    output[position++] = ','; output[position++] = '"';
+  auto append_text = [&](const char* value) {
+    // RF text is untrusted: quoted CSV cells can still execute formulas.
+    if (*value && strchr("=+-@\t\r", *value)) {
+      if (position + 1 >= output_size) return false;
+      output[position++] = '\'';
+    }
     for (const char* p = value; *p; ++p) {
       if (position + 4 >= output_size) return false;
       if (*p == '"') output[position++] = '"';
       output[position++] = *p;
     }
     output[position++] = '"'; return true;
+  };
+  if (!append_text(record.text)) return 0;
+  auto append = [&](const char* value) {
+    if (position + 3 >= output_size) return false;
+    output[position++] = ','; output[position++] = '"';
+    return append_text(value);
   };
   if (!append(record.short_name) || !append(record.long_name)) return 0;
   const int tail = snprintf(output + position, output_size - position, ",%u,%u\n",

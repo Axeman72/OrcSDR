@@ -15,6 +15,9 @@ Two files serve different purposes:
 - `/orcsdr/lora_packets_v2.csv` is a spreadsheet-friendly packet log, including
   decoded text, short and long names, encryption status, and host-injection status.
   Existing `lora_packets.csv` files are preserved because their header differs.
+  New CSV writes prefix formula-like text/name cells with an apostrophe for
+  spreadsheet safety; previously written rows are not rewritten. The replay
+  archive retains the original decoded text.
 - `/orcsdr/lora/00000001-YYYYMMDD.jsonl` and subsequent sequence numbers are the
   replay archive. Each boot, restart of logging, or UTC day change starts a new
   file. An unavailable clock produces an explicit `undated` filename. Sequence
