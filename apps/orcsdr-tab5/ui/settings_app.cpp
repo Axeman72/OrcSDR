@@ -1,5 +1,6 @@
 #include "focus_nav.hpp"
 #include "settings_app.hpp"
+#include "map_catalog_paging.hpp"
 
 #include "clock_settings.hpp"
 #include "dashboard_audio_control.hpp"
@@ -64,7 +65,7 @@ int32_t g_clock_offset = 0;
 bool g_ntp_tapped = false;                  // SYNC NTP was tapped and the new state has not arrived yet
 bool g_location_request_pending = false;
 char g_location_query[64]{};
-int8_t g_catalog_remove_armed = -1;
+map_catalog_paging::Cursor g_catalog_cursor;
 
 bool hit(int x, int y, int bx, int by, int bw, int bh) {
   return x >= bx && x < bx + bw && y >= by && y < by + bh;
@@ -285,9 +286,28 @@ void draw_data_maps() {
   button(catalog_action, 940, 126, 278, 48,
          g_state.catalog_busy ? TFT_DARKGREY : TFT_DARKCYAN);
   if (g_state.catalog_message[0]) text(g_state.catalog_message, 330, 180, kMuted, 2);
-  for (uint8_t i = 0; i < 5; ++i) {
-    const auto& pack = g_state.catalog_packs[i];
-    const int y = 185 + i * 96;
+
+  // The signed catalog may contain more than the five historical built-ins.
+  // Page by nonempty pack IDs; touch actions retain the catalog's original
+  // slot index (including gaps), never a page-relative row index.
+  const size_t pages = orcsdr::map_catalog_paging::page_count(g_state.catalog_packs);
+  if (g_catalog_cursor.page >= pages) g_catalog_cursor.page = static_cast<uint8_t>(pages - 1);
+  char page_title[32];
+  snprintf(page_title, sizeof(page_title), "PAGE %u / %u",
+           static_cast<unsigned>(g_catalog_cursor.page + 1), static_cast<unsigned>(pages));
+  text(page_title, 650, 115, kMuted, 2);
+  button("PREV", 650, 137, 120, 42, g_catalog_cursor.page > 0 ? TFT_NAVY : TFT_DARKGREY);
+  button("NEXT", 787, 137, 120, 42,
+         g_catalog_cursor.page + 1 < pages ? TFT_NAVY : TFT_DARKGREY);
+
+  const size_t pack_count = orcsdr::map_catalog_paging::entry_count(g_state.catalog_packs);
+  if (pack_count == 0) text("NO PACK ENTRIES. CHECK CATALOG.", 350, 290, kMuted, 2);
+  for (size_t row = 0; row < orcsdr::map_catalog_paging::kRowsPerPage; ++row) {
+    const int pack_index = orcsdr::map_catalog_paging::index_for_row(
+        g_state.catalog_packs, g_catalog_cursor.page, row);
+    if (pack_index < 0) continue;
+    const auto& pack = g_state.catalog_packs[pack_index];
+    const int y = 185 + static_cast<int>(row) * 96;
     M5.Display.fillRoundRect(330, y, 888, 88, 8, kPanel);
     M5.Display.drawRoundRect(330, y, 888, 88, 8, kBlue);
     text(pack.title[0] ? pack.title : "DATA PACK", 350, y + 24, kBlue, 3);
@@ -301,7 +321,7 @@ void draw_data_maps() {
     const char* install = pack.installed ? (pack.update_available ? "UPDATE" : "REINSTALL") : "INSTALL";
     button(install, 930, y + 14, 132, 42,
            g_state.catalog_busy || !g_state.catalog_ready ? TFT_DARKGREY : TFT_DARKCYAN);
-    button(g_catalog_remove_armed == i ? "CONFIRM" : "REMOVE", 1072, y + 14, 126, 42,
+    button(g_catalog_cursor.armed == pack_index ? "CONFIRM" : "REMOVE", 1072, y + 14, 126, 42,
            pack.installed && !g_state.catalog_busy ? TFT_MAROON : TFT_DARKGREY);
   }
   text("Manual only. Reception pauses and resumes after downloads.", 330, 688, TFT_LIGHTGREY, 1);
@@ -790,7 +810,8 @@ void enter(const State& state_value, Section section) {
   g_wifi_edit = WifiEdit::none;
   g_location_edit = false;
   g_clock_edit = false;
-  g_catalog_remove_armed = -1;
+  g_catalog_cursor.armed = -1;
+  g_catalog_cursor.page = 0;
   g_active = true;
   g_latitude_set = state_value.location_configured;
   g_longitude_set = state_value.location_configured;
@@ -893,6 +914,7 @@ void update(const State& state_value) {
        strcmp(g_state.orcdial_failure,state_value.orcdial_failure) ||
        g_state.orcdial_paired != state_value.orcdial_paired ||
        g_state.orcdial_bridge_ready != state_value.orcdial_bridge_ready);
+  if (catalog_changed) g_catalog_cursor.catalog_changed(state_value.catalog_packs);
   g_state = state_value;
   if (g_clock_edit) {
     // Keep the editor live: a finished NTP sync or a newly valid RTC refreshes untouched fields.
@@ -1044,16 +1066,31 @@ Action handle_touch(int32_t x, int32_t y) {
   } else if (g_section == Section::data_maps) {
     if (hit(x, y, 940, 126, 278, 48) && !g_state.catalog_busy)
       return {ActionKind::catalog_check, 0};
-    for (uint8_t i = 0; i < 5; ++i) {
-      const int row_y = 185 + i * 96;
-      if (hit(x, y, 930, row_y + 14, 132, 42) && g_state.catalog_ready && !g_state.catalog_busy)
-        return {ActionKind::catalog_install, i};
-      if (hit(x, y, 1072, row_y + 14, 126, 42) && g_state.catalog_packs[i].installed && !g_state.catalog_busy) {
-        if (g_catalog_remove_armed == i) {
-          g_catalog_remove_armed = -1;
-          return {ActionKind::catalog_remove, i};
-        }
-        g_catalog_remove_armed = i;
+    const size_t pages = orcsdr::map_catalog_paging::page_count(g_state.catalog_packs);
+    if (hit(x, y, 650, 137, 120, 42) && g_catalog_cursor.page > 0) {
+      (void)g_catalog_cursor.turn(g_state.catalog_packs, -1);
+      draw_content();
+      return {};
+    }
+    if (hit(x, y, 787, 137, 120, 42) && g_catalog_cursor.page + 1 < pages) {
+      (void)g_catalog_cursor.turn(g_state.catalog_packs, 1);
+      draw_content();
+      return {};
+    }
+    for (size_t row = 0; row < orcsdr::map_catalog_paging::kRowsPerPage; ++row) {
+      const int pack_index = orcsdr::map_catalog_paging::index_for_row(
+          g_state.catalog_packs, g_catalog_cursor.page, row);
+      if (pack_index < 0) continue;
+      const int row_y = 185 + static_cast<int>(row) * 96;
+      if (hit(x, y, 930, row_y + 14, 132, 42)) {
+        const int selected = g_catalog_cursor.install(g_state.catalog_packs, row,
+                                                     g_state.catalog_ready, g_state.catalog_busy);
+        if (selected >= 0) return {ActionKind::catalog_install, selected};
+      }
+      if (hit(x, y, 1072, row_y + 14, 126, 42) &&
+          g_state.catalog_packs[pack_index].installed && !g_state.catalog_busy) {
+        const int selected = g_catalog_cursor.remove(g_state.catalog_packs, row, g_state.catalog_busy);
+        if (selected >= 0) return {ActionKind::catalog_remove, selected};
         draw_content();
         return {};
       }
@@ -1200,7 +1237,10 @@ bool self_check() {
   g_location_edit = saved_location_edit;
   g_location_request_pending = saved_location_pending;
   strlcpy(g_location_query, saved_location_query, sizeof(g_location_query));
-  const State saved_state = g_state;
+  // Catalog now exposes all 16 slots. Keep the self-check's full-state
+  // backup in PSRAM, not on the main task's constrained stack.
+  static EXT_RAM_BSS_ATTR State saved_state;
+  saved_state = g_state;
   const Section saved_section = g_section;
   const bool saved_active = g_active;
   g_active = true;
