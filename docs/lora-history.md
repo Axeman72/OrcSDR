@@ -51,7 +51,7 @@ files. `LORA_HISTORY FILES` lists archive paths; `SD_LIST` lists the CSV. Existi
 `SD_GET_*` transfers can retrieve these files with hash verification. Archive files
 must be retained to reconstruct the device list. No automatic deletion is performed.
 
-Writes run on the logging worker, with a five-second flush interval. Sudden power
+Writes run on the logging worker, with a five-second stdio/filesystem sync interval. Sudden power
 loss can lose pending writes. Replay rejects malformed or incomplete final lines
 and continues with subsequent files. A short write or flush failure sets the SD
 error flag; `written` counts completed writes, not a guarantee against power loss.

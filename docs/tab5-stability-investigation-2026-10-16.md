@@ -113,3 +113,52 @@ The FM soak gate passes for this setup. The reproduced SDIO allocation pressure
 and resulting silent speaker startup are addressed. The saved Wi-Fi crash's
 null callback remains unexplained; successful stress and overnight operation
 are encouraging evidence, not proof of its root cause or permanent resolution.
+
+## October 17 pre-merge checks
+
+Seven read-only samples over 180 seconds, after uptime reached 13 hours,
+reported exactly 2,159,936 bytes free heap throughout. The device cache held
+86 nodes; the live write counter advanced from 698 to 699 without queue drops
+or logging errors. The cache itself has fixed storage for 256 nodes and a
+128-entry duplicate filter. This short observation does not prove the absence
+of a slower leak or explain the difference from the FM memory footprint.
+
+Reboot exposed a persistence defect: replay restored only the earlier 85
+records/26 nodes, and recent archive files were zero bytes. The prior tests
+stopped logging before reset, closing the files and concealing this failure.
+`File::flush()` calls `fflush`, while this firmware disables
+`CONFIG_FATFS_IMMEDIATE_FSYNC`. FAT data/directory metadata was not explicitly
+committed while the files remained open. A successful live write counter is
+therefore not evidence that the overnight records survived. Existing files
+are preserved; no recovery of the missing records is claimed.
+
+The candidate adds an explicit `File::sync()` (stdio flush plus filesystem
+`fsync`) and uses it only for the LoRa worker's five-second journal/CSV commit.
+Other users of `flush()` retain their behavior. The SD semantics check also
+reads through a second handle after sync, before closing the writer.
+The COM39 normal build with this change has SHA256
+`53568e016f4c6e5e392a492e3935cf069cbf4822d0aa868de472fcda15e7bd9c`.
+Native build and application-only flash passed. The authenticated
+`RTL_SD_SELF_CHECK` passed, including `sync=1 synced_read=1` while the writer
+was still open. Three RF text packets from Heltec COM24, IDs `d84be191`,
+`35f87992`, and `8ce7a193`, matched the synced CSV. After authenticated
+`RTL_RESET` without `LORA_SD_LOG OFF`, replay increased from 85 to 88 records
+with zero rejects; all three packet IDs remained in CSV readback. Logging and
+LoRa reception were restored. Evidence: `.local/stability/open-log-reset.log`
+and before/after CSV snapshots. This validates software reset after sync;
+physical power-cut/card-removal durability remains untested.
+
+On this firmware, all 20 HOME/RF Lab navigation cycles passed (Home command,
+RF Lab close, header touch, and keyboard Escape paths), with five Settings
+round trips. Each return showed RF Lab inactive, HOME selected, and advancing
+plot frames. `UI_SELF_CHECK` passed all reported components;
+`RTL_UI_REGRESSION RUN` and subsequent `CHECK` both reported `pass=1`.
+The first attempted navigation run on the preceding CSV-only candidate began
+before staged radio startup finished and failed its plot-progress assertion;
+the successful run explicitly waited for running capture.
+
+Final targeted commands passed: `bash tools/test-tab5-cadence-history.sh`
+(cadence, waterfall, history/CSV under ASan/UBSan) and
+`python3 tools/test-hosted-sdio-dma.py`. CSV formula prefixes are neutralized
+only on new exports; archive text remains unchanged. Full suites and suitable-
+signal P25 acceptance were not run for these narrow changes.

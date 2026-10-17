@@ -4371,8 +4371,8 @@ void lora_sd_log_task(void*) {
     // Buffered writes stay off the decoder/UI tasks. Bound power-cut exposure
     // to a five-second flush interval even during continuous reception.
     if (pending && (now - last_flush_ms >= 5000 || !requested)) {
-      const bool journal_flushed = journal.flush();
-      const bool csv_flushed = csv.flush();
+      const bool journal_flushed = journal.sync();
+      const bool csv_flushed = csv.sync();
       if (!journal_flushed || !csv_flushed) lora_log_error.store(true);
       pending = 0; last_flush_ms = now;
     }
