@@ -135,7 +135,8 @@ are preserved; no recovery of the missing records is claimed.
 The candidate adds an explicit `File::sync()` (stdio flush plus filesystem
 `fsync`) and uses it only for the LoRa worker's five-second journal/CSV commit.
 Other users of `flush()` retain their behavior. The SD semantics check also
-reads through a second handle after sync, before closing the writer.
+checks directory metadata after sync, then closes the writer before reading
+the payload. This avoids a duplicate open of a writable FAT file.
 The COM39 normal build with this change has SHA256
 `53568e016f4c6e5e392a492e3935cf069cbf4822d0aa868de472fcda15e7bd9c`.
 Native build and application-only flash passed. The authenticated
@@ -147,6 +148,34 @@ with zero rejects; all three packet IDs remained in CSV readback. Logging and
 LoRa reception were restored. Evidence: `.local/stability/open-log-reset.log`
 and before/after CSV snapshots. This validates software reset after sync;
 physical power-cut/card-removal durability remains untested.
+
+External review identified the duplicate-open issue in the first version of
+the self-check. That version passed with this build's `CONFIG_FATFS_FS_LOCK=0`,
+but did not respect the FatFs open contract. The final test uses `stat` before
+closing and reads afterward. The repeat RF reset test likewise performs CSV
+readback only after reboot and stopping logging. The production periodic-sync
+behavior is unchanged by this test correction.
+
+The review's request for automatic retry after sync failure is optional here:
+the worker sets the SD error flag and stops on a failed barrier; it does not
+claim those records are durably committed. `written` counts completed writes,
+as documented, and `LORA_SD_LOG ON` is the explicit retry. No automatic retry
+or recovery guarantee on failed/removable media is added.
+
+The final self-check correction was rebuilt/flashed successfully (application
+SHA256 `27de88653a5508913a72a1e1ed05693cd4a20c54bc10756ed9c59bfb6c6a3ffc`).
+Its hardware self-check reported `sync=1 synced_metadata=1 read=1 pass=1`.
+Three further controlled RF packets (`95b7e2ec`, `d70d66ed`, `95e70eee`)
+survived reset with logging left open: replay increased from 100 to 103 with
+zero rejects. Logging was stopped only after reboot for CSV readback, which
+matched all three IDs, then logging and LoRa reception were restored.
+Evidence: `.local/stability/open-log-reset-final.log`.
+
+Before that final test-only rebuild, a post-navigation 240.33-second sample
+held free heap within 1,968,832–1,968,852 bytes while written records advanced
+from 2 to 6. Nine samples reported no logging errors or drops. Firmware and
+screen state differ from the overnight run, so this is not a like-for-like
+comparison of their free-heap values.
 
 On this firmware, all 20 HOME/RF Lab navigation cycles passed (Home command,
 RF Lab close, header touch, and keyboard Escape paths), with five Settings

@@ -219,12 +219,11 @@ bool run_file_semantics_check() {
   const bool write_ok = create_ok && file.write(kPayload, sizeof(kPayload)) == sizeof(kPayload);
   const bool flush_ok = write_ok && file.flush();
   const bool sync_ok = flush_ok && file.sync();
-  File committed = sync_ok ? g_filesystem.open(kPath, FILE_READ) : File{};
-  uint8_t synced[sizeof(kPayload)]{};
-  const bool synced_read_ok = committed && committed.size() == sizeof(kPayload) &&
-      committed.read(synced, sizeof(synced)) == sizeof(synced) &&
-      memcmp(synced, kPayload, sizeof(synced)) == 0;
-  committed.close();
+  // Check committed metadata without a duplicate open of a writable FAT file.
+  struct stat committed{};
+  const bool synced_metadata_ok = sync_ok &&
+      stat(mounted_path(kPath).c_str(), &committed) == 0 &&
+      committed.st_size == sizeof(kPayload);
   const bool write_close_ok = create_ok && file.close();
 
   uint8_t actual[sizeof(kPayload)]{};
@@ -234,13 +233,13 @@ bool run_file_semantics_check() {
   const bool close_ok = write_close_ok && reader.close();
   const bool rename_ok = read_ok && close_ok && g_filesystem.rename(kPath, kRenamed);
   const bool remove_ok = rename_ok && g_filesystem.remove(kRenamed);
-  const bool pass = create_ok && write_ok && flush_ok && sync_ok && synced_read_ok && close_ok && read_ok && rename_ok &&
+  const bool pass = create_ok && write_ok && flush_ok && sync_ok && synced_metadata_ok && close_ok && read_ok && rename_ok &&
                     remove_ok;
   if (g_filesystem.exists(kPath)) (void)g_filesystem.remove(kPath);
   if (g_filesystem.exists(kRenamed)) (void)g_filesystem.remove(kRenamed);
-  printf("RTL_SD_SELF_CHECK_RESULT create=%d write=%d flush=%d sync=%d synced_read=%d close=%d read=%d "
+  printf("RTL_SD_SELF_CHECK_RESULT create=%d write=%d flush=%d sync=%d synced_metadata=%d close=%d read=%d "
          "rename=%d remove=%d pass=%d\n",
-         create_ok, write_ok, flush_ok, sync_ok, synced_read_ok, close_ok, read_ok, rename_ok, remove_ok, pass);
+         create_ok, write_ok, flush_ok, sync_ok, synced_metadata_ok, close_ok, read_ok, rename_ok, remove_ok, pass);
   fflush(stdout);
   return pass;
 }
