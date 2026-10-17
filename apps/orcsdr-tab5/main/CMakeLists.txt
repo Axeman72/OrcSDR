@@ -113,6 +113,7 @@ idf_component_register(
         "../ui/home_dashboard.cpp"
         "../ui/lora_dashboard.cpp"
         "../ui/lora_packet_log.cpp"
+        "../ui/lora_history.cpp"
         "../ui/lora_native_decoder.cpp"
         "../ui/lora_preamble_detector.cpp"
         "../ui/lora_diag_commands.cpp"
