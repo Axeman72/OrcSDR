@@ -1,6 +1,6 @@
 #include "ft8_dashboard.hpp"
 #include "ft8_conditions.hpp"
-#include "ft8_world_data.hpp"
+#include "map_world_compat.hpp"
 
 #include "dashboard_audio_control.hpp"
 #include "ft8_decoder_backend.hpp"
@@ -669,87 +669,17 @@ void draw_decodes() {
   button(kClear, "CLEAR");
 }
 
-// The map frames the receiver and the stations that were decoded (with a margin), or the whole world when there is nothing to frame.
-struct MapView {
-  float lon_min = -180.0f, lat_max = 90.0f, lon_span = 360.0f, lat_span = 180.0f;
-};
-MapView g_map_view{};
-
-void map_point(const GeoPoint& p, int* x, int* y) {
-  constexpr int left = 50, top = 158, width = 824, height = 420;
-  *x = left + static_cast<int>((p.longitude - g_map_view.lon_min) / g_map_view.lon_span * width);
-  *y = top + static_cast<int>((g_map_view.lat_max - p.latitude) / g_map_view.lat_span * height);
-}
-
-// The MAP tab always shows the whole world (owner's preference); the view stays a variable so zoom/pan can be added later.
-void fit_map_view() { g_map_view = MapView{}; }
-
-// Offline world basemap in the fitted view, styled like the OrcMaps dark theme: slate land on navy water, thin borders.
-// Points are 0.01 degree units. Land is filled with an even-odd scanline pass; polygons never cross the antimeridian.
-// Draws on `d`, whose origin is the screen point (sub_x, sub_y), so the whole map can be composed off-screen.
-void draw_world(lgfx::LovyanGFX& d, int sub_x, int sub_y, int left, int top, int width, int height) {
-  constexpr uint16_t kWater = 0x1105, kLand = 0x1082, kCoast = 0x2A2A, kBorder = 0x2124;
-  // Projected points for this frame, 16 KB: kept in PSRAM (allocated once) because internal RAM is scarce.
-  static int16_t* projected = static_cast<int16_t*>(heap_caps_malloc(2u * 4096u * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (projected == nullptr) return;
-  int16_t* const sx = projected;
-  int16_t* const sy = projected + 4096;
-  const size_t points = std::min<size_t>(kWorldPointCount, 4096);
-  for (size_t i = 0; i < points; ++i) {
-    int x = 0, y = 0;
-    map_point(GeoPoint{kWorldPoints[2 * i + 1] * 0.01f, kWorldPoints[2 * i] * 0.01f, 0}, &x, &y);
-    sx[i] = static_cast<int16_t>(std::max(-30000, std::min(30000, x)));
-    sy[i] = static_cast<int16_t>(std::max(-30000, std::min(30000, y)));
-  }
-  d.fillRect(left - sub_x, top - sub_y, width, height, kWater);
-  d.setClipRect(left - sub_x, top - sub_y, width, height);
-  for (int y = top; y < top + height; ++y) {
-    int xs[96];
-    int count = 0;
-    const int yc = y * 2 + 1;   // sample at the pixel centre in half-pixel units
-    for (size_t s = 0; s < kWorldSegmentCount && count < 94; ++s) {
-      const WorldSegment& seg = kWorldSegments[s];
-      if (seg.kind != 0) continue;
-      for (uint16_t i = 0; i + 1 < seg.count && count < 94; ++i) {
-        const size_t a = seg.start + i, b = a + 1;
-        const int y0 = sy[a] * 2, y1 = sy[b] * 2;
-        if ((y0 <= yc) == (y1 <= yc)) continue;
-        xs[count++] = sx[a] + static_cast<int>(static_cast<int32_t>(sx[b] - sx[a]) * (yc - y0) / (y1 - y0));
-      }
-    }
-    for (int i = 1; i < count; ++i) {   // insertion sort: few crossings per row
-      const int v = xs[i];
-      int j = i - 1;
-      while (j >= 0 && xs[j] > v) { xs[j + 1] = xs[j]; --j; }
-      xs[j + 1] = v;
-    }
-    for (int i = 0; i + 1 < count; i += 2) {
-      const int x0 = std::max(left, xs[i]), x1 = std::min(left + width - 1, xs[i + 1]);
-      if (x1 >= x0) d.drawFastHLine(x0 - sub_x, y - sub_y, x1 - x0 + 1, kLand);
-    }
-  }
-  for (size_t s = 0; s < kWorldSegmentCount; ++s) {
-    const WorldSegment& seg = kWorldSegments[s];
-    for (uint16_t i = 0; i + 1 < seg.count; ++i) {
-      const size_t a = seg.start + i, b = a + 1;
-      if (a >= points || b >= points) break;
-      d.drawLine(sx[a] - sub_x, sy[a] - sub_y, sx[b] - sub_x, sy[b] - sub_y, seg.kind == 0 ? kCoast : kBorder);
-    }
-  }
-  d.clearClipRect();
-}
 
 M5Canvas g_map_canvas(&M5.Display);   // the map is composed here and pushed in one go: no blank-then-paint flash on updates
 bool g_map_canvas_ready = false;
 
 void draw_map() {
-  fit_map_view();
   const Rect map{24, 104, 884, 514};
   frame(map);
   text("MAIDENHEAD GRID", 42, 124, kCyan, 1, middle_left);
   {
     char scale[48];
-    std::snprintf(scale, sizeof(scale), "Station-reported locators only   grid %s", g_map_view.lon_span >= 359.0f ? "world" : "fitted");
+    std::snprintf(scale, sizeof(scale), "Station-reported locators only   grid %s", "world");
     text(scale, 890, 124, kMuted, 1, middle_right);
   }
   constexpr int left = 50, top = 158, width = 824, height = 420;
@@ -760,21 +690,21 @@ void draw_map() {
   }
   lgfx::LovyanGFX& d = g_map_canvas_ready ? static_cast<lgfx::LovyanGFX&>(g_map_canvas) : static_cast<lgfx::LovyanGFX&>(M5.Display);
   const int sub_x = g_map_canvas_ready ? left : 0, sub_y = g_map_canvas_ready ? top : 0;
-  draw_world(d, sub_x, sub_y, left, top, width, height);
+  maps::draw_world_compat(d, sub_x, sub_y, left, top, width, height);
   d.drawRect(left - sub_x, top - sub_y, width, height, kGrid);
-  const float want = g_map_view.lon_span / 6.0f;   // about six grid columns across the view
+  const float want = 360.0f / 6.0f;   // about six grid columns across the view
   float step = 30.0f;
   for (float candidate : {1.0f, 2.0f, 5.0f, 10.0f, 15.0f, 20.0f, 30.0f}) {
     if (candidate >= want) { step = candidate; break; }
   }
-  for (float lon = std::ceil(g_map_view.lon_min / step) * step; lon < g_map_view.lon_min + g_map_view.lon_span; lon += step) {
+  for (float lon = -180.0f; lon < 180.0f; lon += step) {
     int x = 0, y = 0;
-    map_point(GeoPoint{0.0f, lon, 0}, &x, &y);
+    maps::world_compat_project(0.0,lon,left,top,width,height,&x,&y);
     d.drawFastVLine(x - sub_x, top - sub_y, height, kGrid);
   }
-  for (float lat = std::ceil((g_map_view.lat_max - g_map_view.lat_span) / step) * step; lat < g_map_view.lat_max; lat += step) {
+  for (float lat = -90.0f; lat < 90.0f; lat += step) {
     int x = 0, y = 0;
-    map_point(GeoPoint{lat, 0.0f, 0}, &x, &y);
+    maps::world_compat_project(lat,0.0,left,top,width,height,&x,&y);
     d.drawFastHLine(left - sub_x, y - sub_y, width, kGrid);
   }
   const size_t n = std::min(g_snapshot.decode_count, kDecodeCapacity);
@@ -784,18 +714,19 @@ void draw_map() {
     GeoPoint point{};
     if (!maidenhead_center(dec.grid, &point)) continue;
     int x = 0, y = 0;
-    map_point(point, &x, &y);
+    if(!maps::world_compat_project(point.latitude,point.longitude,left,top,width,height,&x,&y))continue;
     d.fillCircle(x - sub_x, y - sub_y, 4, dec.kind == DecodeKind::cq ? kGreen : kYellow);
   }
   int you_x = 0, you_y = 0;
-  if (g_snapshot.station_known) {   // the receiver itself: a white ring with a cross, labelled
-    map_point(GeoPoint{g_snapshot.station_latitude, g_snapshot.station_longitude, 0}, &you_x, &you_y);
+  const bool you_valid=g_snapshot.station_known&&maps::world_compat_project(
+      g_snapshot.station_latitude,g_snapshot.station_longitude,left,top,width,height,&you_x,&you_y);
+  if (you_valid) {   // the receiver itself: a white ring with a cross, labelled
     d.drawCircle(you_x - sub_x, you_y - sub_y, 7, TFT_WHITE);
     d.drawFastHLine(you_x - 11 - sub_x, you_y - sub_y, 22, TFT_WHITE);
     d.drawFastVLine(you_x - sub_x, you_y - 11 - sub_y, 22, TFT_WHITE);
   }
   if (g_map_canvas_ready) g_map_canvas.pushSprite(left, top);
-  if (g_snapshot.station_known) text("YOU", you_x + 14, you_y - 12, TFT_WHITE, 1, middle_left);
+  if (you_valid) text("YOU", you_x + 14, you_y - 12, TFT_WHITE, 1, middle_left);
 
   const Rect recent{926, 104, 330, 514};
   frame(recent, kGrid);
