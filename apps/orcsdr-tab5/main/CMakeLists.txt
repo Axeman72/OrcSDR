@@ -123,6 +123,10 @@ idf_component_register(
         "../ui/location_estimate.cpp"
         "../ui/receiver_location.cpp"
         "../ui/offline_map.cpp"
+        "../ui/map_pipeline.cpp"
+        "../ui/map_inventory.cpp"
+        "../ui/map_service.cpp"
+        "../ui/map_view.cpp"
         "../ui/navigation_service.cpp"
         "../ui/nvs_store.cpp"
         "../ui/p25_dashboard.cpp"
@@ -181,6 +185,7 @@ idf_component_register(
         mbelib
         nvs_flash
         esp_rtl_sdr
+        orcmaps
         esp_driver_usb_serial_jtag
         esp_driver_i2c
         esp_driver_gpio

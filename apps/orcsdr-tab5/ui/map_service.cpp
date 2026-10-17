@@ -1,0 +1,265 @@
+#include "map_service.hpp"
+#include "map_inventory.hpp"
+#include "offline_map.hpp"
+#include "memory_reclaim.hpp"
+#include "orcmap/esp_idf/file_byte_source.hpp"
+#include "orcmap/esp_idf/pack_filesystem.hpp"
+#include "orcmap/esp_idf/partition_byte_source.hpp"
+#include "orcmap/m5gfx/display_target.hpp"
+#include <M5Unified.h>
+#include <esp_attr.h>
+#include <esp_heap_caps.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
+#include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <cstring>
+#include <dirent.h>
+#include <memory>
+#include <new>
+#include <iterator>
+
+namespace orcsdr::maps {
+namespace {
+constexpr char kDirectory[] = "/sd/orcmaps";
+constexpr char kWorld[] = "orcmaps_world";
+struct Request { orcmap::Viewport view; char preferred[256]{}; uint32_t serial = 0; };
+QueueHandle_t g_queue = nullptr;
+SemaphoreHandle_t g_lock = nullptr;
+TaskHandle_t g_task = nullptr;
+EXT_RAM_BSS_ATTR MapSnapshot g_snapshot;
+EXT_RAM_BSS_ATTR FrameInfo g_frame;
+EXT_RAM_BSS_ATTR Request g_requested, g_ready;
+EXT_RAM_BSS_ATTR Inventory g_inventory;
+M5Canvas g_canvas(&M5.Display);
+std::unique_ptr<orcmap::ByteSource> g_source;
+std::unique_ptr<Pipeline> g_pipeline;
+char g_archive[256]{};
+bool g_sd = false, g_cached = false;
+std::atomic<bool> g_scan{true};
+std::atomic<uint32_t> g_serial{0}, g_revision{0};
+std::atomic<size_t> g_canvas_bytes{0};
+uint64_t g_yield_us = 0;
+
+template<size_t N> void text(char (&out)[N], const char* value) {
+  std::snprintf(out,N,"%s",value ? value : "");
+  for(char* p=out;*p;++p)if(static_cast<unsigned char>(*p)<32)*p=' ';
+}
+bool same(const Request& a,const Request& b) {
+  return a.view.center_lat_deg==b.view.center_lat_deg && a.view.center_lon_deg==b.view.center_lon_deg &&
+      a.view.zoom==b.view.zoom && a.view.tile_size_px==b.view.tile_size_px &&
+      a.view.width_px==b.view.width_px && a.view.height_px==b.view.height_px &&
+      std::strcmp(a.preferred,b.preferred)==0;
+}
+uint64_t clock_us() { return static_cast<uint64_t>(esp_timer_get_time()); }
+bool service(void* context) {
+  if(*static_cast<uint32_t*>(context)!=g_serial.load())return false;
+  const uint64_t now=clock_us();
+  if(now-g_yield_us>=3000) { vTaskDelay(1);g_yield_us=clock_us(); }
+  return true;
+}
+// Bound the directory scan before allocating names, rather than collecting
+// an arbitrarily large card directory and imposing a limit afterward.
+class Files final : public orcmap::PackFileSystem {
+ public:
+  bool ListManifestNames(const std::string& directory,std::vector<std::string>* out) override {
+    out->clear();DIR* dir=opendir(directory.c_str());if(!dir)return false;
+    while(const auto* entry=readdir(dir)) {
+      const size_t n=std::strlen(entry->d_name);
+      if(n<14 || std::strcmp(entry->d_name+n-14,".manifest.json"))continue;
+      out->emplace_back(entry->d_name);
+      if(out->size()>Inventory::kPackLimit)break;
+    }
+    closedir(dir);return true;
+  }
+  bool ReadTextFile(const std::string& path,size_t maximum,std::string* out) override {
+    return files_.ReadTextFile(path,maximum,out);
+  }
+  bool FileSize(const std::string& path,uint64_t* bytes) override { return files_.FileSize(path,bytes); }
+ private:
+  orcmap::esp_idf::PackFileSystem files_;
+};
+
+void discover() {
+  Files files;
+  (void)g_inventory.scan(files,kDirectory,g_sd);
+  static EXT_RAM_BSS_ATTR MapSnapshot next;
+  // Value-initialise in place; a temporary snapshot would exceed the worker stack.
+  next.~MapSnapshot();new(&next) MapSnapshot();
+  next.loaded=true;next.sd=g_sd;next.overflow=g_inventory.limit_exceeded();
+  auto& world=next.packs[next.count++];
+  world.kind=Kind::firmware;text(world.identity,"firmware-world");text(world.title,"Firmware world overview");
+  text(world.region,"World; overview detail only");text(world.credit,"Made with Natural Earth");
+  orcmap::esp_idf::PartitionByteSource source(kWorld);
+  if(source.Valid()) {
+    Pipeline probe(source);
+    world.usable=probe.open("orcmaps-overview-1");
+    if(world.usable) {world.min_zoom=probe.header().min_zoom;world.max_zoom=probe.header().max_zoom;}
+    world.bytes=source.Size();
+  }
+  next.world=world.usable;text(world.status,world.usable ? "FIRMWARE; HASH UNCHECKED" : "NOT PROVISIONED / UNREADABLE");
+  if(g_sd) {
+    auto& legacy=next.packs[next.count++];
+    legacy.kind=Kind::legacy;text(legacy.identity,"lane_county_map");text(legacy.title,"Legacy regional map (ORCMAP1)");
+    text(legacy.region,"Lane County, Oregon");legacy.usable=offline_map::available();next.legacy=legacy.usable;
+    text(legacy.credit,"OpenStreetMap contributors, ODbL");
+    const bool exists=files.FileSize("/sd/orcsdr/data/lane_county_map.idx",&legacy.bytes);
+    text(legacy.status,legacy.usable ? "LEGACY; HASH UNCHECKED" : exists ? "INVALID / EMPTY LEGACY FILE" : "NOT INSTALLED");
+  }
+  for(const auto& pack:g_inventory.catalog().Packs()) {
+    auto& item=next.packs[next.count++];item.kind=Kind::pmtiles;
+    const bool identity_fits=pack.pack_id.size()<sizeof(item.identity);
+    const bool path_fits=pack.archive_path.size()<sizeof(g_archive);
+    text(item.identity,pack.pack_id.c_str());text(item.title,pack.display_name.c_str());
+    text(item.region,pack.region_name.c_str());text(item.version,pack.pack_version.c_str());
+    item.bytes=pack.size_bytes;item.min_zoom=pack.min_zoom;item.max_zoom=pack.max_zoom;
+    std::string credit;
+    for(const auto& attribution:pack.attribution)if(attribution.required) {
+      if(!credit.empty())credit+="; ";
+      credit+=attribution.text;
+    }
+    item.usable=identity_fits && path_fits && credit.size()<sizeof(item.credit);
+    item.size_checked=true;text(item.credit,credit.c_str());
+    text(item.status,item.usable ? "SIZE CHECKED; HASH UNCHECKED" : "IDENTITY / CREDIT TOO LONG");
+  }
+  for(const auto& rejected:g_inventory.report().rejected) {
+    if(next.count>=std::size(next.packs))break;
+    auto& item=next.packs[next.count++];item.kind=Kind::rejected;
+    text(item.title,rejected.manifest_name.c_str());text(item.status,orcmap::PackRejectionName(rejected.rejection));
+  }
+  xSemaphoreTake(g_lock,portMAX_DELAY);g_snapshot=next;g_cached=false;xSemaphoreGive(g_lock);
+}
+
+const PackInfo* info_for(const char* identity) {
+  for(size_t i=0;i<g_snapshot.count;++i)if(std::strcmp(g_snapshot.packs[i].identity,identity)==0)return &g_snapshot.packs[i];
+  return nullptr;
+}
+
+bool choose(const Request& request,orcmap::Viewport* view,char* path,size_t size,const PackInfo** info) {
+  *view=request.view;
+  orcmap::GeoBounds bounds;
+  const orcmap::PackManifest* pack=nullptr;
+  if(orcmap::GetVisibleBounds(*view,&bounds))pack=g_inventory.resolve(bounds,view->zoom,request.preferred);
+  if(pack) {
+    *info=info_for(pack->pack_id.c_str());
+    if(*info && (*info)->usable) {std::snprintf(path,size,"%s",pack->archive_path.c_str());return true;}
+  }
+  *info=info_for("firmware-world");
+  if(!*info || !(*info)->usable)return false;
+  if(view->zoom>(*info)->max_zoom) {
+    const int delta=view->zoom-(*info)->max_zoom;
+    if(delta>16 || view->tile_size_px>(INT32_MAX>>delta))return false;
+    view->tile_size_px<<=delta;view->zoom=(*info)->max_zoom;
+  }
+  if(view->zoom<(*info)->min_zoom)return false;
+  std::snprintf(path,size,"@world");return true;
+}
+
+void worker(void*) {
+  for(;;) {
+    if(g_scan.exchange(false))discover();
+    Request request;
+    if(xQueueReceive(g_queue,&request,pdMS_TO_TICKS(200))!=pdTRUE)continue;
+    if(request.serial!=g_serial.load())continue;
+    // The UI never waits on this mutex. A new frame is published atomically
+    // when complete; partially drawn sprites are never sent to the display.
+    xSemaphoreTake(g_lock,portMAX_DELAY);
+    g_frame={};g_frame.state=Frame::unavailable;
+    char path[256]{};orcmap::Viewport view;const PackInfo* info=nullptr;
+    bool ok=choose(request,&view,path,sizeof(path),&info);
+    if(info) {text(g_frame.title,info->title);text(g_frame.credit,info->credit);}
+    if(ok && std::strcmp(path,g_archive)) {
+      g_pipeline.reset();g_source.reset();g_archive[0]=0;
+      if(path[0]=='@')g_source.reset(new(std::nothrow) orcmap::esp_idf::PartitionByteSource(kWorld));
+      else g_source.reset(new(std::nothrow) orcmap::esp_idf::FileByteSource(path));
+      if(g_source && g_source->Valid()) {
+        g_pipeline.reset(new(std::nothrow) Pipeline(*g_source,{clock_us,service,&g_ready.serial}));
+        const char* profile=path[0]=='@' ? "orcmaps-overview-1" : nullptr;
+        if(!profile)for(const auto& pack:g_inventory.catalog().Packs())if(pack.archive_path==path)profile=pack.schema_version.c_str();
+        ok=g_pipeline && profile && g_pipeline->open(profile);
+        if(ok)std::snprintf(g_archive,sizeof(g_archive),"%s",path);
+      } else ok=false;
+    }
+    g_ready=request; // service hook observes this request's immutable serial
+    if(ok && (g_canvas.width()!=view.width_px || g_canvas.height()!=view.height_px)) {
+      g_canvas.deleteSprite();g_canvas_bytes.store(0);
+      const size_t bytes=static_cast<size_t>(view.width_px)*view.height_px*2;
+      ok=view.width_px>0 && view.height_px>0 && view.width_px<=1280 && view.height_px<=720 &&
+          heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=bytes+128*1024;
+      if(ok) {g_canvas.setPsram(true);g_canvas.setColorDepth(16);ok=g_canvas.createSprite(view.width_px,view.height_px)!=nullptr;}
+      if(ok)g_canvas_bytes.store(bytes);
+    }
+    if(ok) {
+      orcmap::m5gfx_adapter::DisplayTarget target(g_canvas);
+      g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target);
+      if(g_pipeline)g_frame.stats=g_pipeline->stats();
+    }
+    if(request.serial==g_serial.load()) {
+      g_frame.state=ok ? Frame::ready : Frame::unavailable;
+      text(g_frame.status,ok ? "LOCAL MAP" : "MAP UNAVAILABLE / NO MEMORY");
+      g_cached=true;g_frame.revision=g_revision.fetch_add(1)+1;
+    }
+    xSemaphoreGive(g_lock);
+  }
+}
+size_t held() { return g_canvas_bytes.load(); }
+size_t release() {
+  if(!g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return 0;
+  const size_t bytes=g_canvas_bytes.exchange(0);g_canvas.deleteSprite();g_cached=false;
+  g_serial.fetch_add(1); // the same camera must request a new frame after reclaim
+  g_pipeline.reset();g_source.reset();g_archive[0]=0;xSemaphoreGive(g_lock);return bytes;
+}
+} // namespace
+
+bool begin(storage::FileSystem* sd) {
+  if(g_task)return true;
+  g_sd=sd!=nullptr;
+  g_lock=xSemaphoreCreateMutex();
+  g_queue=xQueueCreateWithCaps(1,sizeof(Request),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+  if(!g_lock || !g_queue) {
+    if(g_lock)vSemaphoreDelete(g_lock);
+    if(g_queue)vQueueDeleteWithCaps(g_queue);
+    g_lock=nullptr;g_queue=nullptr;return false;
+  }
+  if(xTaskCreatePinnedToCore(worker,"orcsdr_maps",8192,nullptr,1,&g_task,1)!=pdPASS) {
+    vSemaphoreDelete(g_lock);vQueueDeleteWithCaps(g_queue);
+    g_lock=nullptr;g_queue=nullptr;g_task=nullptr;return false;
+  }
+  (void)memory_reclaim::register_holder({"Map frame",held,release});
+  return true;
+}
+bool snapshot(MapSnapshot* out) {
+  if(!out || !g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return false;
+  *out=g_snapshot;xSemaphoreGive(g_lock);return true;
+}
+void rescan() {g_scan.store(true);cancel();}
+void cancel() {g_serial.fetch_add(1);}
+uint32_t revision() {return g_revision.load();}
+bool frame_info(FrameInfo* out) {
+  if(!out || !g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return false;
+  *out=g_frame;xSemaphoreGive(g_lock);return true;
+}
+Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,FrameInfo* info,const char* preferred) {
+  if(!g_task || !g_queue || !g_lock)return Frame::unavailable;
+  Request request{};request.view=view;
+  if(preferred && std::strlen(preferred)>=sizeof(request.preferred))return Frame::unavailable;
+  text(request.preferred,preferred);
+  // Only the UI writes g_requested. Queue/cancel before taking the frame lock
+  // so a pan can interrupt a render that is still holding that lock.
+  if(!same(request,g_requested) || g_requested.serial!=g_serial.load()) {
+    request.serial=g_serial.fetch_add(1)+1;g_requested=request;
+    xQueueOverwrite(g_queue,&request);
+  }
+  if(xSemaphoreTake(g_lock,0)!=pdTRUE)return Frame::pending;
+  if(g_cached && g_ready.serial==g_serial.load() && same(request,g_ready)) {
+    if(g_frame.state==Frame::ready) {g_canvas.pushSprite(&target,x,y);++g_frame.cache_hits;}
+    if(info)*info=g_frame;
+    const Frame result=g_frame.state;xSemaphoreGive(g_lock);return result;
+  }
+  xSemaphoreGive(g_lock);return Frame::pending;
+}
+} // namespace orcsdr::maps

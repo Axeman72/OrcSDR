@@ -2,7 +2,8 @@
 #include "lora_dashboard.hpp"
 
 #include "dashboard_audio_control.hpp"
-#include "offline_map.hpp"
+#include "map_view.hpp"
+#include "receiver_location.hpp"
 #include "orc_badge.hpp"
 #include "lora_channel_control.hpp"
 #include "waterfall_style.hpp"
@@ -675,6 +676,7 @@ void draw_traffic_dynamic() {
 }
 
 void draw_map_dynamic() {
+  static maps::FrameInfo map_info;
   M5.Display.fillRect(50, 182, 842, 330, kBg);
   const Node* center = g_snapshot.node_count ? &g_snapshot.nodes[
       std::min<size_t>(g_snapshot.selected_node, g_snapshot.node_count - 1)] : nullptr;
@@ -682,17 +684,15 @@ void draw_map_dynamic() {
   if (!g_map_center_set) {
     text("WAITING FOR VERIFIED POSITION", 470, 350, kMuted, 2);
   } else {
-    const float lat = g_map_center_lat_e7 / 10000000.0f;
-    const float lon = g_map_center_lon_e7 / 10000000.0f;
-    offline_map::View map{lat, lon, 15.0f, 50, 182, 842, 330};
-    offline_map::draw_base(map, 0x0320, kGrid, kMuted, kGrid);
-    if (!offline_map::available()) text("OFFLINE MAP PACK NOT INSTALLED", 470, 490, kMuted, 1);
+    const auto location=receiver_location::snapshot();
+    const auto map=maps::draw_region(M5.Display,g_map_center_lat_e7,g_map_center_lon_e7,
+        15.0,50,182,842,330,kBg,kGrid,kMuted,location.map_pack);
+    map_info=map.frame;
     for (size_t i = 0; i < g_snapshot.node_count; ++i) {
       const Node& node = g_snapshot.nodes[i];
       if (!has_position(node)) continue;
       int x = 0, y = 0;
-      if (!offline_map::project(map, node.latitude_e7 / 10000000.0f,
-                                node.longitude_e7 / 10000000.0f, &x, &y)) continue;
+      if (!maps::project(map,node.latitude_e7,node.longitude_e7,&x,&y))continue;
       const uint16_t color = i == g_snapshot.selected_node ? kGreen : kCyan;
       M5.Display.drawCircle(x, y, i == g_snapshot.selected_node ? 13 : 9, color);
       M5.Display.fillCircle(x, y, 3, color);
@@ -710,7 +710,8 @@ void draw_map_dynamic() {
   text(g_follow_node ? "FOLLOWING" : "CENTERED", 970, 350,
        g_follow_node ? kGreen : kCyan, 2, middle_left);
   text("OFFLINE MAP", 970, 390, kMuted, 1, middle_left);
-  text(offline_map::available() ? "SD VECTOR MAP" : "MAP PACK NOT INSTALLED", 970, 420, kMuted, 1, middle_left);
+  text(g_map_center_set ? map_info.title : "NO VERIFIED CENTER",970,420,kMuted,1,middle_left);
+  text(g_map_center_set ? map_info.status : "",970,450,kMuted,1,middle_left);
 }
 
 void draw_health_dynamic() {

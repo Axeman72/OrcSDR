@@ -13,6 +13,10 @@ dependencies:
     git: https://github.com/hardcoreerik/esp-rtl-sdr.git
     # esp_rtl_sdr v0.9.3 (published release)
     version: 31a159df4f006a837d5041029bc6d1bc63520234
+  orcmaps:
+    git: https://github.com/hardcoreerik/OrcMaps.git
+    # v0.2.1 miniz fix plus reviewed PR #4 polygon-ring correctness tests.
+    version: 70fea367909c74794bb69c7aed97e0f11f0a9387
   m5stack/m5unified:
     version: "0.2.20"
   m5stack/m5gfx:

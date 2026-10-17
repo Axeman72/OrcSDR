@@ -35,3 +35,19 @@ Prototype one measured bottleneck at a time. Promote only a reproducible gain wi
 The released OrcMaps pack-inspect pipeline rendered the tracked 3,507,636-byte Springfield PMTiles at 44.0500/-123.0220, zoom 14, orcsdr-dark to `.local/springfield-baseline.ppm`. Reported host times in ms: enumerate 4.674; lookup 106.396; decompress 8.038; decode 15.362; translate 6.643; classify 0.780; render 5.532; image write 10719.703. Concurrent native build and Windows/WSL file I/O make this unsuitable for a speed comparison. No optimization is promoted from it. Log: OrcMaps worktree `maps-pack-inspect-baseline.log`.
 
 Fresh baseline application SHA256: `0f3f95656394080133ce1f74ed8408cb8a1031d9cb3414f021a9ee7e40b9470b`. This is a host-built rollback artifact, not a newly flashed device image.
+
+## First integrated worker build (2026-10-17)
+
+Source: shared map worker, region/legacy adapter, and LoRa caller; OrcMaps pinned
+to `70fea367909c74794bb69c7aed97e0f11f0a9387` (v0.2.1 miniz fix plus reviewed PR4).
+`& ./apps/orcsdr-tab5/tools/build-tab5-idf.ps1` passed after correcting two
+compiler errors. Log: `maps-worker-native-recheck.log` in the invocation directory.
+Application: 4,741,456 bytes (`0x485950`), factory headroom 1,550,000 bytes;
+release guard headroom 1,287,856 bytes. SHA-256:
+`bf6d2a57e6ab85852c063f1750c00abab5313a0702ad81248f3e36bfd430f9a1`.
+Linked-image symbol gate: PASS, two bundled miniz symbols, none ROM-absolute.
+No device flashed; active-RF render timing, memory, visual correctness, cancellation
+and allocation-failure recovery remain UNTESTED on COM17/COM39.
+The worker uses one private PSRAM sprite, a depth-one latest-request queue and
+per-feature cancellation/yield hooks. UI sprite transfer stays on the UI owner.
+No map performance optimization has been claimed from these build results.

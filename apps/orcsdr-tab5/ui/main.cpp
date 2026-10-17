@@ -118,6 +118,7 @@
 #include "location_estimate.hpp"
 #include "navigation_service.hpp"
 #include "offline_map.hpp"
+#include "map_service.hpp"
 #include "nvs_store.hpp"
 #include "p25_dashboard.hpp"
 #include "p25_config.hpp"
@@ -22228,6 +22229,7 @@ void setup() {
     heard_db_load_from_sd();   // stations-heard journal: replayed now, while internal DMA memory is free
     set_lora_sd_logging(true);  // worker replays persistent node history; no SD IO on the decoder path
   }
+  if (!orcsdr::maps::begin(g_sd_fs)) Serial.println("ORC_MAP_WORKER_UNAVAILABLE");
   boot_wifi_on_splash();
   begin_boot_device_staging();
   /* Bring up the attached RTL-SDR while the splash is showing. The OrcSDR
@@ -22445,6 +22447,7 @@ void loop() {
     const auto catalog_state = orcsdr::catalog::state();
     if (catalog_was_busy && !catalog_state.busy && g_sd_fs != nullptr) {
       (void)orcsdr::offline_map::load(g_sd_fs);
+      orcsdr::maps::rescan();
       refresh_adsb_atc_preset();
       resume_radio_after_catalog();
     }

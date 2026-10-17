@@ -86,3 +86,7 @@ foreach ($line in $required) {
 
 idf.py -B $buildDir build
 if ($LASTEXITCODE -ne 0) { throw "ESP-IDF build failed with exit code $LASTEXITCODE." }
+
+# A host test cannot detect accidental resolution to the ESP32 ROM inflater.
+python managed_components/orcmaps/tools/check_miniz_symbols.py $buildDir
+if ($LASTEXITCODE -ne 0) { throw 'OrcMaps miniz symbol verification failed.' }
