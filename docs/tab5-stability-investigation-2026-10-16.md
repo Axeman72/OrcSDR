@@ -1,0 +1,113 @@
+# Tab5 FM and Wi-Fi stability investigation
+
+Do not treat the earlier Wi-Fi crash as resolved solely because
+the repeat tests do not crash. The saved dump establishes a null Wi-Fi input
+callback, but omits the interface's heap object and therefore does not establish
+why that callback became invalid.
+
+## Reproduced resource failure
+
+Repeated Settings Wi-Fi off/on/connect actions plus a location lookup left a
+fragmented internal DMA heap. A subsequent FM/Home run had sound enabled and RF
+sampling/decoding active, but `speaker_running=0`, `audio_chunks=0`, and every
+audio/RF drop counter remained zero. Five consecutive status samples preserved
+this failure in `.local/stability/fm-diag-run3/`.
+
+A temporary speaker guard reduction from 3072 to 2304 bytes allowed startup
+with the configured 256-frame buffer, but did not address Wi-Fi allocation
+shortages. It was tested and then removed; the original guard remains intact.
+
+## Production candidate
+
+The SDIO packet allocation path uses `eh_host_port_dma_alloc`, which always
+requests ordinary DMA memory. The existing aligned allocator honors the configured
+`CONFIG_EH_HOST_PORT_DMA_PREFER_SPIRAM` preference and falls back to internal DMA.
+The candidate changes the SDIO non-pool path to request 64-byte aligned buffers
+through that allocator. Other SDIO paths already use it. This preserves internal
+DMA for the speaker and network setup and gives packet buffers the same alignment
+as the existing transport paths.
+
+This is a one-line patch against the pinned ESP-Hosted 3.0.6 component,
+`e1a4f5492ac44fa248d77ac971d2055f8c565442`, installed after IDF configure by the
+existing patch helper. No dependency versions or C6 image were changed.
+Upstream source and license: [Espressif ESP-Hosted](https://github.com/espressif/esp-hosted),
+Apache-2.0; the original source license header remains in place. The patch is
+derived from that file, rather than an independent replacement driver.
+
+The host regression test compiles the actual installed `sdio_buffer_alloc`
+function with allocator stubs. It failed before the change and passed afterward,
+checking allocator selection, alignment/size, optional zeroing and allocation
+failure handling:
+
+```powershell
+wsl -d Ubuntu -- python3 /mnt/f/AI/OrcSDR-TEMP/tab5-lora-history/tools/test-hosted-sdio-dma.py
+# HOSTED_SDIO_DMA_TEST_PASS
+
+wsl -d Ubuntu -- bash /mnt/f/AI/OrcSDR-TEMP/tab5-lora-history/tools/test-tab5-cadence-history.sh
+# home_cadence PASS; waterfall_style PASS; lora_history PASS
+```
+
+## Test-only receive diagnostics
+
+`build-tab5-idf.ps1 -WifiRxDiag` enables a wrapper around `esp_netif_receive`.
+It reports sampled interface/callback addresses and always logs a null callback
+before invoking the original receive path. It does not discard or change packet
+delivery. A local copy of the interface is retained on the receive task stack so
+a future core dump can include it without capturing the entire heap.
+
+The option defaults off, and the build script explicitly sets it on/off to avoid
+stale CMake settings. These diagnostics are not a fix for the null callback.
+
+## Evidence and acceptance boundaries
+
+On COM39 with its V3c dongle, the diagnostic candidate passed six Settings
+Wi-Fi off/on/connect cycles while receiving LoRa at 906.875 MHz. Two cycles
+included an IP location lookup and completed certificate validation. The log
+contains six completed cycle-health records, no SDIO allocation-shortage
+warnings, no null-callback observations and no panic/reset markers. This is
+bounded reproduction evidence; it does not establish the cause of the saved
+null-callback crash.
+
+The final normal build has `ORCSDR_WIFI_RX_DIAG=0`; its ELF contains no receive
+wrapper symbol. Application SHA256:
+`321ffd6cd7c368d984cf922c381e809ef731176337fe76ec1ad1daf423d1f383`.
+It was flashed to COM39 at application offset `0x10000`; NVS and the C6 image
+were not written. The final FM/Home soak uses this normal build, keeps Wi-Fi
+connected, and receives concurrent read-only HTTP status/spectrum requests.
+
+Raw dumps, logs, binaries and serial authentication material are not committed.
+Evidence is under `.local/com39-crash/` and `.local/stability/` in this worktree.
+Some attempted runs ended because concurrent serial output corrupted status JSON
+or pairing replies. These are failed test runs, not passing soak results and not
+proof of a reset. Later local recorders preserve malformed replies and retry.
+
+The speaker-only trial reached approximately seven minutes with steady audio and
+no counted audio/RF drops; it still had Wi-Fi allocation warnings and was stopped
+to test the allocator candidate. It is not a substitute for the required final
+30-minute soak.
+
+## Final results
+
+The normal candidate completed 1,860.18 seconds (31 minutes) of FM at 96.1 MHz
+on HOME with Wi-Fi connected. All 186 samples reported the speaker running;
+audio production ranged from 22.810 to 24.252 chunks/s. Audio, ring, submission
+and USB drop counters stayed zero, with no runtime fault markers or status
+probe timeouts. Concurrent HTTP status/spectrum traffic completed 1,596 requests
+successfully, with zero failures. No final-minute audio slowdown recurred.
+
+HOME delivered 23.417–24.102 updates/s: sampled p50 intervals were 42–43 ms and
+p95 intervals 46–53 ms. The requested refresh interval remains 33 ms; this does
+not mean actual rendering reaches 30 frames/s. Free heap started at 6,060,956
+bytes and ended at 6,060,872 bytes, with a range of 6,057,660–6,061,216 bytes.
+The test restored LoRa at 906.875 MHz and sound off without resetting the device.
+
+On October 17 the user reported that COM39 ran overnight and was saving and
+working correctly. A read-only serial check confirmed uptime 46,182,451 ms
+(12.83 hours), LoRa still selected, Wi-Fi connected, and zero reported audio
+drops. Free heap was 2,159,936 bytes. This overnight LoRa observation has no
+matched post-switch heap baseline and is not a memory-leak acceptance result.
+
+The FM soak gate passes for this setup. The reproduced SDIO allocation pressure
+and resulting silent speaker startup are addressed. The saved Wi-Fi crash's
+null callback remains unexplained; successful stress and overnight operation
+are encouraging evidence, not proof of its root cause or permanent resolution.

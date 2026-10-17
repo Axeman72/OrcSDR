@@ -73,7 +73,10 @@ try:
    deltas={k:current[k]-baseline[k] for k in ['audio_chunks','audio_drops','ring_overruns','submit_failures','usb_overruns','usb_drops']}
    sample={'seconds':round(time.monotonic()-started,1),'updates_s':round((plot['frames']-previous_plot['frames'])*1000/dt,2),'p50_ms':plot['p50_ms'],'p95_ms':plot['p95_ms'],'free_heap':current['free_heap'],'effective_sps':current['effective_sps'],'deltas':deltas}
    samples.append(sample);emit('sample',**sample)
+   query('RTL_HEALTH','RTL_HEALTH_STATUS')
+   query('RTL_WIFI_COEX_STATUS','RTL_WIFI_COEX_STATUS')
    assert not faults,'runtime fault marker'
+   assert current['speaker_running']==1,'speaker stopped despite sound being enabled'
    assert all(deltas[k]==0 for k in ['audio_drops','ring_overruns','submit_failures','usb_overruns','usb_drops']), 'drop counter increased'
    assert current['audio_chunks']>previous['audio_chunks'],'audio did not advance'
    if len(samples)>1:
