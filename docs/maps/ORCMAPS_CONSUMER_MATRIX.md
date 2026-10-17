@@ -23,3 +23,23 @@ Keep receiver location, map-pack selection, map-camera center, and approximate I
 One screen_controller owner; one radio_session owner. Maps may draw only on the owning surface or its off-screen target. Picker service is event driven; no touch polling loop. First migration should cover ADS-B's sprite target and variable viewport, followed by LoRa, then FT8/JS8 independently.
 
 Do not copy old main.cpp, partitions or driver manifest. Consumer migration and P4 rendering remain UNTESTED until implemented and measured.
+
+## Shared adapter foundation
+
+`map_pipeline.*` now provides the common archive/reader/streaming-scratch/render path and E7-to-OrcMaps projection. It accepts a portable RenderTarget and cancellation/yield hooks; it contains no M5GFX, network, radio, touch or display ownership. Repeated wrapped tile placements decode once, then draw each placement. RenderStats distinguishes I/O, lookup, stream/decode and feature rendering; no P4 numbers are inferred from host timings.
+
+`map_inventory.*` separately invokes OrcMaps discovery/pack resolution, preserves manifest metadata/attribution and explicit size-only integrity semantics, and rejects more than 16 manifests explicitly. The device filesystem adapter must also bound directory enumeration before allocation; host-only limits do not establish device safety. Signed catalog/P25 parsing is unchanged.
+
+The candidate engine is reviewed PR #4 commit `70fea367909c74794bb69c7aed97e0f11f0a9387`, a descendant of v0.2.1, tested separately under MSVC AddressSanitizer. It is not claimed merged upstream or hardware-accepted. Dashboard/device integration is still pending.
+
+### Reproduce foundation tests
+
+From the repository root, with a checkout of the candidate engine:
+
+```sh
+cmake -S apps/orcsdr-tab5/tests/maps -B build-maps-tests -DORCMAPS_ROOT=/path/to/OrcMaps
+cmake --build build-maps-tests --config RelWithDebInfo
+ctest --test-dir build-maps-tests -C RelWithDebInfo --output-on-failure
+```
+
+On Windows this session used Visual Studio 18 2026, `/fsanitize=address`, and assertions explicitly enabled even in RelWithDebInfo. The test target passed projection/dimensions/antimeridian, repeatable pixels, cancellation, invalid archive/profile/zoom, 0/1/5/16 discovered packs, limit overflow, no SD, missing archive, mismatched size and malformed manifest cases. Log: `maps-pipeline-host.log` (invocation directory), reviewed copy in `docs/evidence/maps/`.
