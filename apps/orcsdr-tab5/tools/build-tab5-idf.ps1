@@ -15,7 +15,9 @@ param(
   # Enables authenticated C6-only power fault injection. Never ship.
   [switch]$C6FaultTest,
   # Logs receive-interface callbacks for the Settings Wi-Fi crash investigation.
-  [switch]$WifiRxDiag
+  [switch]$WifiRxDiag,
+  # Host artifact only. Inclusion in flash_args does not flash a device.
+  [string]$WorldMap
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +45,7 @@ $buildDir = 'build-native-hosted3'
 New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
 Copy-Item -LiteralPath 'sdkconfig.defaults' -Destination (Join-Path $buildDir 'sdkconfig') -Force
 $configureArgs = @('-B', $buildDir, '-D', "SDKCONFIG=$buildDir/sdkconfig",
+                   '-D', "ORCSDR_WORLD_MAP=$WorldMap",
                    '-D', 'SDKCONFIG_DEFAULTS=sdkconfig.defaults',
                    '-D', "ORCSDR_DSP_AB=$(if ($DspAb) { 1 } else { 0 })",
                    '-D', "ORCSDR_DSP_STAGE_TIMING=$(if ($NoDspStageTiming) { 0 } else { 1 })",
@@ -87,6 +90,4 @@ foreach ($line in $required) {
 idf.py -B $buildDir build
 if ($LASTEXITCODE -ne 0) { throw "ESP-IDF build failed with exit code $LASTEXITCODE." }
 
-# A host test cannot detect accidental resolution to the ESP32 ROM inflater.
-python managed_components/orcmaps/tools/check_miniz_symbols.py $buildDir
-if ($LASTEXITCODE -ne 0) { throw 'OrcMaps miniz symbol verification failed.' }
+# The CMake ALL target verifies OrcMaps' linked miniz symbols before success.

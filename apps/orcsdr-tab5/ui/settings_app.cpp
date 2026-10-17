@@ -273,6 +273,7 @@ void draw_location() {
   if (g_state.ip_location_ready) button("USE RESULT", 800, 575, 240, 46, TFT_DARKGREEN);
   if (g_state.ip_location_message[0]) text(g_state.ip_location_message, 330, 645, kMuted, 2, middle_left);
   text("Address search data (c) OpenStreetMap contributors", 330, 682, kMuted, 1);
+  button("MAP PICKER",1054,575,164,46,TFT_DARKCYAN);
 }
 
 void draw_data_maps() {
@@ -325,6 +326,7 @@ void draw_data_maps() {
            pack.installed && !g_state.catalog_busy ? TFT_MAROON : TFT_DARKGREY);
   }
   text("Manual only. Reception pauses and resumes after downloads.", 330, 688, TFT_LIGHTGREY, 1);
+  button("LOCAL MAPS",1000,665,218,36,TFT_NAVY);
 }
 
 void draw_display_audio() {
@@ -465,6 +467,7 @@ void draw_system_power() {
 void draw_system() {
   text("SYSTEM", 330, 115, kBlue, 3);
   button("SET CLOCK", 1000, 100, 218, 46, TFT_DARKCYAN);
+  button("RUN SETUP",720,100,240,46,TFT_NAVY);
   char value[48];
   draw_system_power();
   const bool local_known = g_state.rtc_valid && g_state.rtc_local[0];
@@ -980,6 +983,7 @@ Action handle_touch(int32_t x, int32_t y) {
     start_clock_edit();
     return {};
   }
+  if(g_section==Section::system&&hit(x,y,720,100,240,46))return {ActionKind::run_setup,0};
 #if ORCSDR_ORCDIAL
   if(g_section==Section::companion) {
     if(hit(x,y,330,540,280,48)) {
@@ -1040,6 +1044,7 @@ Action handle_touch(int32_t x, int32_t y) {
       return {};
     }
   } else if (g_section == Section::location_adsb) {
+    if(hit(x,y,1054,575,164,46))return {ActionKind::open_location_picker,0};
     if (hit(x, y, 820, 204, 398, 54)) { start_edit(EditField::latitude); draw_keypad(); }
     else if (hit(x, y, 820, 274, 398, 54)) { start_edit(EditField::longitude); draw_keypad(); }
     else if (hit(x, y, 820, 344, 398, 54)) {
@@ -1064,6 +1069,7 @@ Action handle_touch(int32_t x, int32_t y) {
       return {ActionKind::location_ip_confirm, 0};
     }
   } else if (g_section == Section::data_maps) {
+    if(hit(x,y,1000,665,218,36))return {ActionKind::open_local_maps,0};
     if (hit(x, y, 940, 126, 278, 48) && !g_state.catalog_busy)
       return {ActionKind::catalog_check, 0};
     const size_t pages = orcsdr::map_catalog_paging::page_count(g_state.catalog_packs);

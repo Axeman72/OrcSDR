@@ -13,7 +13,8 @@ RegionalView draw_region(lgfx::v1::LovyanGFX& display,int32_t latitude,int32_t l
   if(!result.valid)return result;
   result.legacy={latitude/1e7f,longitude/1e7f,static_cast<float>(range),x,y,width,height};
   display.fillRect(x,y,width,height,background);
-  result.frame.state=draw(result.camera,display,x,y,&result.frame,preferred);
+  const bool prefer_legacy=preferred&&std::strcmp(preferred,"lane_county_map")==0&&offline_map::available();
+  result.frame.state=prefer_legacy?Frame::unavailable:draw(result.camera,display,x,y,&result.frame,preferred);
   if(result.frame.state!=Frame::ready) {
     // Legacy data remains usable without conversion. Keep its projection with
     // its basemap, rather than putting Mercator markers over equirectangular data.
@@ -24,8 +25,11 @@ RegionalView draw_region(lgfx::v1::LovyanGFX& display,int32_t latitude,int32_t l
       std::snprintf(result.frame.credit,sizeof(result.frame.credit),"OpenStreetMap contributors, ODbL");
     } else display.drawRect(x,y,width,height,grid);
     std::snprintf(result.frame.status,sizeof(result.frame.status),"%s",
-        result.frame.state==Frame::pending ? "LOADING LOCAL MAP" : "NO BASEMAP - COORDINATES ONLY");
+        prefer_legacy ? "LEGACY MAP - COVERAGE UNVERIFIED" :
+        result.frame.state==Frame::pending ? "LOADING LOCAL MAP" :
+        result.legacy_pixels ? "LEGACY - COVERAGE UNVERIFIED" : "NO BASEMAP - COORDINATES ONLY");
   }
+  display.setFont(nullptr);
   display.setTextSize(1);display.setTextDatum(bottom_left);display.setTextColor(ink,background);
   const char* caption=result.frame.credit[0] ? result.frame.credit : result.frame.status;
   // Full required attribution, wrapped within the map instead of truncated.

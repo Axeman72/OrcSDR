@@ -8,7 +8,7 @@ endif()
 set(ui "${CMAKE_CURRENT_SOURCE_DIR}/../../ui")
 set(engine "${ORCMAPS_ROOT}")
 add_executable(orcsdr_maps_tests
-  map_pipeline_tests.cpp map_inventory_tests.cpp "${ui}/map_pipeline.cpp" "${ui}/map_inventory.cpp"
+  map_pipeline_tests.cpp map_inventory_tests.cpp map_world_tests.cpp "${ui}/map_pipeline.cpp" "${ui}/map_inventory.cpp"
   "${engine}/src/core/geo.cpp" "${engine}/src/core/viewport.cpp"
   "${engine}/src/core/pack.cpp" "${engine}/src/core/pack_json.cpp" "${engine}/src/core/pack_discovery.cpp"
   "${engine}/src/tiles/pmtiles_reader.cpp" "${engine}/src/tiles/compression.cpp"
@@ -22,10 +22,27 @@ target_include_directories(orcsdr_maps_tests PRIVATE "${ui}" "${engine}/include"
 target_compile_definitions(orcsdr_maps_tests PRIVATE MINIZ_NO_DEFLATE_APIS
   MINIZ_NO_ZLIB_APIS MINIZ_NO_ARCHIVE_APIS _CRT_SECURE_NO_WARNINGS)
 if(MSVC)
-  target_compile_options(orcsdr_maps_tests PRIVATE /UNDEBUG)
+  target_compile_options(orcsdr_maps_tests PRIVATE /UNDEBUG /EHsc)
 else()
   target_compile_options(orcsdr_maps_tests PRIVATE -UNDEBUG)
 endif()
 enable_testing()
+add_executable(orcsdr_setup_tests setup_flow_tests.cpp)
+target_include_directories(orcsdr_setup_tests PRIVATE "${ui}")
+if(MSVC)
+  target_compile_options(orcsdr_setup_tests PRIVATE /UNDEBUG /EHsc)
+else()
+  target_compile_options(orcsdr_setup_tests PRIVATE -UNDEBUG)
+endif()
+add_test(NAME setup_flow COMMAND orcsdr_setup_tests)
 add_test(NAME map_pipeline COMMAND orcsdr_maps_tests "${engine}/tests/fixtures/tiny-gzip.pmtiles"
   "${engine}/examples/m5stack-tab5/test-pack/springfield-97477.manifest.json")
+set(ORCSDR_WORLD_FIXTURE "" CACHE FILEPATH "Verified optional world archive")
+if(ORCSDR_WORLD_FIXTURE)
+  file(SHA256 "${ORCSDR_WORLD_FIXTURE}" world_sha)
+  if(NOT world_sha STREQUAL "9aea08772bacf1f024d1da90cc52aa8fcf0b0e37405415dc7c91e75e56596f0f")
+    message(FATAL_ERROR "Unexpected world fixture hash")
+  endif()
+  add_test(NAME world_geometry COMMAND orcsdr_maps_tests "${engine}/tests/fixtures/tiny-gzip.pmtiles"
+    "${engine}/examples/m5stack-tab5/test-pack/springfield-97477.manifest.json" "${ORCSDR_WORLD_FIXTURE}")
+endif()

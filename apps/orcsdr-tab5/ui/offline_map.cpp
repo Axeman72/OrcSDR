@@ -27,6 +27,8 @@ bool parse_line(const char* line, Segment* output) {
   if (sscanf(line, "%c %f %f %f %f", &kind, &segment.lat1, &segment.lon1,
              &segment.lat2, &segment.lon2) != 5) return false;
   if (segment.lat1 < -90 || segment.lat1 > 90 || segment.lat2 < -90 || segment.lat2 > 90 ||
+      !std::isfinite(segment.lat1) || !std::isfinite(segment.lat2) ||
+      !std::isfinite(segment.lon1) || !std::isfinite(segment.lon2) ||
       segment.lon1 < -180 || segment.lon1 > 180 || segment.lon2 < -180 || segment.lon2 > 180)
     return false;
   if (kind == 'R') segment.kind = Kind::road;
@@ -41,6 +43,7 @@ bool parse_label(const char* line, Label* output) {
   if (!line || !output) return false;
   Label label{};
   if (sscanf(line, "L %f %f %23[^\n]", &label.lat, &label.lon, label.text) != 3 ||
+      !std::isfinite(label.lat) || !std::isfinite(label.lon) ||
       label.lat < -90 || label.lat > 90 || label.lon < -180 || label.lon > 180 || !label.text[0])
     return false;
   *output = label;
@@ -155,6 +158,10 @@ void draw_base(const View& view, uint16_t water_color, uint16_t road_color,
 }
 
 bool self_check() {
+  Segment segment;Label label;
+  if(!parse_line("R 44 -123 44.01 -123.01",&segment) ||
+      parse_line("R nan -123 44 -123",&segment) ||
+      parse_label("L 44 inf bad",&label))return false;
   View view{44.0f, -123.0f, 25.0f, 0, 0, 400, 400};
   int x = 0, y = 0;
   int x1 = -100, y1 = 200, x2 = 500, y2 = 200;

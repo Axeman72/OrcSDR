@@ -15,8 +15,10 @@ struct Empty final : orcmap::ByteSource {
 };
 bool cancel(void*) { return false; }
 void inventory_tests(const char*);
+void world_tests(const char*);
 int main(int argc, char** argv) {
-  assert(argc == 3);
+  assert(argc == 3 || argc == 4);
+  if(argc==4)world_tests(argv[3]);
   inventory_tests(argv[2]);
   using namespace orcsdr::maps;
   for (auto dimensions : {std::pair<int,int>{842,330}, {480,320}, {320,240}}) {
@@ -30,8 +32,15 @@ int main(int argc, char** argv) {
   orcmap::Viewport view;
   assert(regional_view(0,1799900000,50,480,320,&view));
   int x=0,y=0;
+  assert(world_compat_project(0,0,50,158,824,420,&x,&y)&&x==462&&y==368);
+  assert(world_compat_project(90,-180,50,158,824,420,&x,&y)&&x==50&&y==158);
+  assert(world_compat_project(-90,180,50,158,824,420,&x,&y)&&x==874&&y==578);
+  assert(!world_compat_project(91,0,0,0,480,320,&x,&y));
+  assert(!world_compat_project(0,NAN,0,0,480,320,&x,&y));
   assert(project(view,0,-1799900000,&x,&y)); // wrap across the antimeridian
   assert(!regional_view(900000001,0,15,480,320,&view));
+  assert(!regional_view(900000000,0,15,480,320,&view));
+  assert(!project(view,900000000,0,&x,&y));
   assert(!regional_view(0,0,0,480,320,&view));
   assert(!regional_view(0,0,std::numeric_limits<double>::infinity(),480,320,&view));
   assert(!regional_view(0,0,15,0,320,&view));

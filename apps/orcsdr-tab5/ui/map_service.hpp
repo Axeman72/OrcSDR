@@ -12,6 +12,7 @@ enum class Frame : uint8_t { pending, ready, unavailable };
 struct PackInfo {
   Kind kind = Kind::rejected;
   char identity[256]{}, title[64]{}, region[80]{}, version[32]{}, status[64]{}, credit[192]{};
+  char coverage[96]{}, provenance[160]{};
   uint64_t bytes = 0;
   uint8_t min_zoom = 0, max_zoom = 0;
   bool usable = false, size_checked = false;
@@ -19,12 +20,14 @@ struct PackInfo {
 struct MapSnapshot {
   bool loaded = false, sd = false, world = false, legacy = false, overflow = false;
   uint8_t count = 0;
+  uint32_t revision = 0;
   PackInfo packs[18]{};
 };
 struct FrameInfo {
   Frame state = Frame::unavailable;
   char title[64]{}, credit[192]{}, status[64]{};
   uint32_t revision = 0, cache_hits = 0;
+  uint32_t push_us = 0;
   RenderStats stats{};
 };
 
@@ -35,7 +38,9 @@ bool snapshot(MapSnapshot*);
 void rescan();
 void cancel();
 uint32_t revision();
+bool installed(); // discovered availability, not a coverage or integrity claim
 Frame draw(const orcmap::Viewport&, lgfx::v1::LovyanGFX& target, int x, int y,
            FrameInfo*, const char* preferred = nullptr);
 bool frame_info(FrameInfo*);
+void report(); // read-only serial diagnostics; called on the UI task
 } // namespace orcsdr::maps

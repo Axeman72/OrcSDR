@@ -100,7 +100,7 @@ bool Pipeline::render(const orcmap::Viewport& viewport, orcmap::RenderTarget& ta
 
 bool regional_view(int32_t latitude_e7, int32_t longitude_e7, double range_nm,
                    int width, int height, orcmap::Viewport* output) {
-  if (!output || !coordinates(latitude_e7, longitude_e7) || width <= 0 || height <= 0 ||
+  if (!output || !coordinates(latitude_e7, longitude_e7) || std::abs(static_cast<int64_t>(latitude_e7))>850511287 || width <= 0 || height <= 0 ||
       width > 1280 || height > 720 || !std::isfinite(range_nm) || range_nm <= 0 || range_nm > 10000) return false;
   orcmap::Viewport view;
   view.width_px = width; view.height_px = height;
@@ -117,8 +117,17 @@ bool regional_view(int32_t latitude_e7, int32_t longitude_e7, double range_nm,
   return true;
 }
 
+bool world_compat_project(double latitude,double longitude,int left,int top,int width,int height,int* x,int* y) {
+  if(!x||!y||width<=0||height<=0||width>1280||height>720||!std::isfinite(latitude)||
+      !std::isfinite(longitude)||latitude<-90||latitude>90||longitude<-180||longitude>180)return false;
+  // Preserve the existing full-world float geometry, including unclipped edges.
+  *x=left+static_cast<int>((static_cast<float>(longitude)+180.0f)/360.0f*width);
+  *y=top+static_cast<int>((90.0f-static_cast<float>(latitude))/180.0f*height);
+  return true;
+}
+
 bool project(const orcmap::Viewport& view, int32_t latitude_e7, int32_t longitude_e7, int* x, int* y) {
-  if (!x || !y || !coordinates(latitude_e7, longitude_e7)) return false;
+  if (!x || !y || !coordinates(latitude_e7, longitude_e7) || std::abs(static_cast<int64_t>(latitude_e7))>850511287) return false;
   double sx = 0, sy = 0;
   if (!orcmap::ProjectLatLon(view, {latitude_e7 / 1e7, longitude_e7 / 1e7}, &sx, &sy) ||
       !std::isfinite(sx) || !std::isfinite(sy) || sx < 0 || sy < 0 || sx >= view.width_px || sy >= view.height_px) return false;

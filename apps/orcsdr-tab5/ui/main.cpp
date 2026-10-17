@@ -119,6 +119,7 @@
 #include "navigation_service.hpp"
 #include "offline_map.hpp"
 #include "map_service.hpp"
+#include "map_screen.hpp"
 #include "nvs_store.hpp"
 #include "p25_dashboard.hpp"
 #include "p25_config.hpp"
@@ -1822,7 +1823,7 @@ bool settings_graphics_default = true;
 bool settings_web_console_enabled = false;
 bool web_console_deferred = false;
 char settings_location_label[40]{};
-char settings_map_pack[40]{};
+char settings_map_pack[256]{};
 bool adsb_atc_listening = false;
 bool catalog_radio_paused = false;
 
@@ -12943,7 +12944,9 @@ void navigation_persist_settings_open() {
 }
 
 void navigation_restore_screen(orcsdr::screens::Id restore) {
-  if (restore == orcsdr::screens::Id::home) {
+  if (restore == orcsdr::screens::Id::maps) {
+    orcsdr::map_screen::draw();
+  } else if (restore == orcsdr::screens::Id::home) {
     orcsdr::home::draw();
   } else if (restore == orcsdr::screens::Id::adsb) {
     draw_adsb_dashboard(true);
@@ -12985,7 +12988,33 @@ void navigation_restore_screen(orcsdr::screens::Id restore) {
   }
 }
 
+bool save_map_receiver_location(int32_t latitude, int32_t longitude) {
+  if (!orcsdr::receiver_location::valid(true, latitude, longitude)) return false;
+  if (!preferences.putInt("adsb_lat_e7", latitude) ||
+      !preferences.putInt("adsb_lon_e7", longitude) ||
+      !preferences.putBool("adsb_loc_set", true)) return false;
+  const auto current = orcsdr::receiver_location::snapshot();
+  orcsdr::receiver_location::set(true, latitude, longitude, current.label, current.map_pack);
+  adsb_settings.location_configured = true;
+  adsb_settings.latitude_e7 = latitude;
+  adsb_settings.longitude_e7 = longitude;
+  refresh_adsb_atc_preset();
+  return true;
+}
+
+bool save_map_selection(const char* identity) {
+  if (!identity || strlen(identity) >= sizeof(settings_map_pack) ||
+      !preferences.putString("map_pack", identity)) return false;
+  strlcpy(settings_map_pack, identity, sizeof(settings_map_pack));
+  const auto current = orcsdr::receiver_location::snapshot();
+  orcsdr::receiver_location::set(current.configured, current.latitude_e7,
+      current.longitude_e7, current.label, identity);
+  return true;
+}
+
 void configure_navigation_service() {
+  orcsdr::map_screen::configure({navigation_restore_screen,
+      save_map_receiver_location, save_map_selection});
   orcsdr::navigation::configure({
       home_dashboard_snapshot,
       navigation_sync_audio,
@@ -14473,6 +14502,12 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       }
       break;
     }
+    case orcsdr::settings::ActionKind::open_local_maps:
+      orcsdr::map_screen::open(orcsdr::map_screen::Mode::inventory); break;
+    case orcsdr::settings::ActionKind::open_location_picker:
+      orcsdr::map_screen::open(orcsdr::map_screen::Mode::picker); break;
+    case orcsdr::settings::ActionKind::run_setup:
+      orcsdr::map_screen::open(orcsdr::map_screen::Mode::setup); break;
     case orcsdr::settings::ActionKind::location_changed: {
       const auto& state = orcsdr::settings::state();
       adsb_settings.location_configured = state.location_configured;
@@ -14871,6 +14906,7 @@ void persist_workflow() {
 
 void load_state() {
   preferences.begin("orclink", false);
+  orcsdr::map_screen::load(preferences);
   orcsdr::time_service::initialize(preferences.getBool("rtc_est", false));
   orcsdr::time_service::load_config(preferences);
   orcsdr::am::load(preferences);
@@ -16507,6 +16543,9 @@ void handle_radio_key(const orcsdr::keyboard_input::Key& key) {
 }
 
 void route_key(const orcsdr::keyboard_input::Key& key) {
+  if (orcsdr::screens::owns(orcsdr::screens::Id::maps)) {
+    orcsdr::map_screen::key(key); return;
+  }
   using orcsdr::keyboard_input::Special;
   if (orcsdr::text_editor::active()) {
     handle_editor_key(key);
@@ -16576,7 +16615,8 @@ void poll_sdr_touch(bool from_stream) {
   if (ui_documentation_mode) return;
   if (orcsdr::screens::transitioning()) return;
   const auto active_screen = orcsdr::screens::status().active;
-  if (active_screen == orcsdr::screens::Id::visualizer) return;
+  if (active_screen == orcsdr::screens::Id::visualizer ||
+      active_screen == orcsdr::screens::Id::maps) return;
   static uint32_t last_touch_poll_ms = 0;
   static bool flick_thresh_set = false;
   static bool scope_dragging = false;
@@ -16915,6 +16955,9 @@ void poll_sdr_touch(bool from_stream) {
 }
 
 void handle_sdr_touch(int32_t x, int32_t y) {
+  if (orcsdr::screens::owns(orcsdr::screens::Id::maps)) {
+    orcsdr::map_screen::touch(x, y, true, true); return;
+  }
   if (orcsdr::settings::active()) {
     if (!handle_global_header_audio_touch(x, y))
       handle_global_settings_touch(x, y);
@@ -19196,6 +19239,9 @@ void process_command(char* command) {
     apply_serial_verbosity(level);
     Serial.printf("RTL_SERIAL_VERBOSITY_OK mode=%s\n", serial_verbosity_name(level));
     return;
+  }
+  if (strcmp(command, "RTL_MAP_STATUS") == 0) {
+    orcsdr::maps::report(); return;
   }
   if (strcmp(command, "RTL_HEALTH") == 0) {
     const uint32_t dma_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
@@ -22436,6 +22482,10 @@ void loop() {
   }
   rtl_audio_test_service();
   service_boot_device_staging();
+  if (orcsdr::map_screen::first_run_pending() &&
+      boot_init_stage == BootInitStage::ready &&
+      orcsdr::screens::owns(orcsdr::screens::Id::home))
+    orcsdr::map_screen::open(orcsdr::map_screen::Mode::setup, true);
   if (web_console_deferred && boot_init_stage == BootInitStage::ready) {
     web_console_deferred = false;
     orcsdr::web_console::set_enabled(settings_web_console_enabled);
@@ -22650,6 +22700,7 @@ void loop() {
       orcsdr::screens::status().active != orcsdr::screens::Id::ft8 &&
        orcsdr::screens::status().active != orcsdr::screens::Id::sstv &&
       orcsdr::screens::status().active != orcsdr::screens::Id::acars &&
+      orcsdr::screens::status().active != orcsdr::screens::Id::maps &&
       !orcsdr::screens::owns(screen_for_band(rtl_ui_band)) &&
       !orcsdr::home::active()) {
     draw_sdr_screen(rtl_ui_band, rtl_ui_frequency_hz,
@@ -22672,7 +22723,11 @@ void loop() {
     orcsdr::audio_header::restore_volume_background();
   }
 
-  if (orcsdr::visualizer::active()) {
+  if (orcsdr::screens::owns(orcsdr::screens::Id::maps)) {
+    const auto touch = ui_touch_detail(0);
+    orcsdr::map_screen::touch(touch.x, touch.y, touch.isPressed(), touch.wasPressed());
+    orcsdr::map_screen::tick();
+  } else if (orcsdr::visualizer::active()) {
     // service_visualizer() above owns the complete full-screen surface.
   } else if (settings_ui) {
     static uint32_t settings_last_update_ms = 0;

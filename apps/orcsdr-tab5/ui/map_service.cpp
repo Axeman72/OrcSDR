@@ -41,6 +41,7 @@ std::unique_ptr<Pipeline> g_pipeline;
 char g_archive[256]{};
 bool g_sd = false, g_cached = false;
 std::atomic<bool> g_scan{true};
+std::atomic<bool> g_installed{false};
 std::atomic<uint32_t> g_serial{0}, g_revision{0};
 std::atomic<size_t> g_canvas_bytes{0};
 uint64_t g_yield_us = 0;
@@ -94,6 +95,8 @@ void discover() {
   auto& world=next.packs[next.count++];
   world.kind=Kind::firmware;text(world.identity,"firmware-world");text(world.title,"Firmware world overview");
   text(world.region,"World; overview detail only");text(world.credit,"Made with Natural Earth");
+  text(world.coverage,"World (Mercator); polar caps excluded");
+  text(world.provenance,"Natural Earth 5.1.2; public domain");
   orcmap::esp_idf::PartitionByteSource source(kWorld);
   if(source.Valid()) {
     Pipeline probe(source);
@@ -116,6 +119,10 @@ void discover() {
     const bool path_fits=pack.archive_path.size()<sizeof(g_archive);
     text(item.identity,pack.pack_id.c_str());text(item.title,pack.display_name.c_str());
     text(item.region,pack.region_name.c_str());text(item.version,pack.pack_version.c_str());
+    std::snprintf(item.coverage,sizeof(item.coverage),"S %.5f W %.5f N %.5f E %.5f",
+        pack.bounds.min_lat_deg,pack.bounds.min_lon_deg,pack.bounds.max_lat_deg,pack.bounds.max_lon_deg);
+    std::snprintf(item.provenance,sizeof(item.provenance),"%s %s; source %s; built %s",
+        pack.builder.c_str(),pack.builder_version.c_str(),pack.source_snapshot.c_str(),pack.build_date.c_str());
     item.bytes=pack.size_bytes;item.min_zoom=pack.min_zoom;item.max_zoom=pack.max_zoom;
     std::string credit;
     for(const auto& attribution:pack.attribution)if(attribution.required) {
@@ -131,7 +138,13 @@ void discover() {
     auto& item=next.packs[next.count++];item.kind=Kind::rejected;
     text(item.title,rejected.manifest_name.c_str());text(item.status,orcmap::PackRejectionName(rejected.rejection));
   }
-  xSemaphoreTake(g_lock,portMAX_DELAY);g_snapshot=next;g_cached=false;xSemaphoreGive(g_lock);
+  xSemaphoreTake(g_lock,portMAX_DELAY);
+  bool available=false;
+  for(size_t i=0;i<next.count;++i)available|=next.packs[i].usable;
+  g_installed.store(available);
+  next.revision=g_snapshot.revision+1;g_snapshot=next;g_cached=false;
+  g_pipeline.reset();g_source.reset();g_archive[0]=0;
+  xSemaphoreGive(g_lock);
 }
 
 const PackInfo* info_for(const char* identity) {
@@ -143,7 +156,8 @@ bool choose(const Request& request,orcmap::Viewport* view,char* path,size_t size
   *view=request.view;
   orcmap::GeoBounds bounds;
   const orcmap::PackManifest* pack=nullptr;
-  if(orcmap::GetVisibleBounds(*view,&bounds))pack=g_inventory.resolve(bounds,view->zoom,request.preferred);
+  if(std::strcmp(request.preferred,"firmware-world") && orcmap::GetVisibleBounds(*view,&bounds))
+    pack=g_inventory.resolve(bounds,view->zoom,request.preferred);
   if(pack) {
     *info=info_for(pack->pack_id.c_str());
     if(*info && (*info)->usable) {std::snprintf(path,size,"%s",pack->archive_path.c_str());return true;}
@@ -239,9 +253,27 @@ bool snapshot(MapSnapshot* out) {
 void rescan() {g_scan.store(true);cancel();}
 void cancel() {g_serial.fetch_add(1);}
 uint32_t revision() {return g_revision.load();}
+bool installed() {return g_installed.load();}
 bool frame_info(FrameInfo* out) {
   if(!out || !g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return false;
   *out=g_frame;xSemaphoreGive(g_lock);return true;
+}
+void report() {
+  FrameInfo frame;
+  if(!frame_info(&frame)) {std::printf("ORC_MAP_STATUS busy=1 generation=%lu\n",static_cast<unsigned long>(g_serial.load()));return;}
+  const auto& stats=frame.stats;
+  std::printf("ORC_MAP_STATUS state=%u generation=%lu revision=%lu cached_pushes=%lu push_us=%lu frame_bytes=%u "
+      "tiles=%lu missing=%lu failed=%lu features=%lu reads=%lu bytes=%llu lookup_us=%llu stream_us=%llu render_us=%llu total_us=%llu io_us=%llu\n",
+      static_cast<unsigned>(frame.state),static_cast<unsigned long>(g_serial.load()),static_cast<unsigned long>(frame.revision),
+      static_cast<unsigned long>(frame.cache_hits),static_cast<unsigned long>(frame.push_us),static_cast<unsigned>(g_canvas_bytes.load()),
+      static_cast<unsigned long>(stats.tiles),static_cast<unsigned long>(stats.missing),static_cast<unsigned long>(stats.failed),
+      static_cast<unsigned long>(stats.features),static_cast<unsigned long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
+      static_cast<unsigned long long>(stats.lookup_us),static_cast<unsigned long long>(stats.stream_us),
+      static_cast<unsigned long long>(stats.render_us),static_cast<unsigned long long>(stats.total_us),static_cast<unsigned long long>(stats.io_us));
+  std::printf("ORC_MAP_MEMORY internal_free=%u internal_largest=%u dma_free=%u dma_largest=%u psram_free=%u psram_largest=%u\n",
+      heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
+      heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA),heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA),
+      heap_caps_get_free_size(MALLOC_CAP_SPIRAM),heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
 }
 Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,FrameInfo* info,const char* preferred) {
   if(!g_task || !g_queue || !g_lock)return Frame::unavailable;
@@ -256,7 +288,10 @@ Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,
   }
   if(xSemaphoreTake(g_lock,0)!=pdTRUE)return Frame::pending;
   if(g_cached && g_ready.serial==g_serial.load() && same(request,g_ready)) {
-    if(g_frame.state==Frame::ready) {g_canvas.pushSprite(&target,x,y);++g_frame.cache_hits;}
+    if(g_frame.state==Frame::ready) {
+      const uint64_t started=clock_us();g_canvas.pushSprite(&target,x,y);
+      g_frame.push_us=static_cast<uint32_t>(clock_us()-started);++g_frame.cache_hits;
+    }
     if(info)*info=g_frame;
     const Frame result=g_frame.state;xSemaphoreGive(g_lock);return result;
   }

@@ -64,5 +64,6 @@ bool regional_view(int32_t latitude_e7, int32_t longitude_e7, double range_nm,
                    int width, int height, orcmap::Viewport* output);
 bool project(const orcmap::Viewport&, int32_t latitude_e7, int32_t longitude_e7,
              int* x, int* y);
+bool world_compat_project(double latitude,double longitude,int left,int top,int width,int height,int* x,int* y);
 
 } // namespace orcsdr::maps
