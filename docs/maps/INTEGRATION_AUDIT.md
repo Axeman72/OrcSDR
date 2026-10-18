@@ -47,6 +47,57 @@ The bounded text trace is `.local/maps/source-trace.txt`, generated with rg acro
 
 The 3,036-byte published `catalog-v1.json` and 97-byte base64 signature were read on the host only. `openssl dgst -sha256 -verify .../catalog_public_key.pem -signature signature.der catalog-v1.json` reported `Verified OK`. It contains FAA aircraft, FAA aviation (legacy alias faa_aviation), and the legacy lane_county_map offer; no PMTiles offer is present. No pack payload was downloaded or installed.
 
-## Remaining implementation
+## Implementation work identified by the baseline audit
 
 Full local-map inventory, canonical picker, safe wizard migration/rerun, shared OrcMaps rendering, consumer migrations, deterministic render tests and P4 measurements remain open. Every main.cpp change must be map/setup wiring only. No merges are authorized for this task.
+
+## Current integration work
+
+Local OrcSDR branch `codex/maps-integration-completion` remains based on fresh
+`origin/main` fba861e36970357e0a005c03d666250b09096cb6. No OrcSDR PR or main merge has
+been performed. Focused commits:
+
+- bf1d82b8: catalog capacity/pagination and neutral legacy label.
+- 4af52409: tested portable pipeline and local inventory foundations.
+- 3d1bc222: pinned engine worker and first LoRa consumer migration.
+- aeb6f4f7: setup/picker/local inventory, world provisioning gate, narrow main glue.
+- cb79c1fc: ADS-B basemap and marker/hit-test projection.
+- 511c2005: central whole-world compatibility renderer for FT8/JS8.
+
+Source/build coverage is not hardware acceptance. Setup migration, manual E7 validation,
+0/1/5/16 local pack cases, malformed/missing/mismatched manifests, bounds/antimeridian,
+repeatable world renders and injected allocation-failure recovery have host coverage.
+Current driver and ESP-IDF pins are unchanged. Main changes are map/setup initialization,
+callbacks, Settings actions, the new screen's dispatch, and read-only map diagnostics.
+No receiver lifecycle, DSP, USB, audio or Wi-Fi implementation was reorganized.
+
+A low-memory blocker was identified before flashing: the baseline disables C++
+exceptions, so library allocation failure aborts. The prepared recovery patch enables
+the runtime with a 1 KiB emergency reserve; the user approved its full native rebuild.
+This changes C++ compilation/runtime support across the firmware and must be checked
+for size and real-device memory/radio behavior, not treated as a free map optimization.
+The upstream cleanup fix is draft OrcMaps PR5, based on PR4; neither is merged by this
+session. OrcSDR's final pin is c3cc09de3882149e03c7c00d7897c6882b324c6b for that rebuild.
+
+## Unclosed gates
+
+- Exception-enabled native build, pin agreement, size guard and symbol gate PASS; see P4_PERFORMANCE_EVIDENCE.md. Real-device memory/radio acceptance remains open.
+- Correct-target confirmation and local flash/NVS backup before any COM39 flash.
+- COM39 physical picker/setup/inventory/dashboard navigation and active-RF profiling.
+- COM17 preserved-data validation; no flash or SD modification is authorized there.
+- Live firmware/NVS identity, full SD inventory, hash verification and stored-location
+  evidence not obtained by the earlier unauthenticated, receiving-only audit.
+- No-SD/offline, interrupted setup and low-memory behavior on actual hardware.
+
+No active-RF performance gain, radio continuity result, successful device migration,
+physical visual acceptance or completed integration is claimed yet.
+
+## Pre-flash focused review outcome
+
+A focused review of the new worker, setup/picker, adapter, and main glue found one
+important issue: separately committed latitude/longitude could leave a mixed pair.
+The new versioned location_store replaces all three writers and the boot load seam,
+keeping legacy keys intact and refusing unknown record versions. Its interruption
+regression failed before the fix and passes afterward. The review recheck found no
+remaining actual defect in this bounded scope. A full repository audit or physical
+acceptance was not performed. Final hardware gates remain open.

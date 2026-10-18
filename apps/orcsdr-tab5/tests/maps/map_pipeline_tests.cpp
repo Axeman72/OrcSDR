@@ -7,6 +7,19 @@
 #include <cstring>
 #include <limits>
 #include <utility>
+#include <new>
+
+struct FailingSource final : orcmap::ByteSource {
+  explicit FailingSource(orcmap::ByteSource& source):source(source) {}
+  orcmap::ByteSource& source;
+  bool fail=false;
+  size_t Read(uint64_t offset,void* bytes,size_t count) override {
+    if(fail)throw std::bad_alloc();
+    return source.Read(offset,bytes,count);
+  }
+  uint64_t Size() const override {return source.Size();}
+  bool Valid() const override {return source.Valid();}
+};
 
 struct Empty final : orcmap::ByteSource {
   size_t Read(uint64_t, void*, size_t) override { return 0; }
@@ -62,6 +75,14 @@ int main(int argc, char** argv) {
   const auto pixels=frame.Pixels();
   assert(pipeline.render(view,frame));
   assert(pixels==frame.Pixels()); // repeated viewport produces identical pixels
+  FailingSource failing(source);Pipeline resilient(failing);
+  failing.fail=true;
+  assert(!resilient.open("openmaptiles-3.16")&&resilient.stats().out_of_memory);
+  failing.fail=false;assert(resilient.open("openmaptiles-3.16"));
+  failing.fail=true;
+  assert(!resilient.render(view,frame)&&resilient.stats().out_of_memory);
+  failing.fail=false;assert(resilient.open("openmaptiles-3.16"));
+  assert(resilient.render(view,frame));assert(frame.Pixels()==pixels);
   view.zoom=31;
   assert(!pipeline.render(view,frame));
   view.zoom=0;view.width_px=65;

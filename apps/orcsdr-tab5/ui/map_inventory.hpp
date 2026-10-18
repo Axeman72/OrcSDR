@@ -15,9 +15,11 @@ class Inventory {
                                      const char* preferred = nullptr) const;
   bool sd_mounted() const { return sd_mounted_; }
   bool limit_exceeded() const { return limit_exceeded_; }
+  bool out_of_memory() const {return out_of_memory_;}
  private:
   orcmap::PackCatalog catalog_;
   orcmap::DiscoveryReport report_;
   bool sd_mounted_ = false, limit_exceeded_ = false;
+  bool out_of_memory_ = false;
 };
 } // namespace orcsdr::maps

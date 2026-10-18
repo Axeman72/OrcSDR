@@ -120,6 +120,7 @@
 #include "offline_map.hpp"
 #include "map_service.hpp"
 #include "map_screen.hpp"
+#include "location_store.hpp"
 #include "nvs_store.hpp"
 #include "p25_dashboard.hpp"
 #include "p25_config.hpp"
@@ -12990,9 +12991,7 @@ void navigation_restore_screen(orcsdr::screens::Id restore) {
 
 bool save_map_receiver_location(int32_t latitude, int32_t longitude) {
   if (!orcsdr::receiver_location::valid(true, latitude, longitude)) return false;
-  if (!preferences.putInt("adsb_lat_e7", latitude) ||
-      !preferences.putInt("adsb_lon_e7", longitude) ||
-      !preferences.putBool("adsb_loc_set", true)) return false;
+  if (!orcsdr::location_store::save(preferences,{true,latitude,longitude})) return false;
   const auto current = orcsdr::receiver_location::snapshot();
   orcsdr::receiver_location::set(true, latitude, longitude, current.label, current.map_pack);
   adsb_settings.location_configured = true;
@@ -15034,9 +15033,10 @@ void load_state() {
     Serial.printf("RTL_LORA_PLAN_LOAD region=%s slot=%u frequency_hz=%u\n",
                   lora_region_name, selected.slot, selected.frequency_hz);
   }
-  adsb_settings.location_configured = preferences.getBool("adsb_loc_set", false);
-  adsb_settings.latitude_e7 = preferences.getInt("adsb_lat_e7", 0);
-  adsb_settings.longitude_e7 = preferences.getInt("adsb_lon_e7", 0);
+  const auto stored_location = orcsdr::location_store::load(preferences);
+  adsb_settings.location_configured = stored_location.configured;
+  adsb_settings.latitude_e7 = stored_location.latitude;
+  adsb_settings.longitude_e7 = stored_location.longitude;
   adsb_settings.radar_range_nm = preferences.getUShort("adsb_range", 25);
   load_cb_settings();
   if (adsb_settings.latitude_e7 < -900000000 || adsb_settings.latitude_e7 > 900000000 ||
@@ -19839,20 +19839,23 @@ void process_command(char* command) {
     double latitude = 0, longitude = 0;
     char trailing = 0;
     if (sscanf(command + 18, "%lf %lf %c", &latitude, &longitude, &trailing) != 2 ||
+        !std::isfinite(latitude) || !std::isfinite(longitude) ||
         latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
       Serial.println("RTL_ADSB_LOCATION_ERROR invalid_coordinate");
       return;
     }
+    const int32_t latitude_e7 = static_cast<int32_t>(llround(latitude * 10000000.0));
+    const int32_t longitude_e7 = static_cast<int32_t>(llround(longitude * 10000000.0));
+    if (!orcsdr::location_store::save(preferences,{true,latitude_e7,longitude_e7})) {
+      Serial.println("RTL_ADSB_LOCATION_ERROR storage"); return;
+    }
     adsb_settings.location_configured = true;
-    adsb_settings.latitude_e7 = static_cast<int32_t>(llround(latitude * 10000000.0));
-    adsb_settings.longitude_e7 = static_cast<int32_t>(llround(longitude * 10000000.0));
+    adsb_settings.latitude_e7 = latitude_e7;
+    adsb_settings.longitude_e7 = longitude_e7;
     orcsdr::receiver_location::set(
         true, adsb_settings.latitude_e7, adsb_settings.longitude_e7,
         settings_location_label, settings_map_pack);
     refresh_adsb_atc_preset();
-    preferences.putBool("adsb_loc_set", true);
-    preferences.putInt("adsb_lat_e7", adsb_settings.latitude_e7);
-    preferences.putInt("adsb_lon_e7", adsb_settings.longitude_e7);
     if (orcsdr::adsb::active()) orcsdr::adsb::enter(adsb_settings);
     Serial.println("RTL_ADSB_LOCATION_OK");
     return;
@@ -22668,9 +22671,9 @@ void loop() {
     ++p25_config_revision;
   }
   if (adsb_settings_persist_pending.exchange(false, std::memory_order_acq_rel)) {
-    preferences.putBool("adsb_loc_set", adsb_settings.location_configured);
-    preferences.putInt("adsb_lat_e7", adsb_settings.latitude_e7);
-    preferences.putInt("adsb_lon_e7", adsb_settings.longitude_e7);
+    if (!orcsdr::location_store::save(preferences,{adsb_settings.location_configured,
+        adsb_settings.latitude_e7,adsb_settings.longitude_e7}))
+      Serial.println("RTL_ADSB_SETTINGS_SAVE_ERROR location_storage");
     preferences.putUShort("adsb_range", adsb_settings.radar_range_nm);
     Serial.printf("RTL_ADSB_SETTINGS_SAVE configured=%d range_nm=%u\n",
                   adsb_settings.location_configured ? 1 : 0,

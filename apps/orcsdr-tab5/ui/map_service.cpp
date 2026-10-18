@@ -45,6 +45,10 @@ std::atomic<bool> g_installed{false};
 std::atomic<uint32_t> g_serial{0}, g_revision{0};
 std::atomic<size_t> g_canvas_bytes{0};
 uint64_t g_yield_us = 0;
+struct WorkerLock {
+  WorkerLock() {xSemaphoreTake(g_lock,portMAX_DELAY);}
+  ~WorkerLock() {xSemaphoreGive(g_lock);}
+};
 
 template<size_t N> void text(char (&out)[N], const char* value) {
   std::snprintf(out,N,"%s",value ? value : "");
@@ -68,17 +72,29 @@ bool service(void* context) {
 class Files final : public orcmap::PackFileSystem {
  public:
   bool ListManifestNames(const std::string& directory,std::vector<std::string>* out) override {
-    out->clear();DIR* dir=opendir(directory.c_str());if(!dir)return false;
-    while(const auto* entry=readdir(dir)) {
+    out->clear();
+    const std::unique_ptr<DIR,decltype(&closedir)> dir(opendir(directory.c_str()),closedir);
+    if(!dir)return false;
+    while(const auto* entry=readdir(dir.get())) {
       const size_t n=std::strlen(entry->d_name);
       if(n<14 || std::strcmp(entry->d_name+n-14,".manifest.json"))continue;
       out->emplace_back(entry->d_name);
       if(out->size()>Inventory::kPackLimit)break;
     }
-    closedir(dir);return true;
+    return true;
   }
   bool ReadTextFile(const std::string& path,size_t maximum,std::string* out) override {
-    return files_.ReadTextFile(path,maximum,out);
+    if(!out)return false;
+    out->clear();
+    const std::unique_ptr<FILE,decltype(&std::fclose)> file(std::fopen(path.c_str(),"rb"),std::fclose);
+    if(!file)return false;
+    std::string text;char buffer[512];
+    while(const size_t bytes=std::fread(buffer,1,sizeof(buffer),file.get())) {
+      if(bytes>maximum-text.size())return false;
+      text.append(buffer,bytes);
+    }
+    if(std::ferror(file.get()))return false;
+    *out=std::move(text);return true;
   }
   bool FileSize(const std::string& path,uint64_t* bytes) override { return files_.FileSize(path,bytes); }
  private:
@@ -92,6 +108,7 @@ void discover() {
   // Value-initialise in place; a temporary snapshot would exceed the worker stack.
   next.~MapSnapshot();new(&next) MapSnapshot();
   next.loaded=true;next.sd=g_sd;next.overflow=g_inventory.limit_exceeded();
+  next.out_of_memory=g_inventory.out_of_memory();
   auto& world=next.packs[next.count++];
   world.kind=Kind::firmware;text(world.identity,"firmware-world");text(world.title,"Firmware world overview");
   text(world.region,"World; overview detail only");text(world.credit,"Made with Natural Earth");
@@ -175,13 +192,14 @@ bool choose(const Request& request,orcmap::Viewport* view,char* path,size_t size
 
 void worker(void*) {
   for(;;) {
-    if(g_scan.exchange(false))discover();
     Request request;
+    try {
+    if(g_scan.exchange(false))discover();
     if(xQueueReceive(g_queue,&request,pdMS_TO_TICKS(200))!=pdTRUE)continue;
     if(request.serial!=g_serial.load())continue;
     // The UI never waits on this mutex. A new frame is published atomically
     // when complete; partially drawn sprites are never sent to the display.
-    xSemaphoreTake(g_lock,portMAX_DELAY);
+    WorkerLock lock;
     g_frame={};g_frame.state=Frame::unavailable;
     char path[256]{};orcmap::Viewport view;const PackInfo* info=nullptr;
     bool ok=choose(request,&view,path,sizeof(path),&info);
@@ -210,14 +228,29 @@ void worker(void*) {
     if(ok) {
       orcmap::m5gfx_adapter::DisplayTarget target(g_canvas);
       g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target);
-      if(g_pipeline)g_frame.stats=g_pipeline->stats();
+    }
+    if(g_pipeline)g_frame.stats=g_pipeline->stats();
+    if(g_frame.stats.out_of_memory) {
+      g_pipeline.reset();g_source.reset();g_archive[0]=0;
+      g_canvas.deleteSprite();g_canvas_bytes.store(0);
     }
     if(request.serial==g_serial.load()) {
       g_frame.state=ok ? Frame::ready : Frame::unavailable;
-      text(g_frame.status,ok ? "LOCAL MAP" : "MAP UNAVAILABLE / NO MEMORY");
+      text(g_frame.status,ok ? "LOCAL MAP" : g_frame.stats.out_of_memory ? "MAP UNAVAILABLE: LOW MEMORY" : "MAP UNAVAILABLE / NO MEMORY");
       g_cached=true;g_frame.revision=g_revision.fetch_add(1)+1;
     }
-    xSemaphoreGive(g_lock);
+    } catch(const std::bad_alloc&) {
+      WorkerLock lock;
+      g_pipeline.reset();g_source.reset();g_archive[0]=0;
+      g_canvas.deleteSprite();g_canvas_bytes.store(0);g_cached=false;
+      if(request.serial&&request.serial==g_serial.load()) {
+        g_ready=request;g_frame={};g_frame.stats.out_of_memory=true;
+        text(g_frame.status,"MAP UNAVAILABLE: LOW MEMORY");
+        g_cached=true;g_frame.revision=g_revision.fetch_add(1)+1;
+      } else if(!request.serial) {
+        g_snapshot.loaded=true;g_snapshot.out_of_memory=true;++g_snapshot.revision;
+      }
+    }
   }
 }
 size_t held() { return g_canvas_bytes.load(); }
@@ -246,6 +279,7 @@ bool begin(storage::FileSystem* sd) {
   (void)memory_reclaim::register_holder({"Map frame",held,release});
   return true;
 }
+bool running() {return g_task!=nullptr;}
 bool snapshot(MapSnapshot* out) {
   if(!out || !g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return false;
   *out=g_snapshot;xSemaphoreGive(g_lock);return true;

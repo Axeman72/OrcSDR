@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include <new>
+#ifndef __cpp_exceptions
+#error "OrcMaps allocation recovery requires C++ exception support"
+#endif
 
 namespace orcsdr::maps {
 namespace {
@@ -26,6 +30,11 @@ size_t Pipeline::Source::Read(uint64_t offset, void* output, size_t size) {
 }
 
 bool Pipeline::open(std::string_view profile) {
+  try {return open_impl(profile);}
+  catch(const std::bad_alloc&) {ready_=false;stats_.out_of_memory=true;++stats_.failed;return false;}
+}
+bool Pipeline::open_impl(std::string_view profile) {
+  stats_={};
   ready_ = false;
   if (profile != "openmaptiles-3.16" && profile != "orcmaps-overview-1") return false;
   if (!reader_.Open() || reader_.Header().tile_type != orcmap::TileType::kMvt) return false;
@@ -66,6 +75,10 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
 }
 
 bool Pipeline::render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target) {
+  try {return render_impl(viewport,target);}
+  catch(const std::bad_alloc&) {ready_=false;stats_.out_of_memory=true;++stats_.failed;return false;}
+}
+bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget& target) {
   stats_ = {};
   const uint64_t start = now();
   if (!ready_ || viewport.width_px != target.Width() || viewport.height_px != target.Height() ||

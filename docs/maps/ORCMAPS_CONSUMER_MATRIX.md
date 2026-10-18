@@ -20,7 +20,7 @@ OrcMaps owns PMTiles/MVT decoding, projection, viewport/camera, portable renderi
 
 Keep receiver location, map-pack selection, map-camera center, and approximate IP proposal separate. Projection used for basemap and markers must be identical after migration. Keep missing-coordinate aircraft/nodes unplotted, and label Maidenhead positions by their actual grid precision. Preserve FT8's whole-world preference.
 
-One screen_controller owner; one radio_session owner. Maps may draw only on the owning surface or its off-screen target. Picker service is event driven; no touch polling loop. First migration should cover ADS-B's sprite target and variable viewport, followed by LoRa, then FT8/JS8 independently.
+One screen_controller owner; one radio_session owner. Maps may draw only on the owning surface or its off-screen target. Picker service is event driven; no touch polling loop. The first migration used LoRa; ADS-B followed in a separate commit. FT8/JS8 now call the shared whole-world compatibility adapter.
 
 Do not copy old main.cpp, partitions or driver manifest. Consumer migration and P4 rendering remain UNTESTED until implemented and measured.
 
@@ -43,3 +43,34 @@ ctest --test-dir build-maps-tests -C RelWithDebInfo --output-on-failure
 ```
 
 On Windows this session used Visual Studio 18 2026, `/fsanitize=address`, and assertions explicitly enabled even in RelWithDebInfo. The test target passed projection/dimensions/antimeridian, repeatable pixels, cancellation, invalid archive/profile/zoom, 0/1/5/16 discovered packs, limit overflow, no SD, missing archive, mismatched size and malformed manifest cases. Log: `maps-pipeline-host.log` (invocation directory), reviewed copy in `docs/evidence/maps/`.
+
+## Integrated callers (host-built; device gates pending)
+
+| Caller | Shared entry point | Preserved semantics / remaining acceptance |
+|---|---|---|
+| LoRa | `maps::draw_region` / `maps::project(RegionalView)` | E7 verified positions only; follow camera stays separate from receiver location; ORCMAP1 fallback carries its matching projection |
+| ADS-B | same region adapter into radar sprite | aircraft position and hit test use the basemap projection; missing coordinates and out-of-range tracks are not pinned to an invented edge location; radio list remains independent |
+| FT8/FT4/JS8 | `maps::draw_world_compat` / `world_compat_project` | existing whole-globe equirectangular Natural Earth geometry centralized; full polar coverage and station-reported Maidenhead precision retained |
+| Settings location / setup | `map_screen` + OrcMaps LocationPicker + shared worker | one proposal/confirmation flow; no network or SD prerequisite; manual polar E7 fallback |
+| Airband | canonical receiver location, no new map | unchanged |
+| Weather | absent on integration baseline | no implementation invented |
+
+FT8 compatibility is deliberate, not a PMTiles engine claim: current OrcMaps provides
+Mercator, which excludes polar grid locations, and its repeated-world placement would
+change the owner's single whole-globe presentation. The existing compiled renderer and
+projection now live in the shared map layer rather than each dashboard. A future engine
+projection addition needs its own tests and upstream review before this path is retired.
+
+`map_service` owns exactly one private PSRAM sprite and latest-request queue. It never
+pushes a physical display from the worker; consumers request/push on the UI owner. Pan
+queues/cancels before taking the frame lock, so the UI does not wait for rendering.
+Memory reclaim invalidates the generation so the same viewport can be requested again.
+Metadata rescans reopen the source/reader and publish a new inventory revision. The
+frame cache and one PMTiles leaf cache are the actual caches; there is no invented
+rendered-tile LRU, production MapEngine, or generic overlay framework.
+
+Engine cleanup fix `c3cc09de3882149e03c7c00d7897c6882b324c6b` is under draft upstream
+review at https://github.com/hardcoreerik/OrcMaps/pull/5, stacked on reviewed PR4. It
+removes allocations during failed-tile cleanup. OrcSDR's prepared adapter catches
+allocation failure and invalidates/reclaims the failed frame; host recovery tests pass.
+The exception-enabled ESP32-P4 rebuild and all physical acceptance remain separate gates.

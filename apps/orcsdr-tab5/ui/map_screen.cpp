@@ -111,7 +111,9 @@ void draw_inventory() {
   (void)maps::snapshot(&g_packs);
   text(g_packs.sd?"SD inventory: /sd/orcmaps (separate from signed downloads)":"No SD card. Firmware overview remains independent.",32,110);
   if(g_packs.overflow)text("Too many map manifests (limit 16). No regional packs selected.",32,144,2,TFT_ORANGE);
-  if(!g_packs.loaded)text("Scanning local maps...",32,180);
+  if(!maps::running())text("Map service unavailable. Manual E7 location remains available.",32,180);
+  else if(!g_packs.loaded)text("Scanning local maps...",32,180);
+  if(g_packs.out_of_memory)text("Scan ran out of memory. Rescan to retry; existing settings are retained.",32,570,1,TFT_ORANGE);
   if(g_packs.count) {
     g_index=std::clamp(g_index,0,static_cast<int>(g_packs.count)-1);
     const auto& pack=g_packs.packs[g_index];char line[128];
@@ -153,6 +155,7 @@ void configure(const Hooks& hooks) {g_hooks=hooks;}
 void load(NvsStore& preferences) {
   g_preferences=&preferences;
   const bool legacy=preferences.isKey("journal")||preferences.isKey("workflow")||
+      preferences.isKey("loc_point")||
       preferences.isKey("adsb_loc_set")||preferences.isKey("adsb_lat_e7")||
       preferences.isKey("map_pack")||preferences.isKey("wifi0_ssid")||
       preferences.isKey("wifi_ssid")||preferences.isKey("set_bright")||preferences.isKey("pair_key");

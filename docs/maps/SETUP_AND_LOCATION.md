@@ -33,9 +33,16 @@ Enter activates, Escape cancels, Ctrl+arrows pans, and +/- zooms.
 Only map identity capacity expands (40 to 256 bytes) in canonical/settings/glue buffers.
 Old strings and NVS keys are retained. Oversized identities or required credit are not
 silently accepted as usable packs. Location writes retain existing label and map choice.
-Existing location keys remain adsb_loc_set, adsb_lat_e7, adsb_lon_e7; pack choice remains
-map_pack. Location persistence uses the existing key layout and is not a new atomic
-multi-key storage transaction. Power-loss persistence acceptance remains a device gate.
+Confirmed coordinates now use one versioned 16-byte `loc_point` NVS blob. The three
+legacy adsb_loc_set / adsb_lat_e7 / adsb_lon_e7 keys remain untouched as upgrade fallback
+and old-firmware rollback state. Loading prefers a valid loc_point record; absent or
+unreadable records fall back to legacy values. Unknown loc_point versions are never
+overwritten by a new save. This does not claim that firmware rollback sees a location
+saved only by the new firmware: older firmware sees its last legacy saved point.
+No migration write occurs during loading. Picker, Settings/IP deferred persistence,
+and serial location writers all use the same store so the new record cannot become
+stale after another location editor is used. Pack choice remains map_pack.
+Physical interrupted-save acceptance remains a device gate.
 
 ## Setup persistence and migration
 
@@ -60,5 +67,20 @@ COM17/COM39 confirm/cancel/rerun, Network return, keyboard/touch, no-SD behavior
 NVS persistence and active-RF operation are UNTESTED with this firmware.
 
 A pre-flash blocker was found: native C++ exceptions are disabled, so OrcMaps vector
-allocation failure can abort. The adapter recovery/runtime change and its size/memory
-validation must be completed before device acceptance. No device was flashed.
+allocation failure can abort. The recovery patch now builds with a 1 KiB emergency reserve, passes host fault
+injection, and is pinned to the tested allocation-free upstream cleanup. Build size
+and provenance are recorded in P4_PERFORMANCE_EVIDENCE.md. Actual memory/radio
+validation remains a device gate. No device was flashed.
+
+## Pre-flash persistence review
+
+The focused safety review identified the newly added picker callback's three-key save
+as a mixed-coordinate risk during interrupted writes. `location_store.hpp` replaces
+that path and the existing writer sites with one blob replacement. The host regression
+fails on the extracted original save when the write budget is one, then passes with the
+single record. It also covers failed replacement, complete update, legacy key retention,
+unknown-schema rejection, invalid coordinates and a blank store without migration.
+Logs: `maps-location-before.log` and `maps-location-after.log` in the invocation directory.
+The bounded read-only review recheck reported no remaining actual defect; it did not
+perform hardware tests. Serial coordinate entry also rejects non-finite values before
+conversion to E7. No unrelated receiver or settings routing was refactored.

@@ -29,6 +29,12 @@ endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(orcsdr_tab5)
 
+execute_process(COMMAND ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/tools/check-orcmaps-pin.py"
+    "${CMAKE_CURRENT_LIST_DIR}" RESULT_VARIABLE orcmaps_pin_result)
+if(NOT orcmaps_pin_result EQUAL 0)
+    message(FATAL_ERROR "OrcMaps requested/locked/fetched revision mismatch; resolve this component before building")
+endif()
+
 # Keep the ROM/miniz collision gate on every build path, including idf.py.
 idf_component_get_property(orcmaps_dir orcmaps COMPONENT_DIR)
 add_custom_target(orcsdr_orcmaps_symbols ALL

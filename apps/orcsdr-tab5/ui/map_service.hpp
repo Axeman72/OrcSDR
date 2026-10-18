@@ -18,7 +18,7 @@ struct PackInfo {
   bool usable = false, size_checked = false;
 };
 struct MapSnapshot {
-  bool loaded = false, sd = false, world = false, legacy = false, overflow = false;
+  bool loaded = false, sd = false, world = false, legacy = false, overflow = false, out_of_memory = false;
   uint8_t count = 0;
   uint32_t revision = 0;
   PackInfo packs[18]{};
@@ -34,6 +34,7 @@ struct FrameInfo {
 // Starts one low-priority worker. It renders only into its private PSRAM
 // sprite; drawing/pushing that sprite remains on the owning UI task.
 bool begin(storage::FileSystem* sd);
+bool running();
 bool snapshot(MapSnapshot*);
 void rescan();
 void cancel();

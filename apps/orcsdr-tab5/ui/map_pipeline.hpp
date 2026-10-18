@@ -21,7 +21,7 @@ struct RenderStats {
   uint32_t tiles = 0, missing = 0, failed = 0, features = 0;
   uint32_t reads = 0;
   uint64_t bytes = 0, io_us = 0, lookup_us = 0, stream_us = 0, render_us = 0, total_us = 0;
-  bool cancelled = false;
+  bool cancelled = false, out_of_memory = false;
 };
 
 // One source/reader/scratch per active archive. No display, radio, or network
@@ -48,6 +48,8 @@ class Pipeline {
     WorkHooks& hooks_;
   };
   struct Context;
+  bool open_impl(std::string_view profile);
+  bool render_impl(const orcmap::Viewport&,orcmap::RenderTarget&);
   static bool feature(const orcmap::Feature&, void*);
   uint64_t now() const { return hooks_.now_us ? hooks_.now_us() : 0; }
   WorkHooks hooks_;

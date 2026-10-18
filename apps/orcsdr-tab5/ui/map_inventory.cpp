@@ -1,6 +1,7 @@
 #include "map_inventory.hpp"
 #include <algorithm>
 #include <cstring>
+#include <new>
 
 namespace orcsdr::maps {
 namespace {
@@ -27,10 +28,13 @@ class BoundedFiles final : public orcmap::PackFileSystem {
 };
 }
 bool Inventory::scan(orcmap::PackFileSystem& files,const std::string& directory,bool sd_mounted) {
-  catalog_={};report_={};limit_exceeded_=false;sd_mounted_=sd_mounted;
+  catalog_={};report_={};limit_exceeded_=false;sd_mounted_=sd_mounted;out_of_memory_=false;
   if (!sd_mounted_) return false;
   BoundedFiles bounded(files,limit_exceeded_);
-  return orcmap::DiscoverPacks(bounded,directory,&catalog_,&report_);
+  try {return orcmap::DiscoverPacks(bounded,directory,&catalog_,&report_);}
+  catch(const std::bad_alloc&) {
+    catalog_={};report_={};out_of_memory_=true;return false;
+  }
 }
 const orcmap::PackManifest* Inventory::find(const char* identity) const {
   if (!identity || !identity[0]) return nullptr;

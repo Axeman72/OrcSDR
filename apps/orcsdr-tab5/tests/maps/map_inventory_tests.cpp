@@ -4,16 +4,18 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <new>
 
 namespace {
 struct Files final : orcmap::PackFileSystem {
   std::map<std::string,std::string> manifests;
   std::map<std::string,uint64_t> archives;
-  bool listed=true;
+  bool listed=true, fail=false;
   bool ListManifestNames(const std::string&,std::vector<std::string>* out) override {
     out->clear();for(const auto& item:manifests)out->push_back(item.first);return listed;
   }
   bool ReadTextFile(const std::string& path,size_t limit,std::string* out) override {
+    if(fail)throw std::bad_alloc();
     auto it=manifests.find(path.substr(path.find_last_of('/')+1));
     if(it==manifests.end() || it->second.size()>limit)return false;
     *out=it->second;return true;
@@ -70,4 +72,9 @@ void inventory_tests(const char* path) {
   assert(inventory.report().rejected[0].rejection==orcmap::PackRejection::kArchiveSizeMismatch);
   files.listed=false;assert(!inventory.scan(files,"/maps",true));
   assert(!inventory.report().directory_listed);
+  files.listed=true;files.archives["/maps/missing.pmtiles"]=base.size_bytes;files.fail=true;
+  assert(!inventory.scan(files,"/maps",true)&&inventory.out_of_memory());
+  assert(inventory.catalog().Packs().empty());
+  files.fail=false;assert(inventory.scan(files,"/maps",true));
+  assert(!inventory.out_of_memory()&&inventory.catalog().Packs().size()==1);
 }
