@@ -5,10 +5,11 @@
 #include <cstring>
 #include <cmath>
 using textdatum_t = int;
-constexpr int middle_center = 0, middle_left = 1, middle_right = 2, top_left = 3;
+constexpr int middle_center = 0, middle_left = 1, middle_right = 2, top_left = 3, bottom_left = 4;
 constexpr uint16_t TFT_WHITE = 0xffff, TFT_BLACK = 0, TFT_RED = 0xf800, TFT_DARKGREY = 0x7bef;
 namespace fonts { inline int DejaVu24, DejaVu18; }
 namespace lgfx {
+inline namespace v1 {
 struct Paint { std::string text; int x, y; uint16_t color; };
 inline std::vector<Paint> paints;
 class LovyanGFX {
@@ -17,7 +18,7 @@ public:
   template<class... T> void setTextDatum(T...) {}
   template<class... T> void setTextSize(T...) {}
   template<class... T> void setFont(T...) {}
-  void setTextColor(uint16_t c) { color_ = c; }
+  void setTextColor(uint16_t c, uint16_t = 0) { color_ = c; }
   template<class... T> void fillRoundRect(T...) {}
   template<class... T> void drawRoundRect(T...) {}
   template<class... T> void fillRect(T...) {}
@@ -38,6 +39,7 @@ public:
   void drawString(const char* s, int x, int y) { paints.push_back({s, x, y, color_}); }
   int textWidth(const char* s) { return static_cast<int>(std::strlen(s)) * 12; }
 };
+}
 }
 class M5Canvas : public lgfx::LovyanGFX {
 public:

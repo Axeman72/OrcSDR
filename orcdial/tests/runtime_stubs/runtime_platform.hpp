@@ -19,6 +19,7 @@ inline int xQueueSend(QueueHandle_t,const void*,unsigned){return pdTRUE;}
 inline int xQueueReceive(QueueHandle_t,void*,unsigned){return pdFALSE;}
 inline int xQueueReset(QueueHandle_t){return pdTRUE;}
 inline void vTaskDelay(unsigned){}
+inline unsigned uxTaskGetStackHighWaterMark(TaskHandle_t){return 0;}
 inline int xTaskCreate(void(*)(void*),const char*,unsigned,void*,unsigned,TaskHandle_t* task){if(failure())return pdFALSE;*task=reinterpret_cast<void*>(1);return pdPASS;}
 inline int64_t esp_timer_get_time(){return 0;}
 inline void esp_fill_random(void* data,size_t n){static uint32_t seed=7;auto* p=static_cast<uint8_t*>(data);while(n--){seed=1664525*seed+1013904223;*p++=uint8_t(seed>>24);}}

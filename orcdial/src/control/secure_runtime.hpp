@@ -4,12 +4,12 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
-#include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 #include <nvs.h>
 #include <mbedtls/ctr_drbg.h>
 #if CONFIG_IDF_TARGET_ESP32P4
+#include <esp_heap_caps.h>
 #include <bootloader_random.h>
 #endif
 #include <atomic>

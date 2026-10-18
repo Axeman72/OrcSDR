@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include "map_world_compat.hpp"
 #include "orcmap/byte_source.hpp"
 #include "orcmap/mvt_stream.hpp"
 #include "orcmap/pmtiles.hpp"
@@ -67,7 +68,6 @@ bool regional_view(int32_t latitude_e7, int32_t longitude_e7, double range_nm,
                    int width, int height, orcmap::Viewport* output);
 bool project(const orcmap::Viewport&, int32_t latitude_e7, int32_t longitude_e7,
              int* x, int* y);
-bool world_compat_project(double latitude,double longitude,int left,int top,int width,int height,int* x,int* y);
 bool begin_location_picker(orcmap::LocationPicker& picker,int width,int height,
                            int32_t latitude_e7,int32_t longitude_e7);
 bool world_overview_view(const orcmap::Viewport& requested,uint8_t minimum,uint8_t maximum,
