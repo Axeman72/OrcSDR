@@ -1,6 +1,11 @@
 # OrcMaps consumers and integration design
 
 
+Prepared engine update `99affb1b` pins published OrcMaps v0.2.3 (`dc6bc12`).
+36 host basemap views are byte-identical; four targeted host tests and native
+build/symbol gates pass. It includes the larger-footer source change. No device
+access or new hardware speed claim. [Upgrade results](../evidence/maps/2026-10-17-v023-upgrade-result.md).
+
 ## Latest device checkpoint: navigation and changed-location save tested on COM39
 
 Normal firmware `04898891` (implementation `ef756048`) builds, flashes and boots.

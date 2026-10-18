@@ -1,5 +1,9 @@
 # OrcMaps v0.2.2 upgrade scout: exact supplied revision is blocked
 
+Superseded by published v0.2.3: [upgrade verification](2026-10-17-v023-upgrade-result.md).
+The lines diverged at 14cdd41; e3028c60 did not historically revert c3cc09de.
+The findings below describe replacing the pin with that earlier divergent line.
+
 Date: 2026-10-17, America/Los_Angeles.
 OrcSDR branch `codex/maps-integration-completion`, source HEAD `73f84ce7`.
 Current engine pin `c3cc09de3882149e03c7c00d7897c6882b324c6b`.
