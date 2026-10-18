@@ -26,6 +26,9 @@ template<class Store> bool save(Store& store,Point point) {
   // One blob replacement, not three separately committed keys. Legacy keys
   // remain intact for migration/rollback; no background migration writes.
   const Record next{1,point.latitude,point.longitude,point.configured?1u:0u};
-  return store.putBytes(kKey,&next,sizeof(next));
+  if(!store.putBytes(kKey,&next,sizeof(next)))return false;
+  Record verified;
+  return read_record(store,&verified)&&verified.latitude==next.latitude&&
+      verified.longitude==next.longitude&&verified.configured==next.configured;
 }
 } // namespace orcsdr::location_store

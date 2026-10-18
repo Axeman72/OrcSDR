@@ -8,6 +8,9 @@ endif()
 set(ui "${CMAKE_CURRENT_SOURCE_DIR}/../../ui")
 set(engine "${ORCMAPS_ROOT}")
 add_executable(orcsdr_maps_tests
+  map_screen_tests.cpp "${ui}/map_screen.cpp" "${ui}/settings_app.cpp"
+  "${ui}/screen_controller.cpp" "${ui}/receiver_location.cpp"
+  "${ui}/focus_nav.cpp" "${ui}/keyboard_input.cpp" "${ui}/clock_settings.cpp"
   map_pipeline_tests.cpp map_inventory_tests.cpp map_world_tests.cpp "${ui}/map_pipeline.cpp" "${ui}/map_inventory.cpp"
   "${engine}/src/core/geo.cpp" "${engine}/src/core/viewport.cpp"
   "${engine}/src/core/location_picker.cpp"
@@ -18,7 +21,7 @@ add_executable(orcsdr_maps_tests
   "${engine}/src/render/style.cpp" "${engine}/src/render/renderer.cpp" "${engine}/src/render/clip.cpp"
   "${engine}/adapters/host/file_byte_source.cpp" "${engine}/adapters/host/framebuffer_target.cpp"
   "${engine}/third_party/miniz/miniz.c" "${engine}/third_party/miniz/miniz_tinfl.c")
-target_include_directories(orcsdr_maps_tests PRIVATE "${ui}" "${engine}/include"
+target_include_directories(orcsdr_maps_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ui_stubs" "${ui}" "${engine}/include"
   "${engine}/adapters/host" "${engine}/third_party/miniz")
 target_compile_definitions(orcsdr_maps_tests PRIVATE MINIZ_NO_DEFLATE_APIS
   MINIZ_NO_ZLIB_APIS MINIZ_NO_ARCHIVE_APIS _CRT_SECURE_NO_WARNINGS)

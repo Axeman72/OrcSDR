@@ -9,6 +9,7 @@ namespace {
 struct Store {
   std::map<std::string,std::vector<unsigned char>> data;
   int budget=99;
+  bool acknowledge_without_write=false;
   bool isKey(const char* key) const {return data.count(key)!=0;}
   size_t getBytesLength(const char* key) const {auto p=data.find(key);return p==data.end()?0:p->second.size();}
   size_t getBytes(const char* key,void* out,size_t size) const {
@@ -16,6 +17,7 @@ struct Store {
     std::memcpy(out,p->second.data(),size);return size;
   }
   bool putBytes(const char* key,const void* value,size_t size) {
+    if(acknowledge_without_write)return true;
     if(budget<=0)return false;--budget;
     auto bytes=static_cast<const unsigned char*>(value);data[key]={bytes,bytes+size};return true;
   }
@@ -41,6 +43,9 @@ int main() {
   Store device=legacy;
   assert(save(device,next));
   assert(device.getInt("adsb_lat_e7",0)==original.latitude); // legacy rollback record retained
+  device.acknowledge_without_write=true;
+  assert(!save(device,original));assert(same(load(device),next));
+  device.acknowledge_without_write=false;
   device.budget=0;assert(!save(device,original));assert(same(load(device),next));
   device.budget=99;assert(save(device,{false,next.latitude,next.longitude}));
   assert(!load(device).configured);

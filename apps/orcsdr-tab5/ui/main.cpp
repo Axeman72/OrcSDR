@@ -12991,13 +12991,17 @@ void navigation_restore_screen(orcsdr::screens::Id restore) {
 
 bool save_map_receiver_location(int32_t latitude, int32_t longitude) {
   if (!orcsdr::receiver_location::valid(true, latitude, longitude)) return false;
-  if (!orcsdr::location_store::save(preferences,{true,latitude,longitude})) return false;
+  if (!orcsdr::location_store::save(preferences,{true,latitude,longitude})) {
+    Serial.println("ORC_MAP_LOCATION_SAVE ERROR storage_verification");
+    return false;
+  }
   const auto current = orcsdr::receiver_location::snapshot();
   orcsdr::receiver_location::set(true, latitude, longitude, current.label, current.map_pack);
   adsb_settings.location_configured = true;
   adsb_settings.latitude_e7 = latitude;
   adsb_settings.longitude_e7 = longitude;
   refresh_adsb_atc_preset();
+  Serial.println("ORC_MAP_LOCATION_SAVE OK verified");
   return true;
 }
 

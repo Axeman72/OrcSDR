@@ -25,6 +25,16 @@ void world_tests(const char* path) {
       assert(pipeline.render(view,frame));
       const auto pixels=frame.Pixels();
       assert(pipeline.render(view,frame));assert(frame.Pixels()==pixels);
+      orcmap::Viewport overview;
+      assert(orcsdr::maps::world_overview_view(view,pipeline.header().min_zoom,pipeline.header().max_zoom,&overview));
+      for(const auto point:{orcmap::LatLon{44.05,longitude},orcmap::LatLon{20,longitude+1}}) {
+        double detailed_x,detailed_y,overview_x,overview_y;
+        assert(orcmap::ProjectLatLon(view,point,&detailed_x,&detailed_y));
+        assert(orcmap::ProjectLatLon(overview,point,&overview_x,&overview_y));
+        assert(std::abs(detailed_x-overview_x)<1e-7&&std::abs(detailed_y-overview_y)<1e-7);
+      }
+      assert(pipeline.render(overview,frame));
+      assert(pipeline.stats().missing==0&&pipeline.stats().failed==0);
       std::printf("WORLD_VIEW size=%dx%d lon=%.3f tiles=%u features=%u bytes=%llu\n",size.first,size.second,longitude,
           pipeline.stats().tiles,pipeline.stats().features,
           static_cast<unsigned long long>(pipeline.stats().bytes));

@@ -184,12 +184,7 @@ bool choose(const Request& request,orcmap::Viewport* view,char* path,size_t size
   }
   *info=info_for("firmware-world");
   if(!*info || !(*info)->usable)return false;
-  if(view->zoom>(*info)->max_zoom) {
-    const int delta=view->zoom-(*info)->max_zoom;
-    if(delta>16 || view->tile_size_px>(INT32_MAX>>delta))return false;
-    view->tile_size_px<<=delta;view->zoom=(*info)->max_zoom;
-  }
-  if(view->zoom<(*info)->min_zoom)return false;
+  if(!world_overview_view(request.view,(*info)->min_zoom,(*info)->max_zoom,view))return false;
   std::snprintf(path,size,"@world");return true;
 }
 

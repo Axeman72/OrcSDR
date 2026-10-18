@@ -28,14 +28,12 @@ constexpr int kRailW = 286;
 constexpr int kRailY = 106;
 constexpr int kRailRowH = 64;
 constexpr uint8_t kSettingsMinTextSize = 2;
-constexpr uint16_t kRanges[] = {10, 25, 50, 100};
 constexpr uint16_t kTimeouts[] = {0, 30, 60, 120, 300};
 constexpr const char* kLabels[] = {
     "CONNECTIVITY", "FIRMWARE & UPDATES", "RECEIVER LOCATION", "DATA & MAPS", "DISPLAY & AUDIO",
     "RADIO DEFAULTS", "STORAGE", "ACCESSORIES & COMPANION", "SYSTEM"};
 
 static_assert(static_cast<uint8_t>(Section::count) == std::size(kLabels));
-static_assert(std::size(kRanges) == 4 && kRanges[0] == 10 && kRanges[3] == 100);
 
 enum class EditField : uint8_t { none, latitude, longitude };
 enum class WifiEdit : uint8_t { none, ssid, password };
@@ -260,9 +258,7 @@ void draw_location() {
            g_state.longitude_e7 / 10000000.0);
   text("RECEIVER LONGITUDE", 330, 300, kMuted, 2);
   button(value, 820, 274, 398, 54, TFT_NAVY);
-  snprintf(value, sizeof(value), "%u NM", g_state.radar_range_nm);
-  text("ADS-B RADAR RANGE", 330, 370, kMuted, 2);
-  button(value, 820, 344, 398, 54, TFT_DARKCYAN);
+  button("CHOOSE LOCATION ON MAP",330,350,888,68,TFT_DARKGREEN);
   value_row("MAP PACK", g_state.map_pack[0] ? g_state.map_pack : "NOT INSTALLED", 445);
   value_row("RF GAIN", "AUTO (READ ONLY)", 495, kMuted);
   text("INTERNET LOCATION LOOKUP", 330, 550, kBlue, 2);
@@ -273,7 +269,6 @@ void draw_location() {
   if (g_state.ip_location_ready) button("USE RESULT", 800, 575, 240, 46, TFT_DARKGREEN);
   if (g_state.ip_location_message[0]) text(g_state.ip_location_message, 330, 645, kMuted, 2, middle_left);
   text("Address search data (c) OpenStreetMap contributors", 330, 682, kMuted, 1);
-  button("MAP PICKER",1054,575,164,46,TFT_DARKCYAN);
 }
 
 void draw_data_maps() {
@@ -897,7 +892,12 @@ void update(const State& state_value) {
        strcmp(g_state.catalog_date, state_value.catalog_date) != 0 ||
        memcmp(g_state.catalog_packs, state_value.catalog_packs, sizeof(g_state.catalog_packs)) != 0);
   const bool location_changed = g_section == Section::location_adsb &&
-      (g_state.ip_location_busy != state_value.ip_location_busy ||
+      (g_state.location_configured != state_value.location_configured ||
+       g_state.latitude_e7 != state_value.latitude_e7 ||
+       g_state.longitude_e7 != state_value.longitude_e7 ||
+       strcmp(g_state.location_label,state_value.location_label) != 0 ||
+       strcmp(g_state.map_pack,state_value.map_pack) != 0 ||
+       g_state.ip_location_busy != state_value.ip_location_busy ||
        g_state.ip_location_ready != state_value.ip_location_ready ||
        g_state.ip_latitude_e7 != state_value.ip_latitude_e7 ||
        g_state.ip_longitude_e7 != state_value.ip_longitude_e7 ||
@@ -919,6 +919,7 @@ void update(const State& state_value) {
        g_state.orcdial_bridge_ready != state_value.orcdial_bridge_ready);
   if (catalog_changed) g_catalog_cursor.catalog_changed(state_value.catalog_packs);
   g_state = state_value;
+  if(g_edit==EditField::none&&g_state.location_configured)g_latitude_set=g_longitude_set=true;
   if (g_clock_edit) {
     // Keep the editor live: a finished NTP sync or a newly valid RTC refreshes untouched fields.
     if (!g_clock_dirty && ((ntp_changed && g_state.ntp_state == 2) || rtc_flipped)) clock_load_fields();
@@ -1044,14 +1045,9 @@ Action handle_touch(int32_t x, int32_t y) {
       return {};
     }
   } else if (g_section == Section::location_adsb) {
-    if(hit(x,y,1054,575,164,46))return {ActionKind::open_location_picker,0};
+    if(hit(x,y,330,350,888,68))return {ActionKind::open_location_picker,0};
     if (hit(x, y, 820, 204, 398, 54)) { start_edit(EditField::latitude); draw_keypad(); }
     else if (hit(x, y, 820, 274, 398, 54)) { start_edit(EditField::longitude); draw_keypad(); }
-    else if (hit(x, y, 820, 344, 398, 54)) {
-      g_state.radar_range_nm = next_value(g_state.radar_range_nm, kRanges);
-      draw_content();
-      return {ActionKind::range_changed, g_state.radar_range_nm};
-    }
     if (hit(x, y, 330, 575, 250, 46) && !g_state.ip_location_busy) {
       g_location_edit = true;
       text_editor::begin("ZIP CODE OR ADDRESS", g_location_query,
@@ -1207,8 +1203,7 @@ bool self_check() {
       valid_coordinate(EditField::latitude, 90.00001) ||
       !valid_coordinate(EditField::longitude, -180.0) ||
       valid_coordinate(EditField::longitude, -180.00001)) return false;
-  if (next_value<uint16_t>(100, kRanges) != 10 ||
-      next_value<uint16_t>(0, kTimeouts) != 30) return false;
+  if (next_value<uint16_t>(0, kTimeouts) != 30) return false;
   if (strlen(wifi_key_row(0)) != 10 || strlen(wifi_key_row(2)) != 9) return false;
   const bool saved_symbols = g_wifi_symbols;
   g_wifi_symbols = true;

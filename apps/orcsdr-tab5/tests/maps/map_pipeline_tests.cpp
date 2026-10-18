@@ -29,14 +29,17 @@ struct Empty final : orcmap::ByteSource {
 bool cancel(void*) { return false; }
 void inventory_tests(const char*);
 void world_tests(const char*);
+void screen_tests();
 int main(int argc, char** argv) {
   assert(argc == 3 || argc == 4);
+  screen_tests();
   if(argc==4)world_tests(argv[3]);
   inventory_tests(argv[2]);
   using namespace orcsdr::maps;
   orcmap::LocationPicker picker;
   assert(begin_location_picker(picker,900,330,440500000,-1230220000));
   assert(picker.View().width_px==900 && picker.View().height_px==330);
+  assert(picker.Zoom()==picker.MinZoom()+1);
   assert(std::abs(picker.Selection().lat_deg-44.05)<1e-7);
   assert(std::abs(picker.Selection().lon_deg+123.022)<1e-7);
   const auto selected=picker.Selection();
@@ -47,6 +50,13 @@ int main(int argc, char** argv) {
   assert(picker.Selection().lon_deg!=selected.lon_deg);
   assert(!begin_location_picker(picker,0,330,0,0));
   assert(!begin_location_picker(picker,900,330,900000001,0));
+  orcmap::Viewport overview,requested;
+  requested.zoom=3;requested.width_px=1248;requested.height_px=568;
+  assert(world_overview_view(requested,0,4,&overview)&&overview.zoom==2&&overview.tile_size_px==512);
+  assert(!world_overview_view(requested,4,4,&overview));
+  assert(!world_overview_view(requested,0,4,nullptr));
+  requested.zoom=20;requested.tile_size_px=INT32_MAX;
+  assert(!world_overview_view(requested,0,4,&overview));
   for (auto dimensions : {std::pair<int,int>{842,330}, {480,320}, {320,240}}) {
     orcmap::Viewport view;
     assert(regional_view(440500000,-1230220000,15,dimensions.first,dimensions.second,&view));

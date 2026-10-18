@@ -21,6 +21,7 @@ constexpr uint16_t kBg=0x0841,kPanel=0x1082,kInk=0xc618,kAccent=0x04ff,kGreen=0x
 constexpr int kMapX=16,kMapY=72,kMapW=1248,kMapH=568;
 constexpr int kLatX=250,kLonX=612,kCoordinateY=10,kCoordinateW=350;
 constexpr int kZoomX=1188,kZoomInY=84,kZoomOutY=148,kZoomW=64,kZoomH=52;
+constexpr int kPanX=28,kPanY=84,kPanStepX=kMapW/2,kPanStepY=kMapH/2;
 constexpr int kUseX=920,kFooterY=650,kUseW=344;
 Hooks g_hooks;
 NvsStore* g_preferences=nullptr;
@@ -74,6 +75,9 @@ void moved_picker() {
   g_lon=static_cast<int32_t>(std::llround(point.lon_deg*1e7));
   g_lat_set=g_lon_set=g_has_proposal=true;g_dirty=true;
 }
+void pan(int dx,int dy) {
+  if(g_picker_ready&&g_picker.DragByGesture(dx,dy))moved_picker();
+}
 void begin_edit(int field) {
   g_edit=field;std::snprintf(g_entry,sizeof(g_entry),"%ld",static_cast<long>(field==1?g_lat:g_lon));g_dirty=true;
 }
@@ -110,6 +114,10 @@ void draw_map() {
   // Redraw overlays whenever the asynchronous map replaces its pixels.
   button("+",kZoomX,kZoomInY,kZoomW,kZoomH);
   button("-",kZoomX,kZoomOutY,kZoomW,kZoomH);
+  button("^",kPanX+72,kPanY,kZoomW,kZoomH);
+  button("<",kPanX,kPanY+64,kZoomW,kZoomH);
+  button(">",kPanX+144,kPanY+64,kZoomW,kZoomH);
+  button("v",kPanX+72,kPanY+128,kZoomW,kZoomH);
 }
 void draw_picker() {
   char value[64];std::snprintf(value,sizeof(value),"LAT E7 %ld",static_cast<long>(g_lat));button(value,kLatX,kCoordinateY,kCoordinateW);
@@ -117,7 +125,7 @@ void draw_picker() {
   button("USE LOCATION",kUseX,kFooterY,kUseW,46,true);
   const int hint_x=g_mode==Mode::setup?220:16;
   text(g_has_proposal?"Crosshair is a preview. USE LOCATION saves it.":"Select a point, then USE LOCATION to save.",hint_x,652,1);
-  text("Drag / tap to pan. +/- zoom. E7 = degrees x 10000000.",hint_x,676,1);
+  text("Arrows / drag / tap to pan. +/- zoom. E7 = degrees x 10000000.",hint_x,676,1);
   draw_map();
 }
 void draw_inventory() {
@@ -250,16 +258,22 @@ void touch(int x,int y,bool pressed,bool new_press) {
     return;
   }
   if(location_step()&&new_press) {
+    g_drag=false;
     if(hit(x,y,kLatX,kCoordinateY,kCoordinateW,46)) {begin_edit(1);return;}
     if(hit(x,y,kLonX,kCoordinateY,kCoordinateW,46)) {begin_edit(2);return;}
     // Overlay controls take precedence over panning the map underneath.
     if(hit(x,y,kZoomX,kZoomInY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomIn();g_dirty=true;return;}
     if(hit(x,y,kZoomX,kZoomOutY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomOut();g_dirty=true;return;}
+    if(hit(x,y,kPanX+72,kPanY,kZoomW,kZoomH)) {pan(0,kPanStepY);return;}
+    if(hit(x,y,kPanX,kPanY+64,kZoomW,kZoomH)) {pan(kPanStepX,0);return;}
+    if(hit(x,y,kPanX+144,kPanY+64,kZoomW,kZoomH)) {pan(-kPanStepX,0);return;}
+    if(hit(x,y,kPanX+72,kPanY+128,kZoomW,kZoomH)) {pan(0,-kPanStepY);return;}
     if(hit(x,y,kUseX,kFooterY,kUseW,46)) {
       if(g_has_proposal&&g_hooks.location) {
         if(g_hooks.location(g_lat,g_lon)) {if(g_mode==Mode::setup)advance();else cancel();}
         else {std::snprintf(g_message,sizeof(g_message),"Location could not be saved. Please retry.");g_dirty=true;}
       }
+      else {std::snprintf(g_message,sizeof(g_message),"Choose a point with the arrows, map or coordinate fields first.");g_dirty=true;}
       return;
     }
   }
@@ -306,7 +320,7 @@ void key(const keyboard_input::Key& key) {
     int dx=0,dy=0;
     if(key.special==Special::left)dx=40;else if(key.special==Special::right)dx=-40;
     else if(key.special==Special::up)dy=40;else if(key.special==Special::down)dy=-40;
-    if(dx||dy) {g_picker.DragByGesture(dx,dy);moved_picker();return;}
+    if(dx||dy) {pan(dx,dy);return;}
   }
   focus_nav::Direction direction;
   bool move=true;

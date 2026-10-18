@@ -121,8 +121,24 @@ bool begin_location_picker(orcmap::LocationPicker& picker,int width,int height,
   world.min_lon_deg=-180;world.max_lon_deg=180;
   world.min_lat_deg=-orcmap::kMercatorMaxLatDeg;world.max_lat_deg=orcmap::kMercatorMaxLatDeg;
   if(!picker.Begin(view,world,{0,20}))return false;
+  (void)picker.ZoomIn(); // Start one level closer; retain the whole-world zoom-out floor.
   double x=0,y=0;
   return orcmap::ProjectLatLon(picker.View(),{latitude_e7/1e7,longitude_e7/1e7},&x,&y)&&picker.RecenterAtScreen(x,y);
+}
+
+bool world_overview_view(const orcmap::Viewport& requested,uint8_t minimum,uint8_t maximum,
+                         orcmap::Viewport* output) {
+  if(!output || minimum>maximum || maximum>20 || requested.zoom>20 ||
+      requested.tile_size_px<=0)return false;
+  auto view=requested;
+  // The world archive is an overview. Use one coarser source level, drawing
+  // vectors at full screen resolution and keeping exactly the same camera.
+  const int source=std::clamp(static_cast<int>(view.zoom)-1,static_cast<int>(minimum),static_cast<int>(maximum));
+  if(source>view.zoom)return false;
+  const int delta=view.zoom-source;
+  if(delta>16 || view.tile_size_px>(INT32_MAX>>delta))return false;
+  view.tile_size_px<<=delta;view.zoom=static_cast<uint8_t>(source);
+  *output=view;return true;
 }
 
 bool regional_view(int32_t latitude_e7, int32_t longitude_e7, double range_nm,
