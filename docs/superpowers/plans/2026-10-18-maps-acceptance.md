@@ -12,8 +12,8 @@
 
 ## Global constraints
 
-- COM39 is the session-authorized flash target, USB serial E8:F6:0A:E2:D6:03. Preserve NVS, SD, embedded world and C6, and retain recovery artifacts.
-- COM17 is comparison-only on its existing firmware: no update or reset. Do not overwrite existing SD files.
+- COM39 is a session-authorized P4 flash target, USB serial E8:F6:0A:E2:D6:03. Its C6 must remain on ESP-Hosted 1.4.1 by explicit user instruction. Preserve NVS, SD and recovery artifacts.
+- On October 18 the user superseded COM17's comparison-only role and authorized its update after verified recovery inventory. COM17 now runs P4 source 6f001d86; its existing C6 3.0.6 and SD files remain unchanged. See `docs/evidence/maps/2026-10-18-com17-update.md` for the exact old image, backup and open memory gate.
 - Preserve legacy ORCMAP1 separately from PMTiles and the current RTL driver pin.
 - Raw device logs stay in the test invocation directory; publish reviewed evidence without credentials or private received data.
 - Source, host tests, build, flash, device behavior and physical acceptance are separate gates.
