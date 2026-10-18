@@ -80,7 +80,9 @@ The exception-enabled ESP32-P4 rebuild and all physical acceptance remain separa
 COM39 candidates `4971ee5b` and `e87c6d3c` failed before OrcSDR startup; none of the integrated
 dashboard map consumers received a hardware acceptance pass. The original firmware
 is restored and receiving LoRa. The placement adjustment reclaimed 592 internal BSS
-bytes on the device but still failed boot. An opt-in startup diagnostic is prepared,
-not linked or flashed. Consumer performance/visual claims
+bytes on the device but still failed boot. The approved startup diagnostic captured
+an allocation alignment boundary, now reproduced with 32-bit SDK TLSF. Four map
+metadata payloads are prepared for PSRAM placement; full build and device tests are
+pending. Consumer performance/visual claims
 below remain host/source results until the COM39 gate passes. Full details and logs
 are in `P4_PERFORMANCE_EVIDENCE.md`.

@@ -7,6 +7,7 @@
 #include "orc_badge.hpp"
 
 #include <M5Unified.h>
+#include <esp_attr.h>
 
 #include <algorithm>
 #include <cmath>
@@ -91,7 +92,7 @@ int32_t g_radar_cache_latitude_e7 = INT32_MIN;
 int32_t g_radar_cache_longitude_e7 = INT32_MIN;
 uint16_t g_radar_cache_range_nm = 0;
 uint32_t g_radar_map_revision = 0, g_radar_location_revision = 0;
-maps::RegionalView g_radar_map;
+EXT_RAM_BSS_ATTR maps::RegionalView g_radar_map;
 
 uint8_t displayed_aircraft_count() {
   return g_live_snapshot.aircraft_count;

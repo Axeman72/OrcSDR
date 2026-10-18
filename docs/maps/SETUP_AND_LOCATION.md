@@ -91,6 +91,8 @@ The approved COM39 candidates `4971ee5b` and `e87c6d3c` failed before `app_main`
 internal/DMA reserve. The setup/picker was never exercised on hardware. NVS verified
 unchanged before boot, and the previous firmware was restored successfully. This
 does not validate canonical location migration or interrupted setup on the device.
-The map-state placement adjustment also failed boot; a prepared opt-in allocation
-diagnostic awaits build/flash approval. See
+The first map-state placement adjustment also failed boot. The approved diagnostic
+now identifies an aligned-allocation boundary, reproduced in a 32-bit allocator
+test. Four map metadata payloads, including the unchanged location Snapshot, are
+prepared for PSRAM placement; full firmware build and device tests await approval. See
 `P4_PERFORMANCE_EVIDENCE.md`. Existing host persistence results below remain valid.

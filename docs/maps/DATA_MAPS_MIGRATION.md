@@ -67,3 +67,8 @@ World bytes remain in the previously unassigned region but are not exposed by th
 running firmware's partition table. No SD map pack or existing SD file was replaced.
 COM17 was not accessed. Discovery and compatibility acceptance on the new firmware
 remain pending; see `P4_PERFORMANCE_EVIDENCE.md` for recovery evidence.
+
+The subsequent approved `fa520a34` diagnostic verified existing world bytes rather
+than rewriting them, then restored the original partition table again. Its startup
+capture and host reproduction isolate an allocation alignment boundary. A map-state
+placement adjustment is prepared; no installed-pack or migration acceptance passed.

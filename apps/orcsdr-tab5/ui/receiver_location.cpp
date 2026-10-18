@@ -1,13 +1,15 @@
 #include "receiver_location.hpp"
 
 #include <freertos/FreeRTOS.h>
+#include <esp_attr.h>
 
 #include <cstring>
 
 namespace orcsdr::receiver_location {
 namespace {
 
-Snapshot g_location{};
+// Map metadata is task-only; keep the critical-section lock in internal RAM.
+EXT_RAM_BSS_ATTR Snapshot g_location{};
 portMUX_TYPE g_lock = portMUX_INITIALIZER_UNLOCKED;
 
 void copy_text(char* destination, size_t size, const char* value) {

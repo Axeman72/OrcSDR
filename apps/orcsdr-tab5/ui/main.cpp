@@ -1824,7 +1824,7 @@ bool settings_graphics_default = true;
 bool settings_web_console_enabled = false;
 bool web_console_deferred = false;
 char settings_location_label[40]{};
-char settings_map_pack[256]{};
+EXT_RAM_BSS_ATTR char settings_map_pack[256]{};
 bool adsb_atc_listening = false;
 bool catalog_radio_paused = false;
 

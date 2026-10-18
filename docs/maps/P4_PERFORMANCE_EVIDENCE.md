@@ -299,3 +299,123 @@ Before flash, verify the real reservation call and wrapper symbols in the linked
 image, miniz/pin/size gates, and zero new writable diagnostic static storage.
 Repeated build/flash attempts require approval under the session maintainer rules.
 The next integration milestone remains a bootable map candidate before UI/RF work.
+
+## Approved startup diagnostic — 2026-10-17, 18:26 local
+
+The user approved one diagnostic build from `fa520a3452cb3e78ee458f99408610689f35dd19`,
+COM39 capture and restoration. Executed from the worktree root:
+`& ./apps/orcsdr-tab5/tools/build-tab5-idf.ps1 -MapStartupDiag -WorldMap F:/AI/OrcSDR-TEMP/maps-integration-completion/.local/maps/world/world-overview-z4.pmtiles`.
+Result: PASS; pin and linked miniz gates PASS. App size 5021696 bytes (352 more than
+e87c6d3c); SHA-256 `5f3f9ef802e75b70d9ad7e7b7cd426d2a639861e3aa0fc087f82dbcd2ec98640`.
+Disassembly confirms `main_task` calls the wrapper, which calls the real reservation
+function; internal BSS stays 170708 bytes. This was a test image, not a release.
+The pre-flash manifest's `hardware_flashed=false` is its historical creation state.
+
+COM39 identity again matched `E8:F6:0A:E2:D6:03`. `RTL_STOP` completed cleanly, fresh
+opaque NVS/core backups were saved in `.local/maps/com39-recovery/diag-20261017/`,
+then explicit bootloader/table/app writes each passed flash hash verification.
+NVS, the pre-attempt core dump, and the existing world archive all passed
+`verify_flash`; world bytes were verified rather than rewritten. COM17 and the C6
+firmware were not accessed. The normal `--no-reset` native monitor captured an
+authorized reset with the correct RISC-V decoder.
+
+Actual startup output (same values on repeated automatic reboot cycles):
+
+```text
+ORC_MAP_STARTUP phase=before reserve_bytes=40960 dma_free=95508 dma_largest=40960 internal_free=135056 psram_free=28028348
+ORC_MAP_STARTUP phase=after result=257 dma_free=95508 dma_largest=40960
+```
+
+The device has enough total free DMA memory. The first 40960-byte allocation fails
+at the reported largest-block boundary, before any reservation changes the counts.
+The real allocator returns ESP_ERR_NO_MEM; it is not a map-render, partition-write,
+Wi-Fi receive, USB or DSP failure. No maps/setup acceptance ran.
+
+The local SDK source explains the boundary: `heap_caps_get_largest_free_block`
+reports the unaligned TLSF fit size, while a DMA allocation goes through hardware
+alignment and `tlsf_memalign_offs`, which needs additional space for alignment and
+metadata. Internal cache-line alignment in this configuration is 64 bytes. The SDK
+sources inspected for this conclusion are unmodified locally:
+
+- [ESP-IDF v5.5.4 heap alignment](https://github.com/espressif/esp-idf/blob/v5.5.4/components/esp_mm/heap_align_hw.c)
+- [ESP-IDF v5.5.4 TLSF allocation](https://github.com/espressif/esp-idf/blob/v5.5.4/components/heap/tlsf/tlsf.c)
+- [ESP-IDF largest-block API contract](https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32p4/api-reference/system/mem_alloc.html#_CPPv432heap_caps_get_largest_free_block8uint32_t)
+
+A separately found [esp-rtl-sdr startup RAM note](https://github.com/hardcoreerik/esp-rtl-sdr/blob/master/CHANGELOG.md)
+describes an earlier small-BSS-change crossing this same startup boundary. It is
+background evidence only; the pinned driver was not changed or upgraded.
+
+### 32-bit allocator reproduction
+
+Command: `cmd /d /c .local\maps\run-tlsf-repro.cmd`. Result: PASS with 32-bit MSVC
+using the local SDK's TLSF source. Observed output:
+
+```text
+region=42528 metadata=784 raw_largest=41736 reported_largest=40960 plain_40960=PASS aligned64_40960=FAIL
+region=44000 metadata=784 raw_largest=43208 reported_largest=43008 plain_40960=PASS aligned64_40960=PASS
+```
+
+This reproduces the allocator mechanism; it does not simulate the complete P4 heap
+layout, ROM implementation, startup allocations or device performance. This test
+region was empty except for its own TLSF metadata. Assertions require 32-bit pointers
+and size_t, an ordinary 40960-byte allocation that succeeds, failure with 64-byte
+alignment in the smaller region, and aligned success in the enlarged region.
+
+Credit/license: SDK TLSF is Matthew Conte's BSD-3-Clause implementation. SDK code
+was not vendored into OrcSDR or modified in place. The ignored local test copy uses
+three explicit char-pointer casts for GNU void-pointer arithmetic, plus an MSVC
+adapter for the compiler attribute/leading-zero builtin and the disabled weak
+poisoning hooks. The independently written experiment is retained with the evidence.
+The first host attempts exposed a forced-include path issue, GNU C portability and
+weak-hook linking issues; these were harness failures, then corrected. Logs preserve
+those attempts locally. They are not device regressions or passing firmware tests.
+
+### Restoration and remaining gate
+
+The diagnostic crash dump was saved. Original bootloader, partition table and factory
+image, plus the fresh pre-attempt core dump, were restored with four verified flash
+hashes. Fresh NVS verification passed before the restoration reboot. The world bytes
+remain unexposed by the restored old partition table. `UI_SELF_CHECK` returned all
+six fields equal to 1; reception returned to LoRa 906875000 Hz.
+
+At restored uptime 421833 ms, the driver reported 733052928 bytes, effective_sps=959978,
+overruns=0 and drops=0. LoRa: events=3, crc_ok=3, messages=3, failures=0 and drops=0.
+Memory: internal_free=36527, internal_largest=31744, dma_free=3623, dma_largest=3584,
+psram_free=2127996 and psram_largest=2097152. This is restored-firmware evidence.
+
+Invocation-directory logs: `maps-startup-diag-build-20261017.log`,
+`maps-startup-diag-link-20261017.json`, `maps-startup-diag-disassembly-20261017.log`,
+`maps-com39-diag-preflash-20261017.log`, `maps-com39-diag-backup-nvs-20261017.log`,
+`maps-com39-diag-backup-core-20261017.log`, `maps-com39-diag-flash-20261017.log`,
+`maps-com39-diag-preservation-20261017.log`, `maps-com39-diag-boot-20261017.log`,
+`maps-com39-diag-startup-dump-20261017.log`, `maps-com39-diag-restore-20261017.log`,
+`maps-com39-diag-recovery-nvs-20261017.log`, `maps-com39-diag-restored-health-20261017.log`,
+`maps-com39-diag-restored-final-20261017.log`, `maps-startup-tlsf-repro-20261017.log`.
+Reviewed copies/extracts are in `docs/evidence/maps/2026-10-17-*`; opaque private
+backups and complete memory dumps remain ignored locally.
+
+### Prepared map-state placement change — no new image built
+
+Four task-owned payloads move to PSRAM: ADS-B RegionalView (488 bytes), LoRa map
+FrameInfo (416), shared location Snapshot (312), and map identity buffer (256).
+Total payload: 1472 bytes. The critical-section lock stays internal; callers of the
+shared location snapshot are task/UI code. The change adds placement attributes and
+required includes only; no receiver, projection, persistence, DMA-reserve,
+exception-reserve or radio/DSP algorithm changes. Main.cpp has exactly one annotation
+change, checked byte-for-byte against HEAD, preserving its existing NUL bytes.
+
+`python .local/maps/check_map_placement_probe.py`: PASS, compiling the four actual
+P4 types after correcting the ELF inspection to skip its FILE symbol. Also,
+`maps-map-placement-probe-result-20261017.log` confirms all four payloads occupy
+external BSS. `maps-map-placement-source-check-20261017.log` confirms the sole
+main.cpp edit. The 32-bit allocator model predicts the added margin permits the
+full aligned reservation; actual linked internal-memory recovery, local-static
+initialization overhead, boot, map worker memory and active-RF operation remain
+UNTESTED for this change. No second firmware build or flash was run after the
+approved diagnostic attempt.
+
+Next requested gate: build the placement change with the startup diagnostic enabled,
+confirm actual linked recovery and a successful 40960-byte reservation, then run the
+bounded setup/location/map/radio acceptance sequence on COM39. Roll back on boot
+failure. The diagnostic remains opt-in and normal helper invocations explicitly turn
+it off. Main is not merged; hardware acceptance must pass first.

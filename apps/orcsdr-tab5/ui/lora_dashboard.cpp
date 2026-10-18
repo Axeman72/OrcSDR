@@ -676,7 +676,7 @@ void draw_traffic_dynamic() {
 }
 
 void draw_map_dynamic() {
-  static maps::FrameInfo map_info;
+  static EXT_RAM_BSS_ATTR maps::FrameInfo map_info;
   M5.Display.fillRect(50, 182, 842, 330, kBg);
   const Node* center = g_snapshot.node_count ? &g_snapshot.nodes[
       std::min<size_t>(g_snapshot.selected_node, g_snapshot.node_count - 1)] : nullptr;

@@ -108,8 +108,10 @@ COM39 candidates `4971ee5b` and `e87c6d3c` flashed with verified hashes and pres
 NVS, but both failed before OrcSDR initialization while reserving the 40 KiB internal/DMA pool. The
 original firmware/table/core dump were restored with verified hashes; LoRa reception
 and all six UI self-checks pass on the restored firmware. COM17 and C6 were untouched.
-Map hardware acceptance remains blocked. The PSRAM placement change reached the
-device and recovered 592 internal bytes, but did not fix startup. An opt-in startup
-allocation diagnostic compiles as a standalone P4 object; it has not been linked or
-flashed. Another build/flash cycle awaits approval. See
+Map hardware acceptance remains blocked. The 592-byte placement change was
+insufficient. The approved `fa520a34` diagnostic built, linked and captured 95508
+free DMA bytes, but a largest reported block exactly equal to the 40960-byte request.
+SDK inspection and a 32-bit allocator reproduction identify extra alignment space
+as the missing margin. A four-payload map-state PSRAM placement change is prepared;
+its P4 object check passes, but a full build and device tests await approval. See
 `P4_PERFORMANCE_EVIDENCE.md` for commands, hashes, recovery paths and exact results.
