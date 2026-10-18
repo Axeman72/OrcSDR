@@ -1,7 +1,19 @@
 # ESP32-P4 map performance evidence
 
 
-## Latest device checkpoint: OrcMaps v0.2.3 and readable footer on COM39
+## Latest storage checkpoint: retained-map SD checks on COM39
+
+Firmware `5c6f2853` builds/boots with the full 40 KiB reserve. Three 2.76 MB reads
+and a unique 131,109-byte scratch write/readback pass with the map frame retained;
+no reclaim. LoRa CSV readback adds two RF rows and preserves all 409 old rows.
+Logging ends ready/error=false/dropped=0. Before flashing, old firmware already
+reported error=true/dropped=33; those lost records are not recovered. Tight DMA
+headroom, live SSTV/FT8 candidate checks and regional-SD concurrency remain open.
+This is a bounded device result, not all-mode durability qualification or a soak.
+COM17/C6 untouched; no push/merge. [SD results and logs](../evidence/maps/2026-10-17-sd-guard-device-result.md).
+[Shared storage regression reference](../SD_CARD_RELIABILITY.md).
+
+## Earlier display checkpoint: OrcMaps v0.2.3 and readable footer on COM39
 
 Firmware `99affb1b` boots with OrcMaps v0.2.3 (`dc6bc12`) and the full 40 KiB
 DMA reserve. Three device map crops match the previous renderer exactly; stored

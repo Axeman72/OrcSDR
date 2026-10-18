@@ -12,7 +12,7 @@ separate checks. A passing screenshot download does not qualify the whole card.
 | FT8 log | OrcDial bridge consumed scarce internal DMA memory. Queue placement recovered headroom; file append semantics were corrected. FT8 stages CSV in PSRAM and waits for its DMA threshold. | [2026-10-08 FT8 entry](ft8/CHANGELOG.md#2026-10-08--decode-log-to-the-sd-card-works-internal-dma-memory-recovered); `431b1f46` |
 | LoRa persistence | An open buffered log needs fflush plus fsync to commit data/metadata. Shared File::sync does both; worker syncs journal and CSV at five-second intervals and when logging stops. Close/sync errors remain observable. | `eaa51423`, `d7deb59a`; [history behavior](lora-history.md), [device checks](lora-history-validation-2026-10-16.md) |
 | SSTV archive | Archive worker uses its own cache-aligned stdio buffers, retained until fclose. Existing tests exercise missing/full/flaky/slow storage, partial reads/writes, retry and temporary-file recovery. | `ui/sstv_archive.cpp`; `tests/sstv_archive_test.cpp` under the Tab5 app |
-| Map-retained SD read | Historical cache-sync invalid-address error preceded SD error 0x102. SDK's alignment-only check can admit non-DMA CPU heaps. Candidate adds a reachability/range check before using direct DMA. | [2026-10-17 source/device evidence](evidence/maps/2026-10-17-sd-retained-source-result.md); native candidate not yet built/flashed |
+| Map-retained SD read | Historical cache-sync invalid-address error preceded SD error 0x102. SDK's alignment-only check can admit non-DMA CPU heaps. Candidate adds a reachability/range check before using direct DMA. | [Source investigation](evidence/maps/2026-10-17-sd-retained-source-result.md); [5c6f2853 build/device checks](evidence/maps/2026-10-17-sd-guard-device-result.md) passed within their bounds |
 
 These are different failure mechanisms. Reducing map memory or slowing SD is not
 a universal correction. The old recorded pointer is unavailable, so the precise
@@ -40,6 +40,17 @@ path is reproduced in a host test.
 - Test files must use an explicitly reserved scratch path that is verified absent
   before creation. Existing SD self-check/benchmark commands use fixed names and
   delete them; do not run them on valuable cards without checking those names.
+
+## 2026-10-17 COM39 device checkpoint
+
+`5c6f2853` builds and boots; retained-map read/write and real LoRa CSV readback
+pass. Before flashing, old 99affb1b already showed logging error=true and 33
+lost log records despite a healthy RTL stream. The new cycle ends logging
+ready=true/error=false/dropped=0; 411 CSV rows include two new RF records and
+preserve all 409 earlier rows. This does not recover records previously dropped.
+The historical rejected pointer is unrecorded; do not treat this as proof of
+all past failures or all-mode SD reliability. [Commands, actual counters,
+limitations and logs](evidence/maps/2026-10-17-sd-guard-device-result.md).
 
 ## Repeatable host gate
 
@@ -75,13 +86,13 @@ an existing separate error-reporting gap, not fixed or qualified by this patch.
 
 | Check | Current candidate status |
 |---|---|
-| Normal native link/boot and unchanged reserve/firmware identity | Pending approval/build/flash |
-| Full map retained, repeated checksum-verified SD reads | Old installed firmware passed two reads; new guard untested on device |
-| Bounded scratch-file writes/readback with retained map | Untested on candidate; check target path before any write |
-| Internal DMA/PSRAM, navigation and LoRa continuity during maps | Previous v0.2.3 samples recorded; repeat for changed storage code |
+| Normal native link/boot and unchanged reserve/firmware identity | PASS on COM39, 5c6f2853, full 40 KiB reserve |
+| Full map retained, repeated checksum-verified SD reads | PASS: three 2.76 MB reads, frame 1,417,728 bytes retained, no reclaim |
+| Bounded scratch-file writes/readback with retained map | PASS: unique absent-checked 131,109-byte file, exact readback |
+| Internal DMA/PSRAM, navigation and LoRa continuity during maps | Bounded checks PASS; DMA margins remain tight; one abort after intentional reception stop is recorded |
 | SSTV archive save/reload with map memory pressure | Host faults pass; candidate device behavior untested |
 | FT8 append/flush/readback and staged-row handling under pressure | Historical validation exists; candidate device behavior untested |
-| LoRa append/sync, stop/readback, reboot replay with NODEINFO preserved | Historical validation exists; candidate device behavior untested |
+| LoRa append/sync, stop/readback, reboot replay with NODEINFO preserved | Two new RF rows read back; old 409-row prefix intact; 56 archived nodes replayed. Reboot of the two new records not repeated |
 | Card full/removal and power-cut durability | Separate destructive/fault testing needed; not authorized by a normal flash |
 
 For each device cycle save target/firmware hash, card/bus details, commands,

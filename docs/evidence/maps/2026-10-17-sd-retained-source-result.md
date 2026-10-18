@@ -1,5 +1,9 @@
 # SD buffer reachability guard: source and host verification
 
+**Later device result:** the approved native/COM39 cycle of 5c6f2853 passed its
+bounded checks. [Device results](2026-10-17-sd-guard-device-result.md).
+The following source-checkpoint statements are historical.
+
 Date: 2026-10-17, America/Los_Angeles. Parent: `0469331d`.
 No native firmware rebuild or flash in this cycle. COM39 remains on `99affb1b`.
 This report prepares a narrow candidate; it does not close SD reliability.
@@ -91,7 +95,7 @@ build-green,green,build-green2,green2,regression}-20261017.log`,
 Reviewed red/green/regression and coordinate-free device counter logs are beside
 this report. Raw logs and screenshots remain private. Prior backups are preserved.
 
-## Remaining gate and next milestone
+## Gate at source checkpoint (subsequently tested)
 
 Follow-up at the user's request: reviewed the earlier SSTV, FT8 and LoRa SD work
 and documented shared requirements in [SD card reliability](../../SD_CARD_RELIABILITY.md).
