@@ -18,6 +18,13 @@ Log: `map-timing-green-20261018.log`, from the integration worktree under WSL.
 Checks empty state, repeated frame suppression, percentile calculation,
 baseline reset and rollover beyond capacity.
 
+Host CMake registration committed separately as `bf888074`, preserving the
+uncommitted wizard test configuration. Configured the existing labels-host
+build, built only `orcsdr_map_timing_tests`, then ran
+`ctest --test-dir .local/maps/labels-host -R '^map_timing$' --output-on-failure`:
+**1/1 passed**. Logs: `map-timing-ctest-config-20261018.log`,
+`map-timing-ctest-build-20261018.log`, `map-timing-ctest-20261018.log`.
+
 `python .local/maps/check_map_timing.py`: **two P4 syntax checks pass**,
 map service and pipeline. `map-timing-syntax-20261018.log`. An initial invocation
 of the older check script refused to overwrite its existing log; no old log
