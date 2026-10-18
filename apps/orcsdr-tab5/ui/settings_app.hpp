@@ -89,7 +89,7 @@ struct State {
   char ip_location_message[48]{};
 
   uint8_t brightness = 180;
-  uint8_t rotation = 1;
+  uint8_t rotation = 3;
   uint16_t screen_timeout_sec = 0;
   uint8_t volume = 128;
   bool sound_default = true;
@@ -182,6 +182,8 @@ void enter(const State& state, Section section = Section::connectivity);
 void leave();
 void draw();
 void update(const State& state);
+// Open an existing location method: network=0, address=1, coordinates=2.
+Action begin_location_method(int method);
 Action handle_touch(int32_t x, int32_t y);
 bool active();
 const State& state();

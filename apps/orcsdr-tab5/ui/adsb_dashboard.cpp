@@ -129,10 +129,6 @@ void draw_radar_base() {
     g_radar_map=maps::draw_region(g_radar_base,g_settings.latitude_e7,g_settings.longitude_e7,
         g_settings.radar_range_nm,cx-radius,cy-radius,radius*2,radius*2,kPanel,0x2382,kMuted,location.map_pack);
   } else g_radar_map={};
-  for (int ring = 1; ring <= 4; ++ring)
-    g_radar_base.drawCircle(cx, cy, radius * ring / 4, 0x2382);
-  g_radar_base.drawFastHLine(cx - radius, cy, radius * 2, 0x2382);
-  g_radar_base.drawFastVLine(cx, cy - radius, radius * 2, 0x2382);
   g_radar_base.setTextDatum(middle_center);
   g_radar_base.setTextSize(2);
   g_radar_base.setTextColor(TFT_WHITE);

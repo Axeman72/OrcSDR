@@ -944,6 +944,16 @@ void update(const State& state_value) {
     draw_content();
 }
 
+Action begin_location_method(int method) {
+  if(method==0)return {ActionKind::location_ip_lookup,0};
+  if(method==1) {
+    g_location_edit=true;
+    text_editor::begin("ZIP CODE OR ADDRESS",g_location_query,sizeof(g_location_query)-1,false,"LOOK UP");
+    text_editor::draw();
+  } else if(method==2) {start_edit(EditField::latitude);draw_keypad();}
+  return {};
+}
+
 Action handle_touch(int32_t x, int32_t y) {
   if (!g_active) return {};
   // The full-width text editor covers the rail; repaint it once it closes.

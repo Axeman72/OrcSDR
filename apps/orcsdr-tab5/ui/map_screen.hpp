@@ -9,6 +9,7 @@ struct Hooks {
   void (*restore)(screens::Id) = nullptr;
   bool (*location)(int32_t latitude_e7,int32_t longitude_e7) = nullptr;
   bool (*pack)(const char* identity) = nullptr;
+  void (*location_method)(int method) = nullptr;
 };
 // Call immediately after opening preferences, before legacy defaults are saved.
 void load(NvsStore&);

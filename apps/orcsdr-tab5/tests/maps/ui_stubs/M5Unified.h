@@ -31,4 +31,5 @@ class LovyanGFX {
   void drawString(const char* value,int,int) {strings.emplace_back(value);}
 };
 }}
-inline struct {lgfx::LovyanGFX Display;} M5;
+struct FakeM5 {lgfx::LovyanGFX Display;};
+inline FakeM5 M5;

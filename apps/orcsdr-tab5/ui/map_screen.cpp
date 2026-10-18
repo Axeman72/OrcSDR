@@ -32,7 +32,8 @@ bool g_lat_set=false,g_lon_set=false,g_return_settings=false;
 bool g_picker_ready=false;
 screens::Id g_return=screens::Id::home;
 settings::Section g_section=settings::Section::data_maps;
-int g_last_x=0,g_last_y=0,g_edit=0,g_index=0;
+int g_last_x=0,g_last_y=0,g_edit=0,g_index=0,g_scroll=0;
+bool g_location_menu=true,g_details=false;
 int32_t g_lat=0,g_lon=0;
 char g_entry[16]{},g_message[96]{};
 orcmap::LocationPicker g_picker;
@@ -48,7 +49,7 @@ void button(const char* label,int x,int y,int w=180,int h=46,bool primary=false)
   const uint16_t accent=primary?kGreen:kAccent;
   focus_nav::note(x,y,w,h);M5.Display.fillRoundRect(x,y,w,h,6,kPanel);
   M5.Display.drawRoundRect(x,y,w,h,6,accent);
-  M5.Display.setTextDatum(top_left);M5.Display.setTextSize(2);M5.Display.setTextColor(accent,kPanel);
+  M5.Display.setTextDatum(top_left);M5.Display.setTextSize(3);M5.Display.setTextColor(accent,kPanel);
   M5.Display.drawString(label,x+12,y+14);
 }
 void wrapped(const char* value,int x,int y,int columns=100,int size=1) {
@@ -122,7 +123,7 @@ void draw_map() {
 void draw_picker() {
   char value[64];std::snprintf(value,sizeof(value),"LAT E7 %ld",static_cast<long>(g_lat));button(value,kLatX,kCoordinateY,kCoordinateW);
   std::snprintf(value,sizeof(value),"LON E7 %ld",static_cast<long>(g_lon));button(value,kLonX,kCoordinateY,kCoordinateW);
-  button("USE LOCATION",kUseX,kFooterY,kUseW,46,true);
+  button("USE LOCATION",kUseX,kFooterY,kUseW,60,true);
   const int hint_x=g_mode==Mode::setup?220:16;
   text(g_has_proposal?"Center = location. USE LOCATION saves.":"Choose a point, then USE LOCATION.",hint_x,652,2);
   text("Pan: arrows/drag/tap. Zoom: +/-.",hint_x,676,2);
@@ -130,24 +131,47 @@ void draw_picker() {
 }
 void draw_inventory() {
   (void)maps::snapshot(&g_packs);
-  text(g_packs.sd?"SD inventory: /sd/orcmaps (separate from signed downloads)":"No SD card. Firmware overview remains independent.",32,110);
-  if(g_packs.overflow)text("Too many map manifests (limit 16). No regional packs selected.",32,144,2,TFT_ORANGE);
-  if(!maps::running())text("Map service unavailable. Manual E7 location remains available.",32,180);
-  else if(!g_packs.loaded)text("Scanning local maps...",32,180);
-  if(g_packs.out_of_memory)text("Scan ran out of memory. Rescan to retry; existing settings are retained.",32,570,1,TFT_ORANGE);
-  if(g_packs.count) {
-    g_index=std::clamp(g_index,0,static_cast<int>(g_packs.count)-1);
-    const auto& pack=g_packs.packs[g_index];char line[128];
-    std::snprintf(line,sizeof(line),"%d / %u   %s",g_index+1,g_packs.count,pack.title);text(line,32,180);
-    wrapped(pack.identity,32,226,128);text(pack.region,32,280);
-    std::snprintf(line,sizeof(line),"Version %s   zoom %u-%u   %llu bytes",pack.version[0]?pack.version:"unknown",pack.min_zoom,pack.max_zoom,static_cast<unsigned long long>(pack.bytes));
-    text(line,32,324);text(pack.status,32,370,2,pack.usable?kAccent:TFT_ORANGE);
-    wrapped(pack.credit,32,416,128);
-    text(pack.coverage,32,462,1);wrapped(pack.provenance,32,482,128);
-    if(pack.usable)button("USE THIS MAP",800,520,250,46,true);
+  text("Choose an offline map",32,92,3);
+  text(g_packs.sd?"Maps on this device and SD card":"No SD card - built-in maps only",32,130,2);
+  if(!g_packs.loaded)text("Scanning maps...",32,170,3);
+  if(g_packs.overflow||g_packs.out_of_memory)text("Some maps could not be listed. Rescan to retry.",32,580,2,TFT_ORANGE);
+  g_index=std::clamp(g_index,0,std::max(0,static_cast<int>(g_packs.count)-1));
+  g_scroll=std::clamp(g_scroll,0,std::max(0,static_cast<int>(g_packs.count)-4));
+  const auto location=receiver_location::snapshot();
+  for(int row=0;row<4&&g_scroll+row<g_packs.count;++row) {
+    const int index=g_scroll+row,y=174+row*84;const auto& pack=g_packs.packs[index];
+    char title[58];std::snprintf(title,sizeof(title),"%.57s",pack.title);
+    button(title,32,y,1070,76,index==g_index);
+    char line[160];
+    const char* detail=pack.kind==maps::Kind::firmware?"World overview - broad coverage, limited detail":
+        pack.kind==maps::Kind::legacy?"Legacy regional map":pack.region;
+    std::snprintf(line,sizeof(line),"%.55s | zoom %u-%u%s%s",detail,pack.min_zoom,pack.max_zoom,
+        std::strcmp(location.map_pack,pack.identity)==0?" | SELECTED":"",pack.usable?"":" | UNAVAILABLE");
+    text(line,44,y+46,2);
   }
-  button("PREV",32,520);button("NEXT",230,520);button("RESCAN",440,520);
-  text("Discovery checks metadata and size. Archive SHA-256 is not yet verified on this device.",32,590,1);
+  button("UP",1120,174,128,70);button("DOWN",1120,426,128,70);
+  button("RESCAN",32,520,200,56);button("DETAILS",250,520,200,56);
+  if(g_packs.count&&g_packs.packs[g_index].usable)button("USE THIS MAP",800,520,300,56,true);
+  if(g_details&&g_packs.count) {
+    const auto& pack=g_packs.packs[g_index];
+    M5.Display.fillRect(24,160,1080,340,kBg);
+    text(pack.title,32,170,3);wrapped(pack.region,32,212,80,2);
+    wrapped(pack.status,32,256,80,2);wrapped(pack.credit,32,300,80,2);
+    wrapped(pack.identity,32,364,80,2);
+    text("Metadata/size checked; archive hash not verified.",32,454,2);
+  }
+}
+void draw_location_methods() {
+  text("Set your receiver location",32,112,3);
+  text("Choose a method. You can change this later in Settings.",32,160,2);
+  button("NETWORK LOCATION",32,220,550,68);text("Approximate area from Wi-Fi internet",610,242,2);
+  button("SEARCH ZIP / ADDRESS",32,306,550,68);text("Requires an internet connection",610,328,2);
+  button("CHOOSE ON MAP",32,392,550,68);text("Pan and zoom; works offline",610,414,2);
+  button("ENTER LATITUDE / LONGITUDE",32,478,550,68);text("Enter coordinates directly",610,500,2);
+  const auto location=receiver_location::snapshot();char line[96];
+  if(location.configured)std::snprintf(line,sizeof(line),"Saved: %.6f, %.6f",location.latitude_e7/1e7,location.longitude_e7/1e7);
+  else std::snprintf(line,sizeof(line),"Location has not been saved yet.");
+  text(line,32,582,3,location.configured?kGreen:kInk);
 }
 void draw_edit() {
   M5.Display.fillRect(0,90,1280,540,kBg);
@@ -198,7 +222,7 @@ void open(Mode mode,bool automatic) {
   screens::begin_transition(screens::Id::maps,millis());
   g_mode=mode;g_auto=automatic;g_flow=automatic?g_saved:setup::Flow{};
   g_flow.writable=g_saved.writable;g_saved.automatic=false;
-  g_edit=0;g_message[0]=0;g_dirty=true;g_index=0;g_drag=false;
+  g_edit=0;g_message[0]=0;g_dirty=true;g_index=0;g_scroll=0;g_drag=false;g_location_menu=true;g_details=false;
   const auto location=receiver_location::snapshot();g_lat=location.latitude_e7;g_lon=location.longitude_e7;
   g_lat_set=g_lon_set=g_has_proposal=location.configured;
   picker_at(g_lat,g_lon);maps::cancel();draw();screens::finish_transition();
@@ -206,25 +230,28 @@ void open(Mode mode,bool automatic) {
 void draw() {
   if(!screens::is_active(screens::Id::maps))return;
   M5.Display.setFont(nullptr);M5.Display.fillScreen(kBg);focus_nav::clear();
-  if(location_step())text(g_mode==Mode::setup?"SETUP: LOCATION":"LOCATION",16,24,2,kAccent);
+  if(location_step()&&!(g_mode==Mode::setup&&g_location_menu))text(g_mode==Mode::setup?"SETUP: LOCATION":"LOCATION",16,24,2,kAccent);
   else text(g_mode==Mode::setup?"ORCSDR SETUP":"LOCAL MAPS",32,28,3,kAccent);
   button("CANCEL",1050,20,195);
-  if(location_step())draw_picker();
+  if(location_step()&&g_mode==Mode::setup&&g_location_menu)draw_location_methods();
+  else if(location_step())draw_picker();
   else if(maps_step())draw_inventory();
   else if(g_flow.step==setup::Step::welcome) {
-    text("Welcome to OrcSDR",32,150,3);text("Set up an optional network, your receiver location, and offline maps.",32,220);
-    text("Existing location, radio settings, and SD files are retained.",32,270);button("QUICK START",32,390,260,46,true);
+    text("Welcome to OrcSDR",32,150,3);text("Connect to Wi-Fi, set your location,",32,220,3);
+    text("then choose your offline maps.",32,260,3);
+    text("You can skip steps and return later.",32,320,3);button("QUICK START",32,390,260,46,true);
   } else if(g_flow.step==setup::Step::network) {
-    text("Network is optional. Offline maps and manual location work without Wi-Fi.",32,150);
+    text("Wi-Fi is optional.",32,150,3);
+    text("Offline maps and manual location work without it.",32,205,3);
     button("NETWORK SETTINGS",32,260,350);
   } else text("Setup complete. You can rerun it from Settings > System.",32,180);
   if(g_mode==Mode::setup) {
     if(g_flow.step!=setup::Step::welcome)button("BACK",32,650);
-    if(location_step())button("SKIP",700,kFooterY,196);
+    if(location_step()&&!g_location_menu)button("SKIP",700,kFooterY,196);
     else button(g_flow.step==setup::Step::complete?"FINISH":"NEXT / SKIP",920,650,310,46,true);
   }
   if(g_edit)draw_edit();
-  if(g_message[0])text(g_message,32,location_step()&&!g_edit?704:625,1,TFT_ORANGE);
+  if(g_message[0])text(g_message,32,location_step()&&!g_edit?704:610,2,TFT_ORANGE);
   g_dirty=false;
 }
 void tick() {
@@ -233,7 +260,7 @@ void tick() {
   const uint32_t now=millis();
   if(now-g_last_tick<250)return;
   g_last_tick=now;
-  if(location_step()&&!g_edit&&maps::revision()!=g_last_map_revision) {
+  if(location_step()&&!(g_mode==Mode::setup&&g_location_menu)&&!g_edit&&maps::revision()!=g_last_map_revision) {
     draw_map();
   }
   if(maps_step()) {
@@ -244,6 +271,13 @@ void tick() {
 void touch(int x,int y,bool pressed,bool new_press) {
   if(!screens::owns(screens::Id::maps))return;
   if(!pressed) {g_drag=false;return;}
+  if(maps_step()&&hit(x,y,32,174,1070,336)) {
+    if(new_press) {g_drag=true;g_last_y=y;}
+    else if(g_drag&&std::abs(y-g_last_y)>=60) {
+      g_scroll=std::clamp(g_scroll+(y<g_last_y?1:-1),0,std::max(0,static_cast<int>(g_packs.count)-4));
+      g_last_y=y;g_details=false;g_dirty=true;return;
+    }
+  }
   if(g_edit) {
     if(!new_press)return;
     if(hit(x,y,820,300,250,46))finish_edit();
@@ -257,7 +291,14 @@ void touch(int x,int y,bool pressed,bool new_press) {
     }
     return;
   }
-  if(location_step()&&new_press) {
+  if(location_step()&&g_mode==Mode::setup&&g_location_menu&&new_press) {
+    if(hit(x,y,32,392,550,68)) {g_location_menu=false;const auto current=receiver_location::snapshot();g_lat=current.latitude_e7;g_lon=current.longitude_e7;picker_at(g_lat,g_lon);g_has_proposal=true;g_lat_set=g_lon_set=true;g_dirty=true;return;}
+    if(hit(x,y,32,220,550,68)||hit(x,y,32,306,550,68)||hit(x,y,32,478,550,68)) {
+      navigation::open_settings(settings::Section::location_adsb);
+      if(g_hooks.location_method)g_hooks.location_method(y<306?0:y<478?1:2);return;
+    }
+  }
+  if(location_step()&&!(g_mode==Mode::setup&&g_location_menu)&&new_press) {
     g_drag=false;
     if(hit(x,y,kLatX,kCoordinateY,kCoordinateW,46)) {begin_edit(1);return;}
     if(hit(x,y,kLonX,kCoordinateY,kCoordinateW,46)) {begin_edit(2);return;}
@@ -268,8 +309,8 @@ void touch(int x,int y,bool pressed,bool new_press) {
     if(hit(x,y,kPanX,kPanY+64,kZoomW,kZoomH)) {pan(kPanStepX,0);return;}
     if(hit(x,y,kPanX+144,kPanY+64,kZoomW,kZoomH)) {pan(-kPanStepX,0);return;}
     if(hit(x,y,kPanX+72,kPanY+128,kZoomW,kZoomH)) {pan(0,-kPanStepY);return;}
-    if(hit(x,y,kUseX,kFooterY,kUseW,46)) {
-      if(g_has_proposal&&g_hooks.location) {
+    if(hit(x,y,kUseX,kFooterY,kUseW,60)) {
+      if(g_picker_ready&&g_hooks.location) {
         if(g_hooks.location(g_lat,g_lon)) {if(g_mode==Mode::setup)advance();else cancel();}
         else {std::snprintf(g_message,sizeof(g_message),"Location could not be saved. Please retry.");g_dirty=true;}
       }
@@ -277,7 +318,7 @@ void touch(int x,int y,bool pressed,bool new_press) {
       return;
     }
   }
-  if(location_step()&&hit(x,y,kMapX,kMapY,kMapW,kMapH)) {
+  if(location_step()&&!(g_mode==Mode::setup&&g_location_menu)&&hit(x,y,kMapX,kMapY,kMapW,kMapH)) {
     if(!g_picker_ready)return;
     if(new_press) {g_picker.RecenterAtScreen(x-kMapX,y-kMapY);g_drag=true;g_last_x=x;g_last_y=y;moved_picker();}
     else if(g_drag&&(x!=g_last_x||y!=g_last_y)) {g_picker.DragByGesture(x-g_last_x,y-g_last_y);g_last_x=x;g_last_y=y;moved_picker();}
@@ -286,17 +327,19 @@ void touch(int x,int y,bool pressed,bool new_press) {
   if(!new_press)return;
   if(hit(x,y,1050,20,195,46)) {cancel();return;}
   if(g_mode==Mode::setup) {
-    if(hit(x,y,32,650,180,46)) {g_flow.back();(void)checkpoint();g_dirty=true;return;}
+    if(hit(x,y,32,650,180,46)) {if(location_step()&&!g_location_menu) {g_location_menu=true;g_dirty=true;return;}g_flow.back();(void)checkpoint();g_dirty=true;return;}
     if((location_step()&&hit(x,y,700,kFooterY,196,46))||
-       (!location_step()&&hit(x,y,920,650,310,46))) {if(g_flow.step==setup::Step::complete)finish();else advance();return;}
+       ((!location_step()||g_location_menu)&&hit(x,y,920,650,310,46))) {if(g_flow.step==setup::Step::complete)finish();else advance();return;}
     if(g_flow.step==setup::Step::welcome&&hit(x,y,32,390,260,46)) {g_flow.quick_start();(void)checkpoint();g_dirty=true;return;}
     if(g_flow.step==setup::Step::network&&hit(x,y,32,260,350,46)) {navigation::open_settings(settings::Section::connectivity);return;}
   }
   if(maps_step()) {
-    if(hit(x,y,32,520,180,46)) {g_index=std::max(0,g_index-1);g_dirty=true;}
-    else if(hit(x,y,230,520,180,46)) {g_index=std::min(std::max(0,static_cast<int>(g_packs.count)-1),g_index+1);g_dirty=true;}
-    else if(hit(x,y,440,520,180,46)) {maps::rescan();g_packs.loaded=false;g_dirty=true;}
-    else if(hit(x,y,800,520,250,46)&&g_packs.count&&g_hooks.pack) {
+    if(hit(x,y,32,174,1070,336)) {const int row=(y-174)/84;if(g_scroll+row<g_packs.count)g_index=g_scroll+row;g_details=false;g_dirty=true;}
+    else if(hit(x,y,1120,174,128,70)) {g_scroll=std::max(0,g_scroll-1);g_dirty=true;}
+    else if(hit(x,y,1120,426,128,70)) {g_scroll=std::min(std::max(0,static_cast<int>(g_packs.count)-4),g_scroll+1);g_dirty=true;}
+    else if(hit(x,y,32,520,200,56)) {maps::rescan();g_packs.loaded=false;g_dirty=true;}
+    else if(hit(x,y,250,520,200,56)) {g_details=!g_details;g_dirty=true;}
+    else if(hit(x,y,800,520,300,56)&&g_packs.count&&g_hooks.pack) {
       g_index=std::clamp(g_index,0,static_cast<int>(g_packs.count)-1);
       const auto& pack=g_packs.packs[g_index];
       if(pack.usable&&g_hooks.pack(pack.identity)) {if(g_mode==Mode::setup)advance();else cancel();}

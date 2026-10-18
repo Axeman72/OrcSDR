@@ -20,6 +20,8 @@ bool write_ok=true;
 orcsdr::NvsStore preferences;
 orcmap::Viewport requested;
 int saves=0;
+std::string chosen_pack;
+bool select_pack(const char* identity) {chosen_pack=identity;return true;}
 bool visible(const char* value) {
   return std::find(M5.Display.strings.begin(),M5.Display.strings.end(),value)!=M5.Display.strings.end();
 }
@@ -67,7 +69,11 @@ void close_settings() {settings::leave();screens::close_settings(millis());scree
 namespace maps {
 void cancel() {}
 uint32_t revision() {return 0;}
-bool snapshot(MapSnapshot*) {return false;}
+bool snapshot(MapSnapshot* out) {
+  *out=MapSnapshot{};out->loaded=true;out->sd=true;out->count=6;out->revision=1;
+  for(int i=0;i<6;++i) {auto& pack=out->packs[i];std::snprintf(pack.title,sizeof(pack.title),"Map %d",i);std::snprintf(pack.identity,sizeof(pack.identity),"pack-%d",i);pack.usable=true;}
+  return true;
+}
 bool running() {return true;}
 void rescan() {}
 Frame draw(const orcmap::Viewport& view,lgfx::LovyanGFX&,int,int,FrameInfo*,const char*) {
@@ -125,9 +131,21 @@ void screen_tests() {
   map_screen::open(map_screen::Mode::picker);click(205,170);click(1130,40);
   assert(saves==2&&settings::state().longitude_e7==saved.longitude);
   receiver_location::set(false,0,0);
-  map_screen::open(map_screen::Mode::picker);click(1100,675);
-  assert(saves==2&&screens::owns(screens::Id::maps));
-  assert(visible("Choose a point with the arrows, map or coordinate fields first."));
+  map_screen::open(map_screen::Mode::picker);click(1260,707);
+  assert(saves==3&&screens::owns(screens::Id::settings)); // Center can be saved without first moving the map.
+  map_screen::open(map_screen::Mode::setup);
+  click(1000,670);click(1000,670);
+  assert(visible("Set your receiver location"));
+  assert(visible("NETWORK LOCATION")&&visible("SEARCH ZIP / ADDRESS"));
+  click(200,420);assert(visible("USE LOCATION"));
   click(1130,40);
+  map_screen::configure({nullptr,save,select_pack});
+  map_screen::open(map_screen::Mode::inventory);
+  assert(visible("Map 0")&&visible("Map 3")&&!visible("Map 4"));
+  map_screen::touch(300,450,true,true);map_screen::touch(300,300,true,false);map_screen::touch(300,300,false,false);map_screen::tick();
+  assert(visible("Map 4")&&!visible("Map 0"));
+  click(300,450);click(900,540);assert(chosen_pack=="pack-4");
+  navigation::open_settings(settings::Section::location_adsb);
+  assert(settings::begin_location_method(0).kind==settings::ActionKind::location_ip_lookup);
   std::puts("MAP_SCREEN_TEST_PASS (changed-point save/return, failure, cancel, pan, zoom, Settings redraw)");
 }
