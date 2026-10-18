@@ -218,3 +218,84 @@ Historical `4971ee5b` binary/ELF remain `.local/maps/candidate.*`; the new artif
 are `.local/maps/startup-placement.*`. No repeated full rebuild or full regression
 suite was run. Next gate: approve the new candidate's COM39 flash, verify boot
 first, then resume the bounded setup/location/map/radio acceptance sequence.
+
+## COM39 e87c6d3c attempt — 2026-10-17, 18:14 local
+
+The user explicitly approved flashing `e87c6d3c` and bounded boot/setup/map/radio
+checks. Source HEAD and app SHA-256 were rechecked, and COM39 again matched USB
+serial `E8:F6:0A:E2:D6:03`. Reception stopped with `RTL_STOP_RESULT ESP_OK`.
+Fresh opaque NVS/core backups are in `.local/maps/com39-recovery/e87-20261017/`;
+the original full recovery image remains unchanged. No COM17 or C6 access occurred.
+
+Commands: the same explicit COM39 four-region `esptool ... write_flash` procedure,
+followed by `verify_flash 0x9000 .../nvs-before.bin 0x610000 .../coredump-before.bin`.
+Result: four flash hashes PASS; both preservation digests PASS. Native
+`esp_idf_monitor --port COM39 --no-reset --target esp32p4` used the actual RISC-V
+toolchain prefix, and an authorized monitor reset captured startup.
+
+**Boot FAILED again.** On-device ELF identity is `268b6336a...`; one logged internal
+region grew from `0xA3D0` (41936) to `0xA620` (42528) bytes, confirming the 592-byte
+placement improvement reached the device. Nevertheless, ESP-IDF's unchanged
+40960-byte DMA reservation still returned `ESP_ERR_NO_MEM`. The decoded abort is
+`main_task` at ESP-IDF `components/freertos/app_startup.c:179`, before `app_main`.
+The placement improvement is insufficient. The actual DMA free/largest immediately
+before reservation was not logged, so the allocation causing the shortfall is not
+yet isolated. Do not claim the exception reserve or map canvas is the proven cause.
+No setup, map render, dashboard compatibility or map performance test ran.
+
+The new crash dump was saved before restoring original bootloader, table and factory
+image, plus the freshly saved pre-attempt core dump. Four restoration flash hashes
+PASS; fresh NVS verification PASS. The old partition table again hides the unused
+world bytes. Original SD data and settings were not overwritten.
+
+Recovery checks: `UI_SELF_CHECK` returned six 1 fields; `RTL_CAPTURE_STATUS` returned
+running. At uptime 206637 ms, `RTL_DRIVER STATUS` reported STREAMING at 906875000 Hz,
+effective_sps=959913, bytes=361725952, overruns=0, drops=0. `RTL_LORA_STATS` reported
+events=2, crc_ok=2, messages=2, failures=0, drops=0 on the restored firmware.
+Memory then: internal_free=36459, internal_largest=31744, dma_free=3467,
+dma_largest=3328, psram_free=2127988, psram_largest=1933312 bytes.
+
+Invocation-directory logs: `maps-com39-e87-preflash-20261017.log`,
+`maps-com39-e87-backup-nvs-20261017.log`, `maps-com39-e87-backup-core-20261017.log`,
+`maps-com39-e87-flash-20261017.log`, `maps-com39-e87-preservation-20261017.log`,
+`maps-com39-e87-boot-20261017.log`, `maps-com39-e87-startup-dump-20261017.log`,
+`maps-com39-e87-restore-20261017.log`, `maps-com39-e87-recovery-nvs-20261017.log`,
+`maps-com39-e87-restored-health-20261017.log`,
+`maps-com39-e87-restored-final-20261017.log`. Reviewed extracts/copies are saved in
+`docs/evidence/maps/2026-10-17-com39-e87-*`. Private backups and full memory dumps
+remain local, not committed.
+
+### Prepared opt-in startup diagnostic — no image built or flashed
+
+`ui/map_startup_diagnostics.cpp` wraps only
+`esp_psram_extram_reserve_dma_pool` to report requested bytes and free/largest DMA
+immediately before/after forwarding to the real function. The function's argument
+and result are unchanged. ROM output avoids dynamic stdio initialization; its plain
+format literals add no writable static storage. This is observation, not a fix.
+
+`main/CMakeLists.txt` excludes it by default. The build helper adds `-MapStartupDiag`
+and explicitly passes OFF on normal invocations, avoiding a sticky diagnostic cache.
+There is no exception-pool, DMA-reserve, stack-size, receiver or DSP change.
+
+Narrow checks actually executed, from the worktree root:
+
+- `python .local/maps/check_startup_diag_syntax.py`: PASS using existing ESP32-P4
+  compiler flags, syntax only.
+- `python .local/maps/check_startup_diag_object.py`: PASS, standalone P4 object,
+  zero writable allocated sections and no malloc/new/global-constructor dependencies.
+  Its only undefined symbols are the two heap queries, `esp_rom_printf`, and the real
+  reservation function. This does not validate final link wrapping or runtime output.
+- PowerShell `Language.Parser::ParseFile` on `build-tab5-idf.ps1`: PASS, no parse errors.
+- `git diff --check`: PASS.
+
+Logs: `maps-startup-diag-syntax-20261017.log`, `maps-startup-diag-object-20261017.log`,
+`maps-startup-diag-helper-20261017.log`. The compiler retains the existing SDK
+literal-suffix warning; there are no new compile errors.
+
+Next requested gate is **one** approved diagnostic build and COM39 boot capture,
+then restoration. Intended build command:
+`& ./apps/orcsdr-tab5/tools/build-tab5-idf.ps1 -MapStartupDiag -WorldMap F:/AI/OrcSDR-TEMP/maps-integration-completion/.local/maps/world/world-overview-z4.pmtiles`.
+Before flash, verify the real reservation call and wrapper symbols in the linked
+image, miniz/pin/size gates, and zero new writable diagnostic static storage.
+Repeated build/flash attempts require approval under the session maintainer rules.
+The next integration milestone remains a bootable map candidate before UI/RF work.

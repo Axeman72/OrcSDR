@@ -101,12 +101,15 @@ keeping legacy keys intact and refusing unknown record versions. Its interruptio
 regression failed before the fix and passes afterward. The review recheck found no
 remaining actual defect in this bounded scope. A full repository audit or physical
 acceptance was not performed. Final hardware gates remain open.
-# Latest hardware gate — 2026-10-17
 
-COM39 candidate `4971ee5b` flashed with verified hashes and preserved NVS, but failed
-before OrcSDR initialization while reserving the 40 KiB internal/DMA pool. The
+## Latest hardware gate — 2026-10-17
+
+COM39 candidates `4971ee5b` and `e87c6d3c` flashed with verified hashes and preserved
+NVS, but both failed before OrcSDR initialization while reserving the 40 KiB internal/DMA pool. The
 original firmware/table/core dump were restored with verified hashes; LoRa reception
 and all six UI self-checks pass on the restored firmware. COM17 and C6 were untouched.
-Map hardware acceptance remains blocked. A narrowly scoped PSRAM placement change
-builds and recovers 592 internal bytes; it has not been flashed. See
+Map hardware acceptance remains blocked. The PSRAM placement change reached the
+device and recovered 592 internal bytes, but did not fix startup. An opt-in startup
+allocation diagnostic compiles as a standalone P4 object; it has not been linked or
+flashed. Another build/flash cycle awaits approval. See
 `P4_PERFORMANCE_EVIDENCE.md` for commands, hashes, recovery paths and exact results.

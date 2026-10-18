@@ -223,6 +223,13 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE ORCSDR_ORCDIAL=1)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE "ORCSDR_BUILD_ID=\"${ORCSDR_BUILD_ID}\"")
 
 target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_17)
+option(ORCSDR_MAP_STARTUP_DIAG "Measure pre-app DMA reservation; test builds only" OFF)
+if(ORCSDR_MAP_STARTUP_DIAG)
+    target_sources(${COMPONENT_LIB} PRIVATE "../ui/map_startup_diagnostics.cpp")
+    target_link_libraries(${COMPONENT_LIB} INTERFACE
+        "-Wl,--wrap=esp_psram_extram_reserve_dma_pool"
+        "-Wl,--undefined=__wrap_esp_psram_extram_reserve_dma_pool")
+endif()
 option(ORCSDR_WIFI_RX_DIAG "Instrument Wi-Fi receive callbacks; test builds only" OFF)
 if(ORCSDR_WIFI_RX_DIAG)
     target_sources(${COMPONENT_LIB} PRIVATE "../ui/wifi_rx_diagnostics.cpp")
