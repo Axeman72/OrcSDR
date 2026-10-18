@@ -259,7 +259,17 @@ void draw_location() {
   text("RECEIVER LONGITUDE", 330, 300, kMuted, 2);
   button(value, 820, 274, 398, 54, TFT_NAVY);
   button("CHOOSE LOCATION ON MAP",330,350,888,68,TFT_DARKGREEN);
-  value_row("MAP PACK", g_state.map_pack[0] ? g_state.map_pack : "NOT INSTALLED", 445);
+  // Stored identities can be full manifest paths. Keep the 24 px display value
+  // inside the content column without altering the selected pack identity.
+  char pack_summary[43];
+  const char* pack=g_state.map_pack[0] ? g_state.map_pack : "NOT INSTALLED";
+  if(std::strlen(pack)>42) {
+    size_t prefix=39;
+    while(prefix && (static_cast<unsigned char>(pack[prefix])&0xc0)==0x80)--prefix;
+    std::memcpy(pack_summary,pack,prefix);
+    std::memcpy(pack_summary+prefix,"...",4);
+  } else std::snprintf(pack_summary,sizeof(pack_summary),"%s",pack);
+  value_row("MAP PACK", pack_summary, 445);
   value_row("RF GAIN", "AUTO (READ ONLY)", 495, kMuted);
   text("INTERNET LOCATION LOOKUP", 330, 550, kBlue, 2);
   button(g_state.ip_location_busy ? "LOOKING UP..." : "ZIP / ADDRESS", 330, 575, 250, 46,
