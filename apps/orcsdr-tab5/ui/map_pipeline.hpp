@@ -8,6 +8,7 @@
 #include "orcmap/pmtiles.hpp"
 #include "orcmap/render_target.hpp"
 #include "orcmap/viewport.hpp"
+#include "orcmap/location_picker.hpp"
 
 namespace orcsdr::maps {
 
@@ -67,5 +68,7 @@ bool regional_view(int32_t latitude_e7, int32_t longitude_e7, double range_nm,
 bool project(const orcmap::Viewport&, int32_t latitude_e7, int32_t longitude_e7,
              int* x, int* y);
 bool world_compat_project(double latitude,double longitude,int left,int top,int width,int height,int* x,int* y);
+bool begin_location_picker(orcmap::LocationPicker& picker,int width,int height,
+                           int32_t latitude_e7,int32_t longitude_e7);
 
 } // namespace orcsdr::maps

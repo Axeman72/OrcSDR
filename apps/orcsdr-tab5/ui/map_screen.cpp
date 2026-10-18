@@ -16,7 +16,8 @@
 
 namespace orcsdr::map_screen {
 namespace {
-constexpr uint16_t kBg=0x080e,kInk=0xc618,kAccent=0x07ff;
+// Match Settings: charcoal panels, cyan controls and green primary actions.
+constexpr uint16_t kBg=0x0841,kPanel=0x1082,kInk=0xc618,kAccent=0x04ff,kGreen=0x6fe8;
 constexpr int kMapX=32,kMapY=220,kMapW=900,kMapH=330;
 Hooks g_hooks;
 NvsStore* g_preferences=nullptr;
@@ -24,6 +25,7 @@ setup::Flow g_saved,g_flow;
 Mode g_mode=Mode::inventory;
 bool g_auto=false,g_dirty=true,g_drag=false,g_has_proposal=false;
 bool g_lat_set=false,g_lon_set=false,g_return_settings=false;
+bool g_picker_ready=false;
 screens::Id g_return=screens::Id::home;
 settings::Section g_section=settings::Section::data_maps;
 int g_last_x=0,g_last_y=0,g_edit=0,g_index=0;
@@ -38,8 +40,12 @@ void text(const char* s,int x,int y,int size=2,uint16_t color=kInk) {
   M5.Display.setTextDatum(top_left);M5.Display.setTextSize(size);M5.Display.setTextColor(color,kBg);
   M5.Display.drawString(s,x,y);
 }
-void button(const char* label,int x,int y,int w=180,int h=46) {
-  focus_nav::note(x,y,w,h);M5.Display.drawRoundRect(x,y,w,h,6,kAccent);text(label,x+12,y+14,2,kAccent);
+void button(const char* label,int x,int y,int w=180,int h=46,bool primary=false) {
+  const uint16_t accent=primary?kGreen:kAccent;
+  focus_nav::note(x,y,w,h);M5.Display.fillRoundRect(x,y,w,h,6,kPanel);
+  M5.Display.drawRoundRect(x,y,w,h,6,accent);
+  M5.Display.setTextDatum(top_left);M5.Display.setTextSize(2);M5.Display.setTextColor(accent,kPanel);
+  M5.Display.drawString(label,x+12,y+14);
 }
 void wrapped(const char* value,int x,int y,int columns=100) {
   const size_t length=std::strlen(value);
@@ -58,10 +64,7 @@ bool location_step() {return g_mode==Mode::picker||(g_mode==Mode::setup&&g_flow.
 bool maps_step() {return g_mode==Mode::inventory||(g_mode==Mode::setup&&g_flow.step==setup::Step::maps);}
 void advance() {g_flow.next();(void)checkpoint();g_dirty=true;}
 void picker_at(int32_t latitude,int32_t longitude) {
-  orcmap::Viewport view;view.width_px=kMapW;view.height_px=kMapH;
-  g_picker.Begin(view,{-85.05112878,-180,85.05112878,180},{0,20});
-  double x=0,y=0;
-  if(orcmap::ProjectLatLon(g_picker.View(),{latitude/1e7,longitude/1e7},&x,&y))g_picker.RecenterAtScreen(x,y);
+  g_picker_ready=maps::begin_location_picker(g_picker,kMapW,kMapH,latitude,longitude);
 }
 void moved_picker() {
   const auto point=g_picker.Selection();g_lat=static_cast<int32_t>(std::llround(point.lat_deg*1e7));
@@ -82,6 +85,11 @@ void finish_edit() {
 }
 void draw_map() {
   g_last_map_revision=maps::revision();
+  if(!g_picker_ready) {
+    M5.Display.fillRect(kMapX,kMapY,kMapW,kMapH,kBg);
+    text("Map camera unavailable. Enter a valid coordinate or cancel.",44,228,1);
+    return;
+  }
   if(std::abs(static_cast<int64_t>(g_lat))>850511287) {
     M5.Display.fillRect(kMapX,kMapY,kMapW,kMapH,kBg);
     text("Polar latitude: no Mercator basemap. The entered E7 coordinate is retained.",44,228,1);
@@ -102,7 +110,7 @@ void draw_picker() {
   char value[64];std::snprintf(value,sizeof(value),"LAT E7  %ld",static_cast<long>(g_lat));button(value,32,150,440);
   std::snprintf(value,sizeof(value),"LON E7  %ld",static_cast<long>(g_lon));button(value,500,150,432);
   button("ZOOM +",970,240,230);button("ZOOM -",970,305,230);
-  button("USE LOCATION",970,470,260);
+  button("USE LOCATION",970,470,260,46,true);
   text(g_has_proposal?"Explicit confirmation required.":"No location selected yet.",32,570);
   text("Drag / tap to pan. Keyboard: Ctrl+arrows pans; +/- zooms. E7 = degrees x 10000000.",32,602,1);
   draw_map();
@@ -123,7 +131,7 @@ void draw_inventory() {
     text(line,32,324);text(pack.status,32,370,2,pack.usable?kAccent:TFT_ORANGE);
     wrapped(pack.credit,32,416,128);
     text(pack.coverage,32,462,1);wrapped(pack.provenance,32,482,128);
-    if(pack.usable)button("USE THIS MAP",800,520,250);
+    if(pack.usable)button("USE THIS MAP",800,520,250,46,true);
   }
   button("PREV",32,520);button("NEXT",230,520);button("RESCAN",440,520);
   text("Discovery checks metadata and size. Archive SHA-256 is not yet verified on this device.",32,590,1);
@@ -191,14 +199,14 @@ void draw() {
   else if(maps_step())draw_inventory();
   else if(g_flow.step==setup::Step::welcome) {
     text("Welcome to OrcSDR",32,150,3);text("Set up an optional network, your receiver location, and offline maps.",32,220);
-    text("Existing location, radio settings, and SD files are retained.",32,270);button("QUICK START",32,390,260);
+    text("Existing location, radio settings, and SD files are retained.",32,270);button("QUICK START",32,390,260,46,true);
   } else if(g_flow.step==setup::Step::network) {
     text("Network is optional. Offline maps and manual location work without Wi-Fi.",32,150);
     button("NETWORK SETTINGS",32,260,350);
   } else text("Setup complete. You can rerun it from Settings > System.",32,180);
   if(g_mode==Mode::setup) {
     if(g_flow.step!=setup::Step::welcome)button("BACK",32,650);
-    button(g_flow.step==setup::Step::complete?"FINISH":"NEXT / SKIP",920,650,310);
+    button(g_flow.step==setup::Step::complete?"FINISH":"NEXT / SKIP",920,650,310,46,true);
   }
   if(g_edit)draw_edit();
   if(g_message[0])text(g_message,32,625,1,TFT_ORANGE);
@@ -235,6 +243,7 @@ void touch(int x,int y,bool pressed,bool new_press) {
     return;
   }
   if(location_step()&&hit(x,y,kMapX,kMapY,kMapW,kMapH)) {
+    if(!g_picker_ready)return;
     if(new_press) {g_picker.RecenterAtScreen(x-kMapX,y-kMapY);g_drag=true;g_last_x=x;g_last_y=y;moved_picker();}
     else if(g_drag&&(x!=g_last_x||y!=g_last_y)) {g_picker.DragByGesture(x-g_last_x,y-g_last_y);g_last_x=x;g_last_y=y;moved_picker();}
     return;
@@ -277,10 +286,10 @@ void key(const keyboard_input::Key& key) {
     return;
   }
   if(key.special==Special::escape) {cancel();return;}
-  if(location_step()&&(key.ch=='+'||key.ch=='-')) {
+  if(location_step()&&g_picker_ready&&(key.ch=='+'||key.ch=='-')) {
     if(key.ch=='+')g_picker.ZoomIn();else g_picker.ZoomOut();g_dirty=true;return;
   }
-  if(location_step()&&key.ctrl) {
+  if(location_step()&&g_picker_ready&&key.ctrl) {
     int dx=0,dy=0;
     if(key.special==Special::left)dx=40;else if(key.special==Special::right)dx=-40;
     else if(key.special==Special::up)dy=40;else if(key.special==Special::down)dy=-40;

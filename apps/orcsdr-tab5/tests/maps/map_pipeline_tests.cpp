@@ -34,6 +34,19 @@ int main(int argc, char** argv) {
   if(argc==4)world_tests(argv[3]);
   inventory_tests(argv[2]);
   using namespace orcsdr::maps;
+  orcmap::LocationPicker picker;
+  assert(begin_location_picker(picker,900,330,440500000,-1230220000));
+  assert(picker.View().width_px==900 && picker.View().height_px==330);
+  assert(std::abs(picker.Selection().lat_deg-44.05)<1e-7);
+  assert(std::abs(picker.Selection().lon_deg+123.022)<1e-7);
+  const auto selected=picker.Selection();
+  assert(picker.ZoomIn());
+  assert(picker.ZoomOut());
+  assert(picker.Selection().lat_deg==selected.lat_deg && picker.Selection().lon_deg==selected.lon_deg);
+  assert(picker.RecenterAtScreen(550,165));
+  assert(picker.Selection().lon_deg!=selected.lon_deg);
+  assert(!begin_location_picker(picker,0,330,0,0));
+  assert(!begin_location_picker(picker,900,330,900000001,0));
   for (auto dimensions : {std::pair<int,int>{842,330}, {480,320}, {320,240}}) {
     orcmap::Viewport view;
     assert(regional_view(440500000,-1230220000,15,dimensions.first,dimensions.second,&view));

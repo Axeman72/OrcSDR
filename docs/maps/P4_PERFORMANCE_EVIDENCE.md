@@ -1,5 +1,12 @@
 # ESP32-P4 map performance evidence
 
+
+## Latest checkpoint: COM39 boot passed; UI follow-up pending
+
+COM39 `7c878d4c`: full DMA reserve PASS; largest startup DMA block 43,008 bytes. A short LoRa/navigation check reports zero driver overruns/drops; no CRC packets in that window. Map timings remain UNVERIFIED because diagnostic output was incomplete; the picker also failed visual acceptance. The prepared camera/palette/console follow-up passes four host targets, not hardware acceptance.
+
+Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+
 Status: baseline only. No optimization result is claimed.
 
 ## Measured source/device baseline

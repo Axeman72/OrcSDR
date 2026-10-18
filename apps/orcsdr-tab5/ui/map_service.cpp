@@ -295,11 +295,13 @@ bool frame_info(FrameInfo* out) {
   if(!out || !g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return false;
   *out=g_frame;xSemaphoreGive(g_lock);return true;
 }
-void report() {
+void report(void (*write)(const char*)) {
+  if(!write)return;
+  char line[512];
   FrameInfo frame;
-  if(!frame_info(&frame)) {std::printf("ORC_MAP_STATUS busy=1 generation=%lu\n",static_cast<unsigned long>(g_serial.load()));return;}
+  if(!frame_info(&frame)) {std::snprintf(line,sizeof(line),"ORC_MAP_STATUS busy=1 generation=%lu\n",static_cast<unsigned long>(g_serial.load()));write(line);return;}
   const auto& stats=frame.stats;
-  std::printf("ORC_MAP_STATUS state=%u generation=%lu revision=%lu cached_pushes=%lu push_us=%lu frame_bytes=%u "
+  std::snprintf(line,sizeof(line),"ORC_MAP_STATUS state=%u generation=%lu revision=%lu cached_pushes=%lu push_us=%lu frame_bytes=%u "
       "tiles=%lu missing=%lu failed=%lu features=%lu reads=%lu bytes=%llu lookup_us=%llu stream_us=%llu render_us=%llu total_us=%llu io_us=%llu\n",
       static_cast<unsigned>(frame.state),static_cast<unsigned long>(g_serial.load()),static_cast<unsigned long>(frame.revision),
       static_cast<unsigned long>(frame.cache_hits),static_cast<unsigned long>(frame.push_us),static_cast<unsigned>(g_canvas_bytes.load()),
@@ -307,10 +309,12 @@ void report() {
       static_cast<unsigned long>(stats.features),static_cast<unsigned long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
       static_cast<unsigned long long>(stats.lookup_us),static_cast<unsigned long long>(stats.stream_us),
       static_cast<unsigned long long>(stats.render_us),static_cast<unsigned long long>(stats.total_us),static_cast<unsigned long long>(stats.io_us));
-  std::printf("ORC_MAP_MEMORY internal_free=%u internal_largest=%u dma_free=%u dma_largest=%u psram_free=%u psram_largest=%u\n",
+  write(line);
+  std::snprintf(line,sizeof(line),"ORC_MAP_MEMORY internal_free=%u internal_largest=%u dma_free=%u dma_largest=%u psram_free=%u psram_largest=%u\n",
       heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
       heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA),heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA),
       heap_caps_get_free_size(MALLOC_CAP_SPIRAM),heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+  write(line);
 }
 Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,FrameInfo* info,const char* preferred) {
   if(!g_task || !g_queue || !g_lock)return Frame::unavailable;

@@ -43,5 +43,5 @@ bool installed(); // discovered availability, not a coverage or integrity claim
 Frame draw(const orcmap::Viewport&, lgfx::v1::LovyanGFX& target, int x, int y,
            FrameInfo*, const char* preferred = nullptr);
 bool frame_info(FrameInfo*);
-void report(); // read-only serial diagnostics; called on the UI task
+void report(void (*write)(const char*)); // read-only diagnostics through the caller's console
 } // namespace orcsdr::maps

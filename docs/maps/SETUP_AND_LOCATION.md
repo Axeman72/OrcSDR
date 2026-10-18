@@ -1,5 +1,12 @@
 # Shared setup and location implementation
 
+
+## Latest checkpoint: COM39 boot passed; UI follow-up pending
+
+COM39 preserves the original configured receiver location through the `7c878d4c` flash and navigation. Welcome, optional Network return, Skip, Back and Cancel route successfully, but some captures omit controls. Picker acceptance FAILED: wrong GeoBounds field order left a default 256x256 view. Follow-up checks initialization and tests full-size rendering, uses the Settings charcoal/cyan/green colors, and remains unbuilt/unflashed. Quick Start/Finish, physical blank-device recovery and new location persistence remain hardware gates.
+
+Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+
 Implemented in `ui/map_screen.*` and `ui/setup_flow.hpp`; hardware acceptance is pending.
 
 ## Flow and screen ownership

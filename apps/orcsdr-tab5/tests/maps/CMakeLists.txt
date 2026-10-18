@@ -10,6 +10,7 @@ set(engine "${ORCMAPS_ROOT}")
 add_executable(orcsdr_maps_tests
   map_pipeline_tests.cpp map_inventory_tests.cpp map_world_tests.cpp "${ui}/map_pipeline.cpp" "${ui}/map_inventory.cpp"
   "${engine}/src/core/geo.cpp" "${engine}/src/core/viewport.cpp"
+  "${engine}/src/core/location_picker.cpp"
   "${engine}/src/core/pack.cpp" "${engine}/src/core/pack_json.cpp" "${engine}/src/core/pack_discovery.cpp"
   "${engine}/src/tiles/pmtiles_reader.cpp" "${engine}/src/tiles/compression.cpp"
   "${engine}/src/tiles/mvt_decoder.cpp" "${engine}/src/tiles/mvt_stream.cpp"

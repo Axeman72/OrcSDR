@@ -3,6 +3,7 @@
 #include "framebuffer_target.hpp"
 #include <cassert>
 #include <cstdio>
+#include <cmath>
 
 void world_tests(const char* path) {
   orcmap::host::FileByteSource source(path);
@@ -12,7 +13,10 @@ void world_tests(const char* path) {
   orcmap::Viewport view;view.width_px=900;view.height_px=330;view.zoom=2;
   orcmap::host::FramebufferTarget frame(900,330);
   for(double longitude:{-123.022,0.0,179.99}) {
-    view.center_lat_deg=44.05;view.center_lon_deg=longitude;
+    orcmap::LocationPicker picker;
+    assert(orcsdr::maps::begin_location_picker(picker,900,330,440500000,
+        static_cast<int32_t>(std::llround(longitude*1e7))));
+    view=picker.View();
     assert(pipeline.render(view,frame));
     const auto pixels=frame.Pixels();
     assert(pipeline.render(view,frame));assert(frame.Pixels()==pixels);

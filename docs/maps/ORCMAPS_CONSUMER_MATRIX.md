@@ -1,5 +1,12 @@
 # OrcMaps consumers and integration design
 
+
+## Latest checkpoint: COM39 boot passed; UI follow-up pending
+
+COM39 `7c878d4c` boots and continues LoRa while cycling RF Lab/Home/LoRa. This does not qualify map rendering or actual decoding: the short sample had no CRC packets, map diagnostics were incomplete, and picker geometry failed. Prepared fixes are confined to the shared map adapter/screen and its console callback. ADS-B/FT8 consumer visual acceptance and active-RF timing remain pending.
+
+Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+
 Baseline: OrcSDR fba861e3, OrcMaps 14cdd41. Source is authoritative over stale README/STATUS text.
 
 | Consumer | State/data owner | Current implementation/projection | Camera and overlays | Pack/format and evidence |

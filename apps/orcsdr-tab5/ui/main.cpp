@@ -19241,7 +19241,7 @@ void process_command(char* command) {
     return;
   }
   if (strcmp(command, "RTL_MAP_STATUS") == 0) {
-    orcsdr::maps::report(); return;
+    orcsdr::maps::report([](const char* line) { Serial.print(line); }); return;
   }
   if (strcmp(command, "RTL_HEALTH") == 0) {
     const uint32_t dma_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;

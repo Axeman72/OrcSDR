@@ -1,5 +1,12 @@
 # Data & Maps inventory and migration
 
+
+## Latest checkpoint: COM39 boot passed; UI follow-up pending
+
+COM39 `7c878d4c` discovery visibly distinguishes the usable firmware world partition from legacy ORCMAP1 NOT INSTALLED, with no arbitrary regional SD PMTiles present. PREV/NEXT/rescan were exercised. Runtime hash is honestly unchecked; displayed 1 MiB is the world partition capacity. Existing SD packs and selected map were preserved; COM17 was not changed.
+
+Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+
 ## Why Lane County appears
 
 `catalog_sync.cpp:66-69` hard-codes five built-in identities/titles, including lane_county_map/LANE COUNTY MAP. Actual installed detection is separate (`refresh_installed`, line 163). COM39 reports that row uninstalled; COM17 reports it installed. A row is not proof of download.

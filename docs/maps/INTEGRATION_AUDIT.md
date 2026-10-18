@@ -1,5 +1,12 @@
 # Maps integration audit
 
+
+## Latest checkpoint: COM39 boot passed; UI follow-up pending
+
+COM39 candidate `7c878d4c` now builds, boots and reserves the full 40 KiB DMA pool. NVS/world preservation verifies; stored location matches the private baseline. Integration remains incomplete: hardware exposed a swapped-bounds picker bug, rejected blue palette, incomplete map diagnostics and setup captures with missing controls. A focused follow-up is host-tested but not native-built/flashed. Main is not merged.
+
+Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+
 Status: Phase 0/1 discovery; implementation is not complete. Date: 2026-10-17.
 
 ## Reproducible baseline

@@ -111,6 +111,20 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
   return stats_.tiles > 0 && stats_.failed == 0 && !stats_.cancelled;
 }
 
+bool begin_location_picker(orcmap::LocationPicker& picker,int width,int height,
+                           int32_t latitude_e7,int32_t longitude_e7) {
+  if(!coordinates(latitude_e7,longitude_e7)||width<=0||height<=0||width>1280||height>720)return false;
+  orcmap::Viewport view;view.width_px=width;view.height_px=height;
+  // GeoBounds stores longitude before latitude. Name the fields to avoid
+  // silently rejecting initialization and retaining a default 256x256 view.
+  orcmap::GeoBounds world;
+  world.min_lon_deg=-180;world.max_lon_deg=180;
+  world.min_lat_deg=-orcmap::kMercatorMaxLatDeg;world.max_lat_deg=orcmap::kMercatorMaxLatDeg;
+  if(!picker.Begin(view,world,{0,20}))return false;
+  double x=0,y=0;
+  return orcmap::ProjectLatLon(picker.View(),{latitude_e7/1e7,longitude_e7/1e7},&x,&y)&&picker.RecenterAtScreen(x,y);
+}
+
 bool regional_view(int32_t latitude_e7, int32_t longitude_e7, double range_nm,
                    int width, int height, orcmap::Viewport* output) {
   if (!output || !coordinates(latitude_e7, longitude_e7) || std::abs(static_cast<int64_t>(latitude_e7))>850511287 || width <= 0 || height <= 0 ||
