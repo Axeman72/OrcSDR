@@ -60,9 +60,10 @@ From the repository root on Linux/WSL:
 bash tools/test-sd-storage.sh
 ```
 
-This builds/runs four focused test programs with AddressSanitizer and UBSan:
+This builds/runs five focused test programs with AddressSanitizer and UBSan:
 DMA/range/alignment, benchmark write-size plan, LoRa archive/cache/CSV behavior,
-and SSTV archive fault handling. Build/run logs and a summary stay in the
+SSTV archive fault handling, and the actual FT8 log flush function extracted
+from main.cpp with injected write/sync/close failures. Build/run logs and a summary stay in the
 invocation directory; names carry an explicit UTC timestamp. It does not access
 COM ports or physical SD cards. Temporary host binaries are retained in the
 directory printed by the runner. A failure stops the gate and identifies its log.
@@ -77,10 +78,17 @@ Actual 2026-10-17 local result: **4/4 PASS**, including the SSTV slow-card test.
 The first GCC compile found a missing initializer_list include in the new test;
 that portability issue was corrected before this successful run.
 
-These tests do not execute ESP-IDF SDMMC, hardware allocation, FT8's embedded
-main.cpp logger, or the LoRa worker's real fsync. In particular, FT8 currently
-does not inspect the close return before advancing its written counter. That is
-an existing separate error-reporting gap, not fixed or qualified by this patch.
+These tests do not execute ESP-IDF SDMMC, hardware allocation, or the LoRa
+worker's real fsync. The FT8 harness executes its production flush function
+against fault-injected file operations, not a physical card.
+
+On 2026-10-18 the FT8 fault test reproduced an existing false-success path:
+a failed close still advanced the written count and discarded staged rows.
+FT8 now checks the CSV header, data write, fsync and close before clearing its
+stage; failures retain rows and report their actual operation. All five host
+programs pass. Hardware validation of this additional change is pending.
+A partially committed append can be duplicated on retry; this change does not
+make CSV appends transactional or qualify sudden power loss/card removal.
 
 ## Device acceptance before declaring reliability
 

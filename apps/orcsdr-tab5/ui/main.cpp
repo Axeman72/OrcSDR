@@ -13192,7 +13192,7 @@ static void ft8_log_stage_rows(const orcsdr::ft8::Decode* decodes, const uint8_t
     const auto* preset = orcsdr::ft8::band(bands[i]);
     char message[64]{};
     size_t m = 0;
-    for (const char* p = decodes[i].message; *p != ' ' && m + 2 < sizeof(message); ++p) {
+    for (const char* p = decodes[i].message; *p != '\0' && m + 2 < sizeof(message); ++p) {
       if (*p == '"') message[m++] = '"';
       message[m++] = *p;
     }
@@ -13250,12 +13250,16 @@ static bool ft8_log_flush(bool force) {
     g_ft8_log_stage_rows = 0;
     return true;
   }
-  if (!existed || file.size() == 0) file.print("utc,mode,band,dial_hz,audio_hz,dt_ms,snr_db,callsign,grid,kind,message\n");
-  const size_t written = file.write(reinterpret_cast<const uint8_t*>(g_ft8_log_stage), g_ft8_log_stage_len);
-  file.close();
-  if (written != g_ft8_log_stage_len) {
+  constexpr char header[] = "utc,mode,band,dial_hz,audio_hz,dt_ms,snr_db,callsign,grid,kind,message\n";
+  const bool header_ok = (existed && file.size() != 0) || file.print(header) == sizeof(header) - 1;
+  const size_t written = header_ok ? file.write(reinterpret_cast<const uint8_t*>(g_ft8_log_stage), g_ft8_log_stage_len) : 0;
+  const bool sync_ok = header_ok && written == g_ft8_log_stage_len && file.sync();
+  const bool close_ok = file.close();
+  if (!header_ok || written != g_ft8_log_stage_len || !sync_ok || !close_ok) {
     ++g_ft8_log_errors;
-    Serial.printf("ORC_FT8_LOG_ERR stage=write wrote=%u of=%u\n", static_cast<unsigned>(written), static_cast<unsigned>(g_ft8_log_stage_len));
+    Serial.printf("ORC_FT8_LOG_ERR stage=%s wrote=%u of=%u\n",
+                  !header_ok ? "header" : written != g_ft8_log_stage_len ? "write" : !sync_ok ? "sync" : "close",
+                  static_cast<unsigned>(written), static_cast<unsigned>(g_ft8_log_stage_len));
     return false;
   }
   g_ft8_log_rows += g_ft8_log_stage_rows;
@@ -18671,7 +18675,7 @@ void process_ft8_command(const char* args) {
     } else if (strncasecmp(rest, "FLUSH", 5) == 0) {
       if (need_auth()) return;
       const bool done = ft8_log_flush(true);
-      Serial.printf("ORC_FT8_LOG_FLUSH %s\n", done ? "ok" : "deferred (internal DMA memory is too low for the card right now)");
+      Serial.printf("ORC_FT8_LOG_FLUSH %s\n", done ? "ok" : "pending (check SD errors and DMA memory)");
     }
     Serial.printf("ORC_FT8_LOG enabled=%d written=%u staged=%u dropped=%u errors=%u dir=/orcsdr/ft8 dma_largest=%u need=%u\n", g_ft8_log_enabled ? 1 : 0,
                   static_cast<unsigned>(g_ft8_log_rows), static_cast<unsigned>(g_ft8_log_stage_rows), static_cast<unsigned>(g_ft8_log_dropped),
