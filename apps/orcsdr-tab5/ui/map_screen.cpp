@@ -51,11 +51,11 @@ void button(const char* label,int x,int y,int w=180,int h=46,bool primary=false)
   M5.Display.setTextDatum(top_left);M5.Display.setTextSize(2);M5.Display.setTextColor(accent,kPanel);
   M5.Display.drawString(label,x+12,y+14);
 }
-void wrapped(const char* value,int x,int y,int columns=100) {
+void wrapped(const char* value,int x,int y,int columns=100,int size=1) {
   const size_t length=std::strlen(value);
   for(size_t offset=0;offset<length;offset+=columns) {
     char part[193]{};std::memcpy(part,value+offset,std::min(static_cast<size_t>(columns),length-offset));
-    text(part,x,y,1);y+=16;
+    text(part,x,y,size);y+=8*size+8;
   }
 }
 bool checkpoint() {
@@ -108,7 +108,7 @@ void draw_map() {
     M5.Display.fillRect(kMapX,kMapY,kMapW,kMapH,kBg);
     M5.Display.drawRect(kMapX,kMapY,kMapW,kMapH,0x2945);
     text(state==maps::Frame::pending?"Loading offline map...":"No basemap installed. Pan or enter coordinates to choose a location.",kMapX+12,kMapY+12,1);
-  } else wrapped(info.credit,kMapX+12,kMapY+kMapH-20,140);
+  } else wrapped(info.credit,kMapX+12,kMapY+kMapH-44,100,2);
   M5.Display.drawLine(kMapX+kMapW/2-14,kMapY+kMapH/2,kMapX+kMapW/2+14,kMapY+kMapH/2,kAccent);
   M5.Display.drawLine(kMapX+kMapW/2,kMapY+kMapH/2-14,kMapX+kMapW/2,kMapY+kMapH/2+14,kAccent);
   // Redraw overlays whenever the asynchronous map replaces its pixels.
@@ -124,8 +124,8 @@ void draw_picker() {
   std::snprintf(value,sizeof(value),"LON E7 %ld",static_cast<long>(g_lon));button(value,kLonX,kCoordinateY,kCoordinateW);
   button("USE LOCATION",kUseX,kFooterY,kUseW,46,true);
   const int hint_x=g_mode==Mode::setup?220:16;
-  text(g_has_proposal?"Crosshair is a preview. USE LOCATION saves it.":"Select a point, then USE LOCATION to save.",hint_x,652,1);
-  text("Arrows / drag / tap to pan. +/- zoom. E7 = degrees x 10000000.",hint_x,676,1);
+  text(g_has_proposal?"Center = location. USE LOCATION saves.":"Choose a point, then USE LOCATION.",hint_x,652,2);
+  text("Pan: arrows/drag/tap. Zoom: +/-.",hint_x,676,2);
   draw_map();
 }
 void draw_inventory() {
