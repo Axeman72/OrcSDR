@@ -1,28 +1,22 @@
 # Maps integration audit
 
 
-Prepared follow-up `ef756048`: closer initial zoom, pan arrows, prominent map button,
-coordinate repaint/read-back verification and coarser world source selection.
-Host tests 4/4 and P4 syntax pass; native build/flash/device acceptance are pending.
-[Follow-up evidence](../evidence/maps/2026-10-17-picker-navigation-save-host.md).
+## Latest device checkpoint: navigation and changed-location save tested on COM39
 
-## Latest device checkpoint: enlarged selector tested on COM39
+Normal firmware `04898891` (implementation `ef756048`) builds, flashes and boots.
+Closer starting zoom, pan arrows, prominent map button and changed-location
+save/display/reboot persistence pass the bounded COM39 checks. Original live point
+restored. The user confirms controls and coarser world detail look good.
 
-Normal firmware `6eb22466` builds, flashes and boots on COM39. The 1248x568 selector
-now runs on the device; zoom/pan, new setup Skip/Confirm controls, invalid edit and
-saved-location retention pass the bounded command/capture checks. Radio reports
-zero driver drops/overruns and one live CRC-valid encrypted message during the run.
-Overview redraws take 3.0-3.4 s with LoRa active; a zoomed view takes 6.0 s.
+Active-LoRa redraw samples take 1.5-2.7 seconds, with zero sampled driver
+drops/overruns. Final passive observation records 18 CRC-valid packets and nine
+decoder failures (causes uninvestigated), not a controlled decode/soak qualification.
+Held-cache SD read passes again; earlier intermittent SD/capture issues and tight
+internal/DMA margins remain open. Regional/dashboard/recovery/release acceptance
+is incomplete. COM17/C6 untouched; no merge or push.
 
-The user confirms both coordinate fields, Cancel, zoom and Use Location are visible
-on the physical screen. Some saved captures still omit controls. Integration remains
-incomplete: one held-cache SD read passes but the earlier intermittent failure is
-not closed. Final DMA free/largest is 1327/1088 bytes, with very tight historical
-minima. Regional-pack/verified-position dashboard and remaining recovery/release
-acceptance gates remain. COM17/C6 and existing SD packs were untouched.
-
-Source, exact commands, actual results, private-data boundaries, logs and next milestone:
-[enlarged selector device result](../evidence/maps/2026-10-17-large-selector-device-result.md).
+[Device results, commands and logs](../evidence/maps/2026-10-17-picker-navigation-device-result.md).
+[Preceding host verification](../evidence/maps/2026-10-17-picker-navigation-save-host.md).
 Earlier sections are chronological evidence, not the latest completion claim.
 
 
