@@ -1,6 +1,7 @@
 # COM17 fresh-boot Pair refusal: decoder scratch placement
 
-Source/host checkpoint; native build and device result pending.
+Source 329e5a9e; native build and COM17 fresh-boot Pair-start checks passed.
+Full OrcDial connection and live decoder scratch exercise remain pending.
 
 The user reproduced insufficient memory to pair after rebooting COM17 on P4
 source 6f001d86. The read-only capture `com17-pair-failure-20261018.log` confirms
@@ -40,3 +41,43 @@ app-only flash, measured post-boot DMA/RTC memory and Pair while receiving.
 Preserve the verified original October 15 COM17 full-flash snapshot and the
 current 6f001d86 recovery option. Then exercise FT8/JS8 scratch use and SD
 readback; do not generalize a host pass into hardware/performance acceptance.
+
+## Native build and COM17 result
+
+Native command: `./apps/orcsdr-tab5/tools/build-tab5-idf.ps1 -WorldMap F:/AI/OrcSDR-TEMP/maps-integration-completion/.local/maps/world/world-overview-z4.pmtiles`.
+Result: PASS, including miniz symbol verification and the new placement gate:
+8,192 bytes at 0x484e7440 in `.ext_ram.bss`.
+Log: `com17-scratch-native-build-20261018.log`.
+
+Candidate app SHA256:
+`503d667c7422efb25edeb9d78799f5eeebc9226e93769b5ad0cb79560c618900`.
+ELF SHA256:
+`41ec97f0a6671e7cb83c1960e13db082c85b5b71f3617b9044bc2462158243bf`.
+App size 5,029,568 bytes; full 40,960-byte internal reserve retained.
+
+COM17 identity 30:ED:A0:E2:E6:95 verified before app-only flash. Fresh recovery
+checkpoint: `.local/maps/com17-recovery/pcm-scratch-20261018/manifest.json`.
+Previous app verification, flash verification, and preservation checks all PASS.
+Logs: `com17-scratch-verify-previous-20261018.log`,
+`com17-scratch-flash-20261018.log`,
+`com17-scratch-preservation-20261018.log`,
+`com17-scratch-candidate-verify-20261018.log`.
+NVS, SD files, boot/table/PHY/core/world and C6 were preserved. COM39 untouched.
+
+Controlled boot capture reached ready with SD/Wi-Fi/RTL all ready:
+`com17-scratch-boot-20261018.log`.
+Read-only health capture: `com17-scratch-health-retry-20261018.log`.
+With Blog V4 receiving, DMA free=12,827, largest=12,288; bridge initially off.
+Prior failing capture had free=3,671, largest=3,200. These are measured snapshots,
+not a claim of identical allocation timing. C6 remains host/cop 3.0.6, match=1.
+An initial health attempt hit the still-open startup monitor and sent no commands;
+its empty log is retained as `com17-scratch-health-20261018.log`.
+
+Authenticated `RTL_ORCDIAL_PAIR START` now starts the bridge: bridge=1,
+connection=Searching, failure=None. After start DMA free=10,191, largest=9,728,
+secure-task minimum free stack=9,224. Log: `com17-scratch-pair-20261018.log`.
+Original tune restored with `RTL_FREQ 10135000`. During the bounded capture,
+HOME reported 23-24 updates/s and zero IQ/audio drops. Pair admission is verified;
+actual secure pairing, controls, sustained operation and live FT8 scratch exercise
+are not yet established by this capture. Next milestone: finish the peer handshake
+and exercise the moved buffer during actual decoder slot processing.
