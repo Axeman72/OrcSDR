@@ -133,6 +133,10 @@ void screen_tests() {
   receiver_location::set(false,0,0);
   map_screen::open(map_screen::Mode::picker);click(1260,707);
   assert(saves==3&&screens::owns(screens::Id::settings)); // Center can be saved without first moving the map.
+  receiver_location::set(true,900000000,0);
+  map_screen::open(map_screen::Mode::picker);click(1260,707);
+  assert(saves==4&&receiver_location::snapshot().latitude_e7==900000000);
+  receiver_location::set(true,440000000,-1230000000);
   map_screen::open(map_screen::Mode::setup);
   click(1000,670);click(1000,670);
   assert(visible("Set your receiver location"));

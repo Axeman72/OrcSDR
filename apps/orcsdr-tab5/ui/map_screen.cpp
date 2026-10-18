@@ -311,7 +311,7 @@ void touch(int x,int y,bool pressed,bool new_press) {
     if(hit(x,y,kPanX+144,kPanY+64,kZoomW,kZoomH)) {pan(-kPanStepX,0);return;}
     if(hit(x,y,kPanX+72,kPanY+128,kZoomW,kZoomH)) {pan(0,-kPanStepY);return;}
     if(hit(x,y,kUseX,kFooterY,kUseW,60)) {
-      if(g_picker_ready&&g_hooks.location) {
+      if((g_has_proposal||g_picker_ready)&&g_hooks.location) {
         if(g_hooks.location(g_lat,g_lon)) {if(g_mode==Mode::setup)advance();else cancel();}
         else {std::snprintf(g_message,sizeof(g_message),"Location could not be saved. Please retry.");g_dirty=true;}
       }
