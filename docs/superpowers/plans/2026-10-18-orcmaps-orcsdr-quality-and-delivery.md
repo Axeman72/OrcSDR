@@ -50,10 +50,11 @@ Exact commands, logs, hashes and recovery paths are recorded there.
 
 ### Next work
 
-1. Remove the initial recenter jump when a map touch becomes a drag. A focused
-   experimental assertion reproduced this behavior; no gesture fix is implemented
-   or on the device yet. Experimental assertions were removed while this requested
-   documentation update was made; red logs remain `picker-gesture-red-20261018.log`.
+1. Validate the prepared drag-start correction on hardware. Focused red/green
+   host checks now prove touch-down does not recenter, dragging does not jump,
+   taps still recenter on release, small jitter is tolerated and outside release
+   cancels a tap. Source changes remain alongside preserved wizard edits; not
+   built/flashed. Evidence: `docs/evidence/maps/2026-10-18-picker-gesture.md`.
 2. Profile and improve cached motion/display transfer and worker rendering,
    preserving one camera/generation for geography, labels and overlays. Measure
    p50/p95/max feedback intervals and cancellation, not just average frame cost.
