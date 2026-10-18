@@ -19,6 +19,7 @@ add_executable(orcsdr_maps_tests
   "${engine}/src/tiles/mvt_decoder.cpp" "${engine}/src/tiles/mvt_stream.cpp"
   "${engine}/src/tiles/mvt_translate.cpp" "${engine}/src/tiles/mvt_classify_experimental.cpp"
   "${engine}/src/render/style.cpp" "${engine}/src/render/renderer.cpp" "${engine}/src/render/clip.cpp"
+  "${engine}/src/render/labels.cpp"
   "${engine}/adapters/host/file_byte_source.cpp" "${engine}/adapters/host/framebuffer_target.cpp"
   "${engine}/third_party/miniz/miniz.c" "${engine}/third_party/miniz/miniz_tinfl.c")
 target_include_directories(orcsdr_maps_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ui_stubs" "${ui}" "${engine}/include"
