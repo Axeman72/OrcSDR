@@ -1,7 +1,12 @@
 # OrcMaps consumers and integration design
 
 
-## Latest checkpoint: enlarged selector tested on COM39
+Prepared follow-up `ef756048`: closer initial zoom, pan arrows, prominent map button,
+coordinate repaint/read-back verification and coarser world source selection.
+Host tests 4/4 and P4 syntax pass; native build/flash/device acceptance are pending.
+[Follow-up evidence](../evidence/maps/2026-10-17-picker-navigation-save-host.md).
+
+## Latest device checkpoint: enlarged selector tested on COM39
 
 Normal firmware `6eb22466` builds, flashes and boots on COM39. The 1248x568 selector
 now runs on the device; zoom/pan, new setup Skip/Confirm controls, invalid edit and
