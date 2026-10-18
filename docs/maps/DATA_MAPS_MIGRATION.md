@@ -1,11 +1,23 @@
 # Data & Maps inventory and migration
 
 
-## Latest checkpoint: COM39 boot passed; UI follow-up pending
+## Latest checkpoint: normal COM39 image tested; larger layout prepared
 
-COM39 `7c878d4c` discovery visibly distinguishes the usable firmware world partition from legacy ORCMAP1 NOT INSTALLED, with no arbitrary regional SD PMTiles present. PREV/NEXT/rescan were exercised. Runtime hash is honestly unchecked; displayed 1 MiB is the world partition capacity. Existing SD packs and selected map were preserved; COM17 was not changed.
+COM39 `a32d2fd5` normal build/flash/boot PASS. Full-size picker, OrcSDR colors,
+canonical location retention through Cancel/Confirm/invalid edit/reboot, setup routing
+and complete map diagnostics were exercised. Loaded map frames take 2.12-2.32 s;
+driver reports zero drops/overruns in the bounded sample. Integration is NOT complete:
+some captures lose controls; SD reads fail until map cache is reclaimed; no new CRC
+packets or verified-node map center arrived. Physical screen acceptance is unavailable.
 
-Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+The requested 1248x568 selector now occupies 76.9% of the screen. Four targeted host
+tests and P4 syntax pass; this layout has NOT been native-built/flashed. Its sprite
+needs 823,728 additional PSRAM bytes. Main remains unmerged; COM17/C6 unchanged.
+
+Detailed results, exact commands, private-data boundaries, blockers and next milestone:
+[picker device acceptance and large layout](../evidence/maps/2026-10-17-picker-device-and-large-layout.md).
+Earlier sections are chronological evidence, not the latest completion claim.
+
 
 ## Why Lane County appears
 

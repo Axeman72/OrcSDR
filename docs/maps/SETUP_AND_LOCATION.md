@@ -1,11 +1,23 @@
 # Shared setup and location implementation
 
 
-## Latest checkpoint: COM39 boot passed; UI follow-up pending
+## Latest checkpoint: normal COM39 image tested; larger layout prepared
 
-COM39 preserves the original configured receiver location through the `7c878d4c` flash and navigation. Welcome, optional Network return, Skip, Back and Cancel route successfully, but some captures omit controls. Picker acceptance FAILED: wrong GeoBounds field order left a default 256x256 view. Follow-up checks initialization and tests full-size rendering, uses the Settings charcoal/cyan/green colors, and remains unbuilt/unflashed. Quick Start/Finish, physical blank-device recovery and new location persistence remain hardware gates.
+COM39 `a32d2fd5` normal build/flash/boot PASS. Full-size picker, OrcSDR colors,
+canonical location retention through Cancel/Confirm/invalid edit/reboot, setup routing
+and complete map diagnostics were exercised. Loaded map frames take 2.12-2.32 s;
+driver reports zero drops/overruns in the bounded sample. Integration is NOT complete:
+some captures lose controls; SD reads fail until map cache is reclaimed; no new CRC
+packets or verified-node map center arrived. Physical screen acceptance is unavailable.
 
-Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+The requested 1248x568 selector now occupies 76.9% of the screen. Four targeted host
+tests and P4 syntax pass; this layout has NOT been native-built/flashed. Its sprite
+needs 823,728 additional PSRAM bytes. Main remains unmerged; COM17/C6 unchanged.
+
+Detailed results, exact commands, private-data boundaries, blockers and next milestone:
+[picker device acceptance and large layout](../evidence/maps/2026-10-17-picker-device-and-large-layout.md).
+Earlier sections are chronological evidence, not the latest completion claim.
+
 
 Implemented in `ui/map_screen.*` and `ui/setup_flow.hpp`; hardware acceptance is pending.
 

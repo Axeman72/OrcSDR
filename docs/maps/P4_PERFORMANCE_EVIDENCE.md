@@ -1,11 +1,23 @@
 # ESP32-P4 map performance evidence
 
 
-## Latest checkpoint: COM39 boot passed; UI follow-up pending
+## Latest checkpoint: normal COM39 image tested; larger layout prepared
 
-COM39 `7c878d4c`: full DMA reserve PASS; largest startup DMA block 43,008 bytes. A short LoRa/navigation check reports zero driver overruns/drops; no CRC packets in that window. Map timings remain UNVERIFIED because diagnostic output was incomplete; the picker also failed visual acceptance. The prepared camera/palette/console follow-up passes four host targets, not hardware acceptance.
+COM39 `a32d2fd5` normal build/flash/boot PASS. Full-size picker, OrcSDR colors,
+canonical location retention through Cancel/Confirm/invalid edit/reboot, setup routing
+and complete map diagnostics were exercised. Loaded map frames take 2.12-2.32 s;
+driver reports zero drops/overruns in the bounded sample. Integration is NOT complete:
+some captures lose controls; SD reads fail until map cache is reclaimed; no new CRC
+packets or verified-node map center arrived. Physical screen acceptance is unavailable.
 
-Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+The requested 1248x568 selector now occupies 76.9% of the screen. Four targeted host
+tests and P4 syntax pass; this layout has NOT been native-built/flashed. Its sprite
+needs 823,728 additional PSRAM bytes. Main remains unmerged; COM17/C6 unchanged.
+
+Detailed results, exact commands, private-data boundaries, blockers and next milestone:
+[picker device acceptance and large layout](../evidence/maps/2026-10-17-picker-device-and-large-layout.md).
+Earlier sections are chronological evidence, not the latest completion claim.
+
 
 Status: baseline only. No optimization result is claimed.
 

@@ -1,11 +1,23 @@
 # OrcMaps consumers and integration design
 
 
-## Latest checkpoint: COM39 boot passed; UI follow-up pending
+## Latest checkpoint: normal COM39 image tested; larger layout prepared
 
-COM39 `7c878d4c` boots and continues LoRa while cycling RF Lab/Home/LoRa. This does not qualify map rendering or actual decoding: the short sample had no CRC packets, map diagnostics were incomplete, and picker geometry failed. Prepared fixes are confined to the shared map adapter/screen and its console callback. ADS-B/FT8 consumer visual acceptance and active-RF timing remain pending.
+COM39 `a32d2fd5` normal build/flash/boot PASS. Full-size picker, OrcSDR colors,
+canonical location retention through Cancel/Confirm/invalid edit/reboot, setup routing
+and complete map diagnostics were exercised. Loaded map frames take 2.12-2.32 s;
+driver reports zero drops/overruns in the bounded sample. Integration is NOT complete:
+some captures lose controls; SD reads fail until map cache is reclaimed; no new CRC
+packets or verified-node map center arrived. Physical screen acceptance is unavailable.
 
-Details, exact commands, limits and saved log paths: [placement acceptance](../evidence/maps/2026-10-17-placement-acceptance.md). Earlier sections below are chronological evidence, not the latest completion claim.
+The requested 1248x568 selector now occupies 76.9% of the screen. Four targeted host
+tests and P4 syntax pass; this layout has NOT been native-built/flashed. Its sprite
+needs 823,728 additional PSRAM bytes. Main remains unmerged; COM17/C6 unchanged.
+
+Detailed results, exact commands, private-data boundaries, blockers and next milestone:
+[picker device acceptance and large layout](../evidence/maps/2026-10-17-picker-device-and-large-layout.md).
+Earlier sections are chronological evidence, not the latest completion claim.
+
 
 Baseline: OrcSDR fba861e3, OrcMaps 14cdd41. Source is authoritative over stale README/STATUS text.
 

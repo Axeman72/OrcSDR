@@ -18,7 +18,10 @@ namespace orcsdr::map_screen {
 namespace {
 // Match Settings: charcoal panels, cyan controls and green primary actions.
 constexpr uint16_t kBg=0x0841,kPanel=0x1082,kInk=0xc618,kAccent=0x04ff,kGreen=0x6fe8;
-constexpr int kMapX=32,kMapY=220,kMapW=900,kMapH=330;
+constexpr int kMapX=16,kMapY=72,kMapW=1248,kMapH=568;
+constexpr int kLatX=250,kLonX=612,kCoordinateY=10,kCoordinateW=350;
+constexpr int kZoomX=1188,kZoomInY=84,kZoomOutY=148,kZoomW=64,kZoomH=52;
+constexpr int kUseX=920,kFooterY=650,kUseW=344;
 Hooks g_hooks;
 NvsStore* g_preferences=nullptr;
 setup::Flow g_saved,g_flow;
@@ -87,12 +90,12 @@ void draw_map() {
   g_last_map_revision=maps::revision();
   if(!g_picker_ready) {
     M5.Display.fillRect(kMapX,kMapY,kMapW,kMapH,kBg);
-    text("Map camera unavailable. Enter a valid coordinate or cancel.",44,228,1);
+    text("Map camera unavailable. Enter a valid coordinate or cancel.",kMapX+12,kMapY+12,1);
     return;
   }
   if(std::abs(static_cast<int64_t>(g_lat))>850511287) {
     M5.Display.fillRect(kMapX,kMapY,kMapW,kMapH,kBg);
-    text("Polar latitude: no Mercator basemap. The entered E7 coordinate is retained.",44,228,1);
+    text("Polar latitude: no Mercator basemap. The entered E7 coordinate is retained.",kMapX+12,kMapY+12,1);
     return;
   }
   const auto location=receiver_location::snapshot();maps::FrameInfo info;
@@ -100,19 +103,21 @@ void draw_map() {
   if(state!=maps::Frame::ready) {
     M5.Display.fillRect(kMapX,kMapY,kMapW,kMapH,kBg);
     M5.Display.drawRect(kMapX,kMapY,kMapW,kMapH,0x2945);
-    text(state==maps::Frame::pending?"Loading offline map...":"No basemap installed. Pan or enter coordinates to choose a location.",44,228,1);
-  } else wrapped(info.credit,44,528,140);
+    text(state==maps::Frame::pending?"Loading offline map...":"No basemap installed. Pan or enter coordinates to choose a location.",kMapX+12,kMapY+12,1);
+  } else wrapped(info.credit,kMapX+12,kMapY+kMapH-20,140);
   M5.Display.drawLine(kMapX+kMapW/2-14,kMapY+kMapH/2,kMapX+kMapW/2+14,kMapY+kMapH/2,kAccent);
   M5.Display.drawLine(kMapX+kMapW/2,kMapY+kMapH/2-14,kMapX+kMapW/2,kMapY+kMapH/2+14,kAccent);
+  // Redraw overlays whenever the asynchronous map replaces its pixels.
+  button("+",kZoomX,kZoomInY,kZoomW,kZoomH);
+  button("-",kZoomX,kZoomOutY,kZoomW,kZoomH);
 }
 void draw_picker() {
-  text("Choose a receiver location. The crosshair is a proposal; USE LOCATION saves it.",32,110);
-  char value[64];std::snprintf(value,sizeof(value),"LAT E7  %ld",static_cast<long>(g_lat));button(value,32,150,440);
-  std::snprintf(value,sizeof(value),"LON E7  %ld",static_cast<long>(g_lon));button(value,500,150,432);
-  button("ZOOM +",970,240,230);button("ZOOM -",970,305,230);
-  button("USE LOCATION",970,470,260,46,true);
-  text(g_has_proposal?"Explicit confirmation required.":"No location selected yet.",32,570);
-  text("Drag / tap to pan. Keyboard: Ctrl+arrows pans; +/- zooms. E7 = degrees x 10000000.",32,602,1);
+  char value[64];std::snprintf(value,sizeof(value),"LAT E7 %ld",static_cast<long>(g_lat));button(value,kLatX,kCoordinateY,kCoordinateW);
+  std::snprintf(value,sizeof(value),"LON E7 %ld",static_cast<long>(g_lon));button(value,kLonX,kCoordinateY,kCoordinateW);
+  button("USE LOCATION",kUseX,kFooterY,kUseW,46,true);
+  const int hint_x=g_mode==Mode::setup?220:16;
+  text(g_has_proposal?"Crosshair is a preview. USE LOCATION saves it.":"Select a point, then USE LOCATION to save.",hint_x,652,1);
+  text("Drag / tap to pan. +/- zoom. E7 = degrees x 10000000.",hint_x,676,1);
   draw_map();
 }
 void draw_inventory() {
@@ -193,7 +198,8 @@ void open(Mode mode,bool automatic) {
 void draw() {
   if(!screens::is_active(screens::Id::maps))return;
   M5.Display.setFont(nullptr);M5.Display.fillScreen(kBg);focus_nav::clear();
-  text(g_mode==Mode::setup?"ORCSDR SETUP":g_mode==Mode::picker?"RECEIVER LOCATION":"LOCAL MAPS",32,28,3,kAccent);
+  if(location_step())text(g_mode==Mode::setup?"SETUP: LOCATION":"LOCATION",16,24,2,kAccent);
+  else text(g_mode==Mode::setup?"ORCSDR SETUP":"LOCAL MAPS",32,28,3,kAccent);
   button("CANCEL",1050,20,195);
   if(location_step())draw_picker();
   else if(maps_step())draw_inventory();
@@ -206,10 +212,11 @@ void draw() {
   } else text("Setup complete. You can rerun it from Settings > System.",32,180);
   if(g_mode==Mode::setup) {
     if(g_flow.step!=setup::Step::welcome)button("BACK",32,650);
-    button(g_flow.step==setup::Step::complete?"FINISH":"NEXT / SKIP",920,650,310,46,true);
+    if(location_step())button("SKIP",700,kFooterY,196);
+    else button(g_flow.step==setup::Step::complete?"FINISH":"NEXT / SKIP",920,650,310,46,true);
   }
   if(g_edit)draw_edit();
-  if(g_message[0])text(g_message,32,625,1,TFT_ORANGE);
+  if(g_message[0])text(g_message,32,location_step()&&!g_edit?704:625,1,TFT_ORANGE);
   g_dirty=false;
 }
 void tick() {
@@ -242,6 +249,20 @@ void touch(int x,int y,bool pressed,bool new_press) {
     }
     return;
   }
+  if(location_step()&&new_press) {
+    if(hit(x,y,kLatX,kCoordinateY,kCoordinateW,46)) {begin_edit(1);return;}
+    if(hit(x,y,kLonX,kCoordinateY,kCoordinateW,46)) {begin_edit(2);return;}
+    // Overlay controls take precedence over panning the map underneath.
+    if(hit(x,y,kZoomX,kZoomInY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomIn();g_dirty=true;return;}
+    if(hit(x,y,kZoomX,kZoomOutY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomOut();g_dirty=true;return;}
+    if(hit(x,y,kUseX,kFooterY,kUseW,46)) {
+      if(g_has_proposal&&g_hooks.location) {
+        if(g_hooks.location(g_lat,g_lon)) {if(g_mode==Mode::setup)advance();else cancel();}
+        else {std::snprintf(g_message,sizeof(g_message),"Location could not be saved. Please retry.");g_dirty=true;}
+      }
+      return;
+    }
+  }
   if(location_step()&&hit(x,y,kMapX,kMapY,kMapW,kMapH)) {
     if(!g_picker_ready)return;
     if(new_press) {g_picker.RecenterAtScreen(x-kMapX,y-kMapY);g_drag=true;g_last_x=x;g_last_y=y;moved_picker();}
@@ -252,20 +273,12 @@ void touch(int x,int y,bool pressed,bool new_press) {
   if(hit(x,y,1050,20,195,46)) {cancel();return;}
   if(g_mode==Mode::setup) {
     if(hit(x,y,32,650,180,46)) {g_flow.back();(void)checkpoint();g_dirty=true;return;}
-    if(hit(x,y,920,650,310,46)) {if(g_flow.step==setup::Step::complete)finish();else advance();return;}
+    if((location_step()&&hit(x,y,700,kFooterY,196,46))||
+       (!location_step()&&hit(x,y,920,650,310,46))) {if(g_flow.step==setup::Step::complete)finish();else advance();return;}
     if(g_flow.step==setup::Step::welcome&&hit(x,y,32,390,260,46)) {g_flow.quick_start();(void)checkpoint();g_dirty=true;return;}
     if(g_flow.step==setup::Step::network&&hit(x,y,32,260,350,46)) {navigation::open_settings(settings::Section::connectivity);return;}
   }
-  if(location_step()) {
-    if(hit(x,y,32,150,440,46))begin_edit(1);
-    else if(hit(x,y,500,150,432,46))begin_edit(2);
-    else if(hit(x,y,970,240,230,46)) {g_picker.ZoomIn();g_dirty=true;}
-    else if(hit(x,y,970,305,230,46)) {g_picker.ZoomOut();g_dirty=true;}
-    else if(hit(x,y,970,470,260,46)&&g_has_proposal&&g_hooks.location) {
-      if(g_hooks.location(g_lat,g_lon)) {if(g_mode==Mode::setup)advance();else cancel();}
-      else {std::snprintf(g_message,sizeof(g_message),"Location could not be saved. Please retry.");g_dirty=true;}
-    }
-  } else if(maps_step()) {
+  if(maps_step()) {
     if(hit(x,y,32,520,180,46)) {g_index=std::max(0,g_index-1);g_dirty=true;}
     else if(hit(x,y,230,520,180,46)) {g_index=std::min(std::max(0,static_cast<int>(g_packs.count)-1),g_index+1);g_dirty=true;}
     else if(hit(x,y,440,520,180,46)) {maps::rescan();g_packs.loaded=false;g_dirty=true;}
