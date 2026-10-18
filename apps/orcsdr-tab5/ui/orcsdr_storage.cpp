@@ -1,5 +1,6 @@
 #include "orcsdr_storage.hpp"
 #include "sd_benchmark_plan.hpp"
+#include "sdmmc_dma_buffer.hpp"
 #include "wifi_service.hpp"
 #include <algorithm>
 #include <cerrno>
@@ -171,6 +172,7 @@ bool mount_tab5_sd() {
   // M5Stack's Tab5 reference uses native SDMMC Slot 0 for the card. ESP-Hosted
   // owns Slot 1 for the C6, so both devices use their intended slots.
   sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+  host.check_buffer_alignment = &sdmmc_dma_buffer_aligned;
   host.slot = SDMMC_HOST_SLOT_0;
   host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
   if (orcsdr::wifi::hosted_transport_ready()) {

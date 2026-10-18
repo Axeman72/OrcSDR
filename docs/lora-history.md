@@ -1,5 +1,8 @@
 # LoRa packet and device history
 
+Shared SD buffering, append/durability requirements and regression commands are
+tracked in [SD card reliability](SD_CARD_RELIABILITY.md).
+
 The node observation model follows Meshtastic's documented distinction between
 received packets and a changing node database:
 [Meshtastic Python API](https://python.meshtastic.org/). The archive and cache are

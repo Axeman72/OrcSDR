@@ -1,0 +1,91 @@
+# SD card reliability and regression checks
+
+This is the shared record for Tab5 SD changes. Map availability, successful
+stdio writes, filesystem durability, adequate DMA memory and RF continuity are
+separate checks. A passing screenshot download does not qualify the whole card.
+
+## Failures already investigated
+
+| Area | Finding and correction | Evidence to preserve |
+|---|---|---|
+| Shared high-volume writes | Unaligned PSRAM fell into single-sector copies; writable streams now use optional 32 KiB cache-aligned PSRAM buffers. Removing buffering is not a fix. | [Write-performance investigation](TAB5_SD_PERFORMANCE.md); `f1588da5` |
+| FT8 log | OrcDial bridge consumed scarce internal DMA memory. Queue placement recovered headroom; file append semantics were corrected. FT8 stages CSV in PSRAM and waits for its DMA threshold. | [2026-10-08 FT8 entry](ft8/CHANGELOG.md#2026-10-08--decode-log-to-the-sd-card-works-internal-dma-memory-recovered); `431b1f46` |
+| LoRa persistence | An open buffered log needs fflush plus fsync to commit data/metadata. Shared File::sync does both; worker syncs journal and CSV at five-second intervals and when logging stops. Close/sync errors remain observable. | `eaa51423`, `d7deb59a`; [history behavior](lora-history.md), [device checks](lora-history-validation-2026-10-16.md) |
+| SSTV archive | Archive worker uses its own cache-aligned stdio buffers, retained until fclose. Existing tests exercise missing/full/flaky/slow storage, partial reads/writes, retry and temporary-file recovery. | `ui/sstv_archive.cpp`; `tests/sstv_archive_test.cpp` under the Tab5 app |
+| Map-retained SD read | Historical cache-sync invalid-address error preceded SD error 0x102. SDK's alignment-only check can admit non-DMA CPU heaps. Candidate adds a reachability/range check before using direct DMA. | [2026-10-17 source/device evidence](evidence/maps/2026-10-17-sd-retained-source-result.md); native candidate not yet built/flashed |
+
+These are different failure mechanisms. Reducing map memory or slowing SD is not
+a universal correction. The old recorded pointer is unavailable, so the precise
+historical map-read allocation remains unproven even though the unsafe-buffer
+path is reproduced in a host test.
+
+## Requirements for future SD changes
+
+- Keep Tab5 card on Slot 0, C6 on Slot 1, existing pins/LDO4 and no-format mount.
+  Do not reinitialize the Hosted controller while mounting the card.
+- Check DMA reachability and cache alignment, including the complete byte range.
+  CPU-accessible TCM/RTC is not equivalent to DMA-capable memory. Keep valid
+  aligned PSRAM on the direct path; use the SDK copy path for incompatible buffers.
+- Preserve aligned stdio buffering and its lifetime through fclose in both the
+  shared storage wrapper and SSTV archive. Allocation failure keeps default libc
+  buffering; do not add another permanent internal DMA pool without measurements.
+- Preserve append mode for logs. A new record must not truncate earlier records.
+  Short writes, sync/close errors, full/missing cards and incomplete records must
+  remain visible. A write counter alone does not establish durable storage.
+- Keep SD work off decoder/audio callbacks. Preserve FT8 staging, LoRa's logging
+  queue and SSTV's archive worker. Record free and largest internal DMA blocks,
+  PSRAM, queue drops and RF counters under actual load.
+- Keep CRC-valid reception, archive contents and reconstructed NODEINFO/position
+  state distinct. Do not alter old formats or erase packs to make a test pass.
+- Test files must use an explicitly reserved scratch path that is verified absent
+  before creation. Existing SD self-check/benchmark commands use fixed names and
+  delete them; do not run them on valuable cards without checking those names.
+
+## Repeatable host gate
+
+From the repository root on Linux/WSL:
+
+```bash
+bash tools/test-sd-storage.sh
+```
+
+This builds/runs four focused test programs with AddressSanitizer and UBSan:
+DMA/range/alignment, benchmark write-size plan, LoRa archive/cache/CSV behavior,
+and SSTV archive fault handling. Build/run logs and a summary stay in the
+invocation directory; names carry an explicit UTC timestamp. It does not access
+COM ports or physical SD cards. Temporary host binaries are retained in the
+directory printed by the runner. A failure stops the gate and identifies its log.
+
+The SD storage workflow runs this gate on relevant pull requests and main pushes
+and saves logs even after failures. The workflow is prepared locally; no GitHub
+run or required branch-protection check is claimed until published/configured.
+The buffer test is also registered as `sd_dma_buffer` in the maps CTest project.
+
+Actual 2026-10-17 local result: **4/4 PASS**, including the SSTV slow-card test.
+[Host summary](evidence/maps/2026-10-17-sd-storage-host.log).
+The first GCC compile found a missing initializer_list include in the new test;
+that portability issue was corrected before this successful run.
+
+These tests do not execute ESP-IDF SDMMC, hardware allocation, FT8's embedded
+main.cpp logger, or the LoRa worker's real fsync. In particular, FT8 currently
+does not inspect the close return before advancing its written counter. That is
+an existing separate error-reporting gap, not fixed or qualified by this patch.
+
+## Device acceptance before declaring reliability
+
+| Check | Current candidate status |
+|---|---|
+| Normal native link/boot and unchanged reserve/firmware identity | Pending approval/build/flash |
+| Full map retained, repeated checksum-verified SD reads | Old installed firmware passed two reads; new guard untested on device |
+| Bounded scratch-file writes/readback with retained map | Untested on candidate; check target path before any write |
+| Internal DMA/PSRAM, navigation and LoRa continuity during maps | Previous v0.2.3 samples recorded; repeat for changed storage code |
+| SSTV archive save/reload with map memory pressure | Host faults pass; candidate device behavior untested |
+| FT8 append/flush/readback and staged-row handling under pressure | Historical validation exists; candidate device behavior untested |
+| LoRa append/sync, stop/readback, reboot replay with NODEINFO preserved | Historical validation exists; candidate device behavior untested |
+| Card full/removal and power-cut durability | Separate destructive/fault testing needed; not authorized by a normal flash |
+
+For each device cycle save target/firmware hash, card/bus details, commands,
+timings, data hashes, memory/counters, actual failures and restoration steps.
+Preserve recovery/NVS/SD data; do not fold an overnight soak or card fault
+campaign into a bounded test approval. No guarantee against all future SD failures
+is inferred from a host gate or one device sample.
