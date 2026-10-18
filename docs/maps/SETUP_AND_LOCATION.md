@@ -1,12 +1,22 @@
 # Shared setup and location implementation
 
 
-Prepared engine update `99affb1b` pins published OrcMaps v0.2.3 (`dc6bc12`).
-36 host basemap views are byte-identical; four targeted host tests and native
-build/symbol gates pass. It includes the larger-footer source change. No device
-access or new hardware speed claim. [Upgrade results](../evidence/maps/2026-10-17-v023-upgrade-result.md).
+## Latest device checkpoint: OrcMaps v0.2.3 and readable footer on COM39
 
-## Latest device checkpoint: navigation and changed-location save tested on COM39
+Firmware `99affb1b` boots with OrcMaps v0.2.3 (`dc6bc12`) and the full 40 KiB
+DMA reserve. Three device map crops match the previous renderer exactly; stored
+location fields match. User confirms enlarged text is readable and controls good.
+Loaded redraw samples take 1.41-2.42 seconds; return to the starting view takes
+1.91 seconds, so no consistent speed multiplier is established. Driver drops and
+overruns are zero at sampled checks; one candidate CRC-valid LoRa packet observed.
+HOME's 33 ms setting yields p50 38/p95 43 ms in a short sample. Internal/DMA
+headroom and held-map-memory SD reliability remain open. COM17/C6 untouched.
+No push or merge; integration acceptance remains incomplete.
+
+[Device results, commands and logs](../evidence/maps/2026-10-17-v023-device-result.md).
+[Preceding host/build verification](../evidence/maps/2026-10-17-v023-upgrade-result.md).
+
+## Previous device checkpoint: navigation and changed-location save tested on COM39
 
 Normal firmware `04898891` (implementation `ef756048`) builds, flashes and boots.
 Closer starting zoom, pan arrows, prominent map button and changed-location
