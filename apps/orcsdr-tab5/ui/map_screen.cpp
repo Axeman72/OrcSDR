@@ -295,7 +295,8 @@ void touch(int x,int y,bool pressed,bool new_press) {
     if(hit(x,y,32,392,550,68)) {g_location_menu=false;const auto current=receiver_location::snapshot();g_lat=current.latitude_e7;g_lon=current.longitude_e7;picker_at(g_lat,g_lon);g_has_proposal=true;g_lat_set=g_lon_set=true;g_dirty=true;return;}
     if(hit(x,y,32,220,550,68)||hit(x,y,32,306,550,68)||hit(x,y,32,478,550,68)) {
       navigation::open_settings(settings::Section::location_adsb);
-      if(g_hooks.location_method)g_hooks.location_method(y<306?0:y<478?1:2);return;
+      if(g_hooks.location_method)g_hooks.location_method(y<306?0:y<478?1:2);
+      return;
     }
   }
   if(location_step()&&!(g_mode==Mode::setup&&g_location_menu)&&new_press) {
