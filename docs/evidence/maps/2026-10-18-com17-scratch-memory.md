@@ -1,7 +1,7 @@
 # COM17 fresh-boot Pair refusal: decoder scratch placement
 
 Source 329e5a9e; native build and COM17 fresh-boot Pair-start checks passed.
-Full OrcDial connection and live decoder scratch exercise remain pending.
+OrcDial matching-code exchange and connected status passed; live decoder scratch exercise remains pending.
 
 The user reproduced insufficient memory to pair after rebooting COM17 on P4
 source 6f001d86. The read-only capture `com17-pair-failure-20261018.log` confirms
@@ -81,3 +81,15 @@ HOME reported 23-24 updates/s and zero IQ/audio drops. Pair admission is verifie
 actual secure pairing, controls, sustained operation and live FT8 scratch exercise
 are not yet established by this capture. Next milestone: finish the peer handshake
 and exercise the moved buffer during actual decoder slot processing.
+
+## Completed pairing
+
+User confirmed both codes matched and OrcDial connected. A subsequent read-only
+COM17 capture independently reports `bridge=1 trust=1 connection=Connected
+boot=1 failure=None protocol=4`. Command:
+`python .local/maps/com39_bench.py .local/maps/com17-pair-failure-plan.json com17-scratch-connected-20261018.log --port COM17`.
+Result: PASS; no reset, flash or pairing-state changes in this observation.
+DMA free=10,191, largest=9,728; observed DMA minimum=9,527; secure task minimum
+free stack=8,568. C6 host/cop remains 3.0.6. Pairing after the captured fresh boot
+is verified. Dial control operations, reconnect after another reboot, sustained
+operation, live FT8 scratch use and SD concurrency remain separate gates.
