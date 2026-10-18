@@ -1743,11 +1743,10 @@ bool orcdial_memory_blocked = false;
 // Set by orcdial_action() for the requests that need the bridge to exist (Pair, Connect, Forget and re-pair). Cancel, Confirm,
 // Disconnect, Forget and the boot toggle mean nothing when no bridge is running and must not start one.
 std::atomic<bool> orcdial_bridge_requested{false};
-// Internal DMA RAM that must be free to start the bridge on request. The firmware's own budget check (RTL_DRAM_BUDGET) warns below
-// 20 KB; a freshly restarted Tab5 settles at about 20.8 KB free with the bridge off, so this is the lowest limit that still lets a
-// first pairing start after a restart. The bridge itself takes up to about 19 KB (22.5 KB to 3.7 KB measured at boot), so even at this
-// limit Wi-Fi is left tight: shrinking the bridge (stack size, tx task) is the remaining work, and needs a Dial to measure the peak.
-constexpr size_t kOrcDialOnDemandDmaNeed = 20u * 1024u;
+// The 12 KiB security and 4 KiB relay stacks use internal RTC RAM, not DMA RAM.
+// Leave DMA space for task metadata, the peer link and the existing SD buffers.
+constexpr size_t kOrcDialOnDemandDmaNeed = 6u * 1024u;
+constexpr size_t kOrcDialRtcStackBytes = 16u * 1024u;
 uint32_t orcdial_pair_until = 0;
 orc::secure::Runtime orcdial_secure;
 bool orcdial_secure_started=false;
@@ -12620,7 +12619,7 @@ const orcsdr::settings::State& global_settings_state() {
   state.orcdial_code=accessory.code;
   snprintf(state.orcdial_identity,sizeof state.orcdial_identity,"%02X%02X-%02X%02X",accessory.peer_identity[0],accessory.peer_identity[1],accessory.peer_identity[14],accessory.peer_identity[15]);
   strlcpy(state.orcdial_connection,orc::secure::state_name(accessory.state),sizeof state.orcdial_connection);
-  strlcpy(state.orcdial_failure,orcdial_memory_blocked?"Low memory: restart to pair":orc::secure::failure_name(accessory.failure),sizeof state.orcdial_failure);
+  strlcpy(state.orcdial_failure,orcdial_memory_blocked?"Not enough memory to pair":orc::secure::failure_name(accessory.failure),sizeof state.orcdial_failure);
 #endif
   state.wifi_c6_image_embedded = c6_update.image_embedded;
   state.wifi_c6_update_percent = c6_update.progress_percent;
@@ -16057,6 +16056,19 @@ bool orcdial_apply(const orc::Packet& p) {
   return false; // No invented channel plan, target list, message, AP, or settings action.
 }
 
+bool orcdial_prepare_memory() {
+  orcsdr::memory_reclaim::Report released[orcsdr::memory_reclaim::kMaxHolders];
+  size_t count=0;
+  const size_t total=orcsdr::memory_reclaim::reclaim_all(released,orcsdr::memory_reclaim::kMaxHolders,&count);
+  const size_t dma=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA);
+  const size_t dma_largest=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA);
+  const size_t rtc=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT|MALLOC_CAP_RTCRAM);
+  const size_t rtc_largest=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT|MALLOC_CAP_RTCRAM);
+  Serial.printf("RTL_ORCDIAL_MEMORY reclaimed=%u dma_free=%u rtc_free=%u rtc_largest=%u\n",
+                (unsigned)total,(unsigned)dma,(unsigned)rtc,(unsigned)rtc_largest);
+  return dma>=kOrcDialOnDemandDmaNeed && dma_largest>=4096u && rtc>=kOrcDialRtcStackBytes && rtc_largest>=12288u;
+}
+
 void orcdial_action(orc::secure::Action action,uint32_t value) {
   // Keep local requests ordered while splash/Wi-Fi staging delays the worker.
   if(!orcdial_pending_actions)orcdial_pending_actions=xQueueCreate(8,sizeof(OrcDialAction));
@@ -16129,27 +16141,24 @@ void orcdial_poll() {
   }
   if(orcdial_transport_ready)orcdial_memory_blocked=false;
   if(!orcdial_transport_ready&&bridge_requested&&!stored_trust&&!boot_trust&&orcsdr::wifi::hosted_transport_ready()) {
-    // A request to pair or connect with no stored pairing (so the bridge is not already running from boot): start it only if Wi-Fi and
-    // the C6 link keep enough DMA RAM afterwards. If not, say so and drop the request; restarting OrcSDR restores the memory.
-    const size_t dma_free=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA);
-    if(dma_free>=kOrcDialOnDemandDmaNeed)orcdial_memory_blocked=false;   // this attempt is not a memory refusal, whatever happens next
-    if(dma_free<kOrcDialOnDemandDmaNeed) {
+    // Reclaim only buffers their owners report safe to release, then check both memory pools.
+    orcdial_memory_blocked=!orcdial_prepare_memory();
+    if(orcdial_memory_blocked) {
       xQueueReset(orcdial_pending_actions);
       orcdial_bridge_requested.store(false,std::memory_order_release);
-      orcdial_memory_blocked=true;
       // The request may have brought Wi-Fi up for this accessory-only session (Wi-Fi power setting off); the idle shutdown later in
       // this function needs a running bridge, so stop it here and restore the configured state.
       if(!settings_wifi_power_enabled&&wifi_station_ready)stop_wifi();
-      Serial.printf("RTL_ORCDIAL_ERROR low_dma_memory free=%u need=%u restart_to_pair\n",(unsigned)dma_free,(unsigned)kOrcDialOnDemandDmaNeed);
+      Serial.println("RTL_ORCDIAL_ERROR low_memory after_reclaim");
       return;
     }
   }
   if(!orcdial_transport_ready&&bridge_wanted&&orcsdr::wifi::hosted_transport_ready()) {
     // The two frame queues hold 36 frames (about 24 KB). Allocated in internal RAM they took almost all of the internal DMA
     // memory the SD card and Wi-Fi need (largest DMA block 27 KB -> 3 KB at ORCDIAL_V4_BRIDGE_READY), so keep them in PSRAM.
-    if(!orcdial_inbox){orcdial_inbox=xQueueCreateWithCaps(20,sizeof(OrcDialFrame),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!orcdial_inbox)orcdial_inbox=xQueueCreate(20,sizeof(OrcDialFrame));}
-    if(!orcdial_outbox){orcdial_outbox=xQueueCreateWithCaps(16,sizeof(OrcDialFrame),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!orcdial_outbox)orcdial_outbox=xQueueCreate(16,sizeof(OrcDialFrame));}
-    if(orcdial_outbox&&!orcdial_tx_task && xTaskCreatePinnedToCore(orcdial_transmit,"orcdial_tx",4096,nullptr,2,&orcdial_tx_task,0)!=pdPASS)orcdial_tx_task=nullptr;
+    if(!orcdial_inbox)orcdial_inbox=xQueueCreateWithCaps(20,sizeof(OrcDialFrame),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+    if(!orcdial_outbox)orcdial_outbox=xQueueCreateWithCaps(16,sizeof(OrcDialFrame),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+    if(orcdial_outbox&&!orcdial_tx_task && xTaskCreatePinnedToCoreWithCaps(orcdial_transmit,"orcdial_tx",4096,nullptr,2,&orcdial_tx_task,0,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT|MALLOC_CAP_RTCRAM)!=pdPASS)orcdial_tx_task=nullptr;
     log_dram_budget("orcdial_queues_task");
     if(orcdial_inbox&&orcdial_tx_task&&eh_host_feat_peer_data_init()==ESP_OK && (log_dram_budget("orcdial_peer_init"),true) && eh_host_peer_data_register(kOrcDialFromC6,orcdial_receive,nullptr)==ESP_OK) {
       log_dram_budget("orcdial_peer_register");
