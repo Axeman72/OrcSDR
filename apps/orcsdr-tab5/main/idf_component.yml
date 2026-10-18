@@ -15,8 +15,8 @@ dependencies:
     version: 31a159df4f006a837d5041029bc6d1bc63520234
   orcmaps:
     git: https://github.com/hardcoreerik/OrcMaps.git
-    # v0.2.3 hot path; retains miniz, polygon-ring and allocation-safe cleanup fixes.
-    version: dc6bc12b7df9fb3decd751709da733a386cf386e
+    # Reviewed development pin: tile clipping, explicit profiles and bounded labels.
+    version: 5f3a1eb767b26aa7df00158308f40331b298d7ef
   m5stack/m5unified:
     version: "0.2.20"
   m5stack/m5gfx:

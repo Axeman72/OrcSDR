@@ -8,6 +8,8 @@
 #include <limits>
 #include <utility>
 #include <new>
+#include <cstdlib>
+#include <algorithm>
 
 struct FailingSource final : orcmap::ByteSource {
   explicit FailingSource(orcmap::ByteSource& source):source(source) {}
@@ -27,6 +29,42 @@ struct Empty final : orcmap::ByteSource {
   bool Valid() const override { return false; }
 };
 bool cancel(void*) { return false; }
+struct MeasuredText final : orcmap::LabelTextTarget {
+  std::vector<std::string> names;
+  bool MeasureText(std::string_view name,orcmap::TextExtent* extent) override {
+    *extent={static_cast<int>(name.size())*12,28};return !name.empty();
+  }
+  void DrawText(int,int,std::string_view name,orcmap::Color,orcmap::Color) override {
+    names.emplace_back(name);
+  }
+};
+void global_label_test(const char* archive) {
+  using namespace orcsdr::maps;
+  orcmap::host::FileByteSource source(archive);
+  Pipeline pipeline(source);
+  assert(pipeline.open("protomaps-v4"));
+  orcmap::Viewport view;
+  view.width_px=1280;view.height_px=720;view.zoom=8;
+  view.center_lat_deg=44.05;view.center_lon_deg=-123.02;
+  orcmap::host::FramebufferTarget frame(1280,720);
+  orcmap::LabelLayout labels;
+  MeasuredText text;
+  assert(pipeline.render(view,frame,&labels,&text));
+  assert(pipeline.stats().tiles>0 && pipeline.stats().failed==0);
+  assert(pipeline.stats().labels.offered>0 && pipeline.stats().labels.drawn>0);
+  assert(pipeline.stats().labels.drawn<=64 && text.names.size()==pipeline.stats().labels.drawn);
+  assert(std::find(text.names.begin(),text.names.end(),"Eugene")!=text.names.end());
+  const auto names=text.names;const auto pixels=frame.Pixels();
+  text.names.clear();
+  assert(pipeline.render(view,frame,&labels,&text));
+  assert(text.names==names && frame.Pixels()==pixels);
+  text.names.clear();view.center_lat_deg=51.51;view.center_lon_deg=-0.13;
+  assert(pipeline.render(view,frame,&labels,&text));
+  assert(std::find(text.names.begin(),text.names.end(),"London")!=text.names.end());
+  assert(std::find(text.names.begin(),text.names.end(),"Eugene")==text.names.end());
+  std::printf("GLOBAL_STREAM_LABEL_PASS offered=%u drawn=%u\n",
+              pipeline.stats().labels.offered,pipeline.stats().labels.drawn);
+}
 void inventory_tests(const char*);
 void world_tests(const char*);
 void screen_tests();
@@ -96,6 +134,10 @@ int main(int argc, char** argv) {
   assert(pipeline.stats().features>0 && pipeline.stats().bytes>0);
   assert(frame.WritePpm("map-pipeline-golden.ppm"));
   const auto pixels=frame.Pixels();
+  orcmap::LabelLayout labels;
+  assert(!pipeline.render(view,frame,&labels,nullptr)); // paired text capability required
+  assert(pipeline.open("protomaps-v4")); // explicit, never infer from archive bytes
+  assert(pipeline.open("openmaptiles-3.16"));
   assert(pipeline.render(view,frame));
   assert(pixels==frame.Pixels()); // repeated viewport produces identical pixels
   FailingSource failing(source);Pipeline resilient(failing);
@@ -116,4 +158,5 @@ int main(int argc, char** argv) {
   view.width_px=64;
   assert(!cancelled.render(view,frame) && cancelled.stats().cancelled);
   std::puts("MAP_PIPELINE_TEST_PASS");
+  if(const char* archive=std::getenv("ORCSDR_LABEL_TEST_ARCHIVE"))global_label_test(archive);
 }

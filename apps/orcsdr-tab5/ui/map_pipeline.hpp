@@ -10,6 +10,7 @@
 #include "orcmap/render_target.hpp"
 #include "orcmap/viewport.hpp"
 #include "orcmap/location_picker.hpp"
+#include "orcmap/labels.hpp"
 
 namespace orcsdr::maps {
 
@@ -24,6 +25,8 @@ struct RenderStats {
   uint32_t reads = 0;
   uint64_t bytes = 0, io_us = 0, lookup_us = 0, stream_us = 0, render_us = 0, total_us = 0;
   bool cancelled = false, out_of_memory = false;
+  orcmap::LabelStats labels{};
+  uint64_t label_us = 0;
 };
 
 // One source/reader/scratch per active archive. No display, radio, or network
@@ -32,7 +35,9 @@ class Pipeline {
  public:
   explicit Pipeline(orcmap::ByteSource& source, WorkHooks hooks = {});
   bool open(std::string_view profile);
-  bool render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target);
+  // Optional labels use caller-owned storage (PSRAM on P4) and a real font target.
+  bool render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target,
+              orcmap::LabelLayout* labels = nullptr, orcmap::LabelTextTarget* text = nullptr);
   const orcmap::PmTilesHeader& header() const { return reader_.Header(); }
   const RenderStats& stats() const { return stats_; }
 
@@ -51,7 +56,8 @@ class Pipeline {
   };
   struct Context;
   bool open_impl(std::string_view profile);
-  bool render_impl(const orcmap::Viewport&,orcmap::RenderTarget&);
+  bool render_impl(const orcmap::Viewport&,orcmap::RenderTarget&,
+                   orcmap::LabelLayout*,orcmap::LabelTextTarget*);
   static bool feature(const orcmap::Feature&, void*);
   uint64_t now() const { return hooks_.now_us ? hooks_.now_us() : 0; }
   WorkHooks hooks_;
@@ -60,6 +66,7 @@ class Pipeline {
   orcmap::PmTilesReader reader_;
   orcmap::MvtStreamScratch scratch_;
   bool ready_ = false;
+  std::string_view profile_; // points only to a supported static literal
 };
 
 // Application geometry goes through OrcMaps too; the coordinates remain E7 at

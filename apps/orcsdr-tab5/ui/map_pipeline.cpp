@@ -36,7 +36,10 @@ bool Pipeline::open(std::string_view profile) {
 bool Pipeline::open_impl(std::string_view profile) {
   stats_={};
   ready_ = false;
-  if (profile != "openmaptiles-3.16" && profile != "orcmaps-overview-1") return false;
+  if (profile == "openmaptiles-3.16") profile_ = "openmaptiles-3.16";
+  else if (profile == "orcmaps-overview-1") profile_ = "orcmaps-overview-1";
+  else if (profile == "protomaps-v4") profile_ = "protomaps-v4";
+  else return false;
   if (!reader_.Open() || reader_.Header().tile_type != orcmap::TileType::kMvt) return false;
   // Scratch is reused, including the inflater and bounded one-feature buffer.
   if (!orcmap::ReserveMvtStreamScratch(&scratch_, 48 * 1024)) return false;
@@ -50,6 +53,8 @@ struct Pipeline::Context {
   orcmap::RenderTarget& target;
   const std::vector<orcmap::TilePlacement>& placements;
   orcmap::TileId tile;
+  orcmap::LabelLayout* labels;
+  orcmap::RenderScratch scratch;
 };
 
 bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
@@ -61,31 +66,43 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
   }
   ++pipeline.stats_.features;
   // The streaming callback owns this reused feature until it returns. The
-  // classifier is the engine's public no-text classifier, not dashboard logic.
+  // classifier is shared by streaming and batch engine consumers.
   auto& feature = const_cast<orcmap::Feature&>(decoded);
-  feature.kind_assigned = orcmap::experimental::TryClassifyFeature(feature, &feature.kind);
+  feature.kind_assigned = orcmap::experimental::TryClassifyFeatureForProfile(
+      pipeline.profile_, feature, &feature.kind);
   const uint64_t start = pipeline.now();
   for (const auto& placement : context.placements) {
-    if (placement.tile == context.tile &&
-        !orcmap::RenderFeatureAt(feature, placement, context.viewport,
-                                orcmap::styles::OrcSdrDark(), &context.target)) return false;
+    if (!(placement.tile == context.tile)) continue;
+    if (!orcmap::RenderFeatureAt(feature, placement, context.viewport,
+                                orcmap::styles::OrcSdrDark(), &context.target,
+                                &context.scratch)) return false;
+    if (context.labels && feature.geometry.type == orcmap::GeomType::kPoint) {
+      orcmap::TileScreenMap map;
+      if (!orcmap::MakeTilePlacementScreenMap(context.viewport, placement,
+              feature.extent ? feature.extent : 4096, &map)) return false;
+      context.labels->OfferPlace(feature,map,context.viewport.zoom,orcmap::styles::OrcSdrDark());
+    }
   }
   pipeline.stats_.render_us += pipeline.now() - start;
   return true;
 }
 
-bool Pipeline::render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target) {
-  try {return render_impl(viewport,target);}
+bool Pipeline::render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target,
+                       orcmap::LabelLayout* labels, orcmap::LabelTextTarget* text) {
+  try {return render_impl(viewport,target,labels,text);}
   catch(const std::bad_alloc&) {ready_=false;stats_.out_of_memory=true;++stats_.failed;return false;}
 }
-bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget& target) {
+bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget& target,
+                            orcmap::LabelLayout* labels,orcmap::LabelTextTarget* text) {
   stats_ = {};
   const uint64_t start = now();
+  if ((labels == nullptr) != (text == nullptr)) return false;
   if (!ready_ || viewport.width_px != target.Width() || viewport.height_px != target.Height() ||
       viewport.zoom < reader_.Header().min_zoom || viewport.zoom > reader_.Header().max_zoom) return false;
   std::vector<orcmap::TilePlacement> placements;
   if (!orcmap::EnumerateVisibleTilePlacements(viewport, &placements) || placements.size() > 64) return false;
   if (!orcmap::ClearMapBackground(viewport, orcmap::styles::OrcSdrDark(), &target)) return false;
+  if (labels) labels->BeginFrame(viewport.width_px,viewport.height_px);
   for (size_t i = 0; i < placements.size(); ++i) {
     const auto tile = placements[i].tile;
     bool duplicate = false;
@@ -95,9 +112,15 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     const bool present = reader_.TileExists(tile.z, tile.x, tile.y);
     stats_.lookup_us += now() - lookup;
     if (!present) { ++stats_.missing; continue; }
-    Context context{*this, viewport, target, placements, tile};
+    Context context{*this, viewport, target, placements, tile, labels, {}};
     orcmap::MvtStreamOptions options;
-    options.include_layer = &orcmap::experimental::IncludeNoTextBasemapLayer;
+    options.include_layer = [](const char* name,size_t size,void* opaque) {
+      const auto& ctx=*static_cast<Context*>(opaque);
+      const std::string_view layer(name,size);
+      return (ctx.labels && (layer=="place" || layer=="places" || layer=="place_label")) ||
+          orcmap::experimental::IncludeNoTextBasemapLayer(name,size,nullptr);
+    };
+    options.include_layer_ctx = &context;
     options.feature_sink = &Pipeline::feature;
     options.feature_sink_ctx = &context;
     const uint64_t stream = now(), render_before = stats_.render_us;
@@ -106,6 +129,17 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     if (ok) ++stats_.tiles;
     else ++stats_.failed;
     if (stats_.cancelled) break;
+  }
+  if (labels && !stats_.cancelled && !stats_.failed) {
+    if (hooks_.service && !hooks_.service(hooks_.context)) stats_.cancelled=true;
+    else {
+      const uint64_t label_start=now();
+      const auto& style=orcmap::styles::OrcSdrDark();
+      labels->Draw(*text,style.Rule(orcmap::FeatureKind::kLabelPrimary).color,
+                   style.Rule(orcmap::FeatureKind::kBackground).color);
+      stats_.label_us=now()-label_start;
+    }
+    stats_.labels=labels->stats();
   }
   stats_.total_us = now() - start;
   return stats_.tiles > 0 && stats_.failed == 0 && !stats_.cancelled;

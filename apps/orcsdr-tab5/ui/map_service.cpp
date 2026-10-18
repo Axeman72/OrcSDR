@@ -6,6 +6,7 @@
 #include "orcmap/esp_idf/pack_filesystem.hpp"
 #include "orcmap/esp_idf/partition_byte_source.hpp"
 #include "orcmap/m5gfx/display_target.hpp"
+#include "orcmap/m5gfx/label_target.hpp"
 #include <M5Unified.h>
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
@@ -39,6 +40,7 @@ EXT_RAM_BSS_ATTR Inventory g_inventory;
 // Keep them out of the on-chip heap boundary: ESP-IDF reserves the existing
 // 40 KiB DMA pool before app_main, before this service can handle failures.
 EXT_RAM_BSS_ATTR M5Canvas g_canvas(&M5.Display);
+EXT_RAM_BSS_ATTR orcmap::LabelLayout g_labels;
 std::unique_ptr<orcmap::ByteSource> g_source;
 std::unique_ptr<Pipeline> g_pipeline;
 EXT_RAM_BSS_ATTR char g_archive[256]{};
@@ -225,7 +227,8 @@ void worker(void*) {
     }
     if(ok) {
       orcmap::m5gfx_adapter::DisplayTarget target(g_canvas);
-      g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target);
+      orcmap::m5gfx_adapter::LabelTarget text_target(g_canvas,fonts::DejaVu24);
+      g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target,&g_labels,&text_target);
     }
     if(g_pipeline)g_frame.stats=g_pipeline->stats();
     if(g_frame.stats.out_of_memory) {
@@ -235,6 +238,9 @@ void worker(void*) {
     if(request.serial==g_serial.load()) {
       g_frame.state=ok ? Frame::ready : Frame::unavailable;
       text(g_frame.status,ok ? "LOCAL MAP" : g_frame.stats.out_of_memory ? "MAP UNAVAILABLE: LOW MEMORY" : "MAP UNAVAILABLE / NO MEMORY");
+      if(ok && g_frame.stats.labels.unsupported_glyphs)
+        std::snprintf(g_frame.status,sizeof(g_frame.status),"LOCAL MAP: %lu NAMES NEED FONT SUPPORT",
+                      static_cast<unsigned long>(g_frame.stats.labels.unsupported_glyphs));
       g_cached=true;g_frame.revision=g_revision.fetch_add(1)+1;
     }
     } catch(const std::bad_alloc&) {
@@ -304,6 +310,12 @@ void report(void (*write)(const char*)) {
       static_cast<unsigned long>(stats.features),static_cast<unsigned long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
       static_cast<unsigned long long>(stats.lookup_us),static_cast<unsigned long long>(stats.stream_us),
       static_cast<unsigned long long>(stats.render_us),static_cast<unsigned long long>(stats.total_us),static_cast<unsigned long long>(stats.io_us));
+  write(line);
+  std::snprintf(line,sizeof(line),"ORC_MAP_LABELS offered=%lu drawn=%lu overlap=%lu offscreen=%lu unsupported=%lu overflow=%lu label_us=%llu layout_bytes=%u\n",
+      static_cast<unsigned long>(stats.labels.offered),static_cast<unsigned long>(stats.labels.drawn),
+      static_cast<unsigned long>(stats.labels.overlap),static_cast<unsigned long>(stats.labels.offscreen),
+      static_cast<unsigned long>(stats.labels.unsupported_glyphs),static_cast<unsigned long>(stats.labels.pool_overflow),
+      static_cast<unsigned long long>(stats.label_us),static_cast<unsigned>(sizeof(g_labels)));
   write(line);
   std::snprintf(line,sizeof(line),"ORC_MAP_MEMORY internal_free=%u internal_largest=%u dma_free=%u dma_largest=%u psram_free=%u psram_largest=%u\n",
       heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
