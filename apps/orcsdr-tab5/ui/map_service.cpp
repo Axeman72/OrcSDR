@@ -1,4 +1,5 @@
 #include "map_service.hpp"
+#include "map_timing.hpp"
 #include "map_inventory.hpp"
 #include "offline_map.hpp"
 #include "memory_reclaim.hpp"
@@ -41,6 +42,7 @@ EXT_RAM_BSS_ATTR Inventory g_inventory;
 // 40 KiB DMA pool before app_main, before this service can handle failures.
 EXT_RAM_BSS_ATTR M5Canvas g_canvas(&M5.Display);
 EXT_RAM_BSS_ATTR orcmap::LabelLayout g_labels;
+EXT_RAM_BSS_ATTR UpdateTiming g_update_timing;
 std::unique_ptr<orcmap::ByteSource> g_source;
 std::unique_ptr<Pipeline> g_pipeline;
 EXT_RAM_BSS_ATTR char g_archive[256]{};
@@ -302,6 +304,15 @@ void report(void (*write)(const char*)) {
   FrameInfo frame;
   if(!frame_info(&frame)) {std::snprintf(line,sizeof(line),"ORC_MAP_STATUS busy=1 generation=%lu\n",static_cast<unsigned long>(g_serial.load()));write(line);return;}
   const auto& stats=frame.stats;
+  // Read the rolling sample under the same lock used for presentation updates.
+  if(xSemaphoreTake(g_lock,0)==pdTRUE) {
+    const auto timing=g_update_timing.summary();
+    xSemaphoreGive(g_lock);
+    std::snprintf(line,sizeof(line),"ORC_MAP_INTERVALS raw_includes_dwell=1 samples=%u p50_us=%llu p95_us=%llu max_us=%llu\n",
+        static_cast<unsigned>(timing.count),static_cast<unsigned long long>(timing.p50_us),
+        static_cast<unsigned long long>(timing.p95_us),static_cast<unsigned long long>(timing.max_us));
+    write(line);
+  }
   std::snprintf(line,sizeof(line),"ORC_MAP_STATUS state=%u generation=%lu revision=%lu cached_pushes=%lu push_us=%lu frame_bytes=%u "
       "tiles=%lu missing=%lu failed=%lu features=%lu reads=%lu bytes=%llu lookup_us=%llu stream_us=%llu render_us=%llu total_us=%llu io_us=%llu\n",
       static_cast<unsigned>(frame.state),static_cast<unsigned long>(g_serial.load()),static_cast<unsigned long>(frame.revision),
@@ -339,6 +350,7 @@ Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,
     if(g_frame.state==Frame::ready) {
       const uint64_t started=clock_us();g_canvas.pushSprite(&target,x,y);
       g_frame.push_us=static_cast<uint32_t>(clock_us()-started);++g_frame.cache_hits;
+      g_update_timing.present(clock_us(),g_frame.revision);
     }
     if(info)*info=g_frame;
     const Frame result=g_frame.state;xSemaphoreGive(g_lock);return result;
