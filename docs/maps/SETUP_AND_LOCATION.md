@@ -84,3 +84,11 @@ Logs: `maps-location-before.log` and `maps-location-after.log` in the invocation
 The bounded read-only review recheck reported no remaining actual defect; it did not
 perform hardware tests. Serial coordinate entry also rejects non-finite values before
 conversion to E7. No unrelated receiver or settings routing was refactored.
+# Latest device status — 2026-10-17
+
+The approved COM39 candidate `4971ee5b` failed before `app_main` during ESP-IDF's
+internal/DMA reserve. The setup/picker was never exercised on hardware. NVS verified
+unchanged before boot, and the previous firmware was restored successfully. This
+does not validate canonical location migration or interrupted setup on the device.
+The map-state placement adjustment builds but awaits a new flash approval; see
+`P4_PERFORMANCE_EVIDENCE.md`. Existing host persistence results below remain valid.

@@ -58,3 +58,11 @@ FT8's previously compiled Natural Earth outline is a distinct legacy world rende
 path, not evidence that a PMTiles world partition is installed. It remains available
 without SD and keeps the complete globe/polar-locator semantics through the common
 compatibility adapter. No ORCMAP1-to-PMTiles file conversion or SD rewriting is performed.
+# Latest provisioning status — 2026-10-17
+
+COM39's world archive write passed flash hash verification. The map candidate then
+failed before application startup, and the original partition table was restored.
+World bytes remain in the previously unassigned region but are not exposed by the
+running firmware's partition table. No SD map pack or existing SD file was replaced.
+COM17 was not accessed. Discovery and compatibility acceptance on the new firmware
+remain pending; see `P4_PERFORMANCE_EVIDENCE.md` for recovery evidence.

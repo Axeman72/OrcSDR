@@ -35,10 +35,13 @@ EXT_RAM_BSS_ATTR MapSnapshot g_snapshot;
 EXT_RAM_BSS_ATTR FrameInfo g_frame;
 EXT_RAM_BSS_ATTR Request g_requested, g_ready;
 EXT_RAM_BSS_ATTR Inventory g_inventory;
-M5Canvas g_canvas(&M5.Display);
+// This object and path are worker/UI state, never ISR or DMA descriptors.
+// Keep them out of the on-chip heap boundary: ESP-IDF reserves the existing
+// 40 KiB DMA pool before app_main, before this service can handle failures.
+EXT_RAM_BSS_ATTR M5Canvas g_canvas(&M5.Display);
 std::unique_ptr<orcmap::ByteSource> g_source;
 std::unique_ptr<Pipeline> g_pipeline;
-char g_archive[256]{};
+EXT_RAM_BSS_ATTR char g_archive[256]{};
 bool g_sd = false, g_cached = false;
 std::atomic<bool> g_scan{true};
 std::atomic<bool> g_installed{false};

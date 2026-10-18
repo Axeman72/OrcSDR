@@ -130,3 +130,91 @@ release guard headroom 1007968 bytes. SHA-256:
 `docs/evidence/maps/2026-10-17-candidate-manifest.json` records this final candidate;
 the allocation-only build above is historical intermediate evidence. No flash,
 physical interrupted-save test or active-RF profile has occurred.
+
+## COM39 acceptance attempt and recovery — 2026-10-17
+
+The user confirmed COM39 / USB serial `E8:F6:0A:E2:D6:03` and approved candidate
+`4971ee5b`, world provisioning, a reception pause, recovery backup and bounded
+UI/radio checks. COM17 (`30:ED:A0:E2:E6:95`) was not opened or flashed in this attempt.
+No C6 update, SD overwrite, NVS erase or whole-chip erase was performed.
+
+Pre-flash commands used an existing authenticated key without `PAIR`; `RTL_STOP`
+completed with `RTL_STOP_RESULT ESP_OK`. `SD_LIST` found the existing FM settings,
+their backup and `/orcsdr/lora_packets_v2.csv` (42177 bytes at inventory time).
+`RTL_LOCATION STATUS` reports the temporary lookup result, **not canonical saved
+location**; the saved coordinate was not obtained before the failed boot. Do not
+claim a physical location-migration test passed.
+
+Recovery command (Python is the IDF 5.5 environment):
+`python -m esptool --chip esp32p4 --port COM39 --baud 921600 --after no_reset read_flash 0x0 0x1000000 .local/maps/com39-recovery/20261017-1726/full-flash.bin`.
+Result: 16777216 bytes read successfully in 139.1 seconds. SHA-256:
+`90b19ec8fe53ff1f807ba8f68e9872cb36601de6aa07a42bc356ad86c06e3751`.
+Opaque recovery/NVS/core-dump files remain ignored locally; no private NVS was
+decoded. Partition comparison showed every existing partition unchanged and only
+the new world partition added at `0x650000`.
+
+The explicit COM39 `write_flash` command used the four offsets listed above.
+Bootloader, table, application and world each reported `Hash of data verified`.
+Before application boot, `verify_flash` of the opaque saved NVS at `0x9000` and
+saved core dump at `0x610000` both reported `verify OK (digest matched)`.
+
+**Hardware acceptance FAILED.** The candidate rebooted before `app_main` with:
+`main_task: Could not reserve internal/DMA pool (error 0x101)` followed by `abort()`.
+ESP-IDF was reserving the unchanged 40 KiB internal/DMA pool. No map worker, setup
+flow or active-RF map profile ran. The first monitor command also hit an independent
+host `esp-idf-monitor` 1.9.0 Logger error with `--disable-address-decoding`; retrying
+without that flag captured the device startup failure. These are separate failures.
+
+The candidate startup dump was saved separately, then original bootloader,
+partition table, factory region and prior core dump were restored from the backup.
+All four restoration writes passed hash verification; the unchanged NVS again
+passed `verify_flash` before boot. The unused world bytes remain in flash, but the
+restored partition table does not expose them as an installed map.
+
+Recovery checks: `UI_SELF_CHECK` returned all six fields equal to 1. Subsequent
+`RTL_DRIVER STATUS` reported STREAMING, 906875000 Hz, effective_sps=959967,
+bytes=290455552, overruns=0 and drops=0. `RTL_LORA_STATS` reported events=2,
+crc_ok=2, messages=2, failures=0 and drops=0. This is real LoRa reception on the
+restored firmware, not map candidate acceptance. The previously connected LoRa
+antenna was not physically changed during the test.
+
+At restored uptime 160903 ms: internal_free=36487, internal_largest=31744,
+dma_free=2627, dma_largest=2432, psram_free=2127968,
+psram_largest=2097152. This snapshot is not an overnight soak or memory-leak test.
+
+Logs were saved in the worktree root, the invocation directory:
+`maps-com39-preflash-20261017.log`, `maps-com39-rom-identity-20261017.log`,
+`maps-com39-backup-20261017.log`, `maps-com39-recovery-check-20261017.log`,
+`maps-com39-flash-20261017.log`, `maps-com39-preservation-20261017.log`,
+`maps-com39-boot-20261017.log`, `maps-com39-boot-retry-20261017.log`,
+`maps-com39-startup-dump-20261017.log`, `maps-com39-restore-20261017.log`,
+`maps-com39-recovery-nvs-20261017.log`, `maps-com39-restored-health-20261017.log`
+and `maps-com39-restored-final-20261017.log`. Reviewed copies/extracts are under
+`docs/evidence/maps/2026-10-17-com39-*`.
+
+### Prepared placement adjustment — not flashed
+
+`ui/map_service.cpp` places the 340-byte canvas object and 256-byte archive-path
+buffer in PSRAM. They are UI/worker state, not DMA descriptors or ISR state.
+Both objects' linked addresses move from internal `0x4ff...` to PSRAM `0x485...`;
+`.dram1.bss` shrinks from 171300 to 170708 bytes, recovering 592 bytes after
+alignment. The DMA reserve, exception reserve, radio code and other locked
+dependencies are unchanged. The startup failure itself is confirmed; whether this
+extra margin is sufficient is **UNTESTED on hardware**.
+
+Exact incremental test: from the exported IDF environment,
+`cmake --build apps/orcsdr-tab5/build-native-hosted3 -- -j4`.
+Result: PASS, 10 build steps; linked miniz gate PASS; application remains 5021344
+bytes. `python .local/maps/check_startup_placement.py` passed symbol-placement and
+positive internal-BSS-recovery assertions. Logs:
+`maps-startup-placement-build-20261017.log` and
+`maps-startup-placement-check-20261017.json`. The initial placement assertion assumed
+all 596 payload bytes would shrink BSS; section alignment gives 592, so the check
+was corrected to verify actual placement and positive recovery.
+
+Prepared application SHA-256:
+`91ed8cef4026447684b7f7f8ce81eb8c8a1bef7e2feb486d5e732acfc573a02d`.
+Historical `4971ee5b` binary/ELF remain `.local/maps/candidate.*`; the new artifacts
+are `.local/maps/startup-placement.*`. No repeated full rebuild or full regression
+suite was run. Next gate: approve the new candidate's COM39 flash, verify boot
+first, then resume the bounded setup/location/map/radio acceptance sequence.

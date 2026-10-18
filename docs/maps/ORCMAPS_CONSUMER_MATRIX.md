@@ -74,3 +74,11 @@ review at https://github.com/hardcoreerik/OrcMaps/pull/5, stacked on reviewed PR
 removes allocations during failed-tile cleanup. OrcSDR's prepared adapter catches
 allocation failure and invalidates/reclaims the failed frame; host recovery tests pass.
 The exception-enabled ESP32-P4 rebuild and all physical acceptance remain separate gates.
+# Latest acceptance status — 2026-10-17
+
+COM39 candidate `4971ee5b` failed before OrcSDR startup; none of the integrated
+dashboard map consumers received a hardware acceptance pass. The original firmware
+is restored and receiving LoRa. A map-only placement adjustment builds and reclaims
+592 bytes of internal BSS, but is not flashed. Consumer performance/visual claims
+below remain host/source results until the COM39 gate passes. Full details and logs
+are in `P4_PERFORMANCE_EVIDENCE.md`.
