@@ -1,21 +1,23 @@
 # Maps integration audit
 
 
-## Latest checkpoint: normal COM39 image tested; larger layout prepared
+## Latest checkpoint: enlarged selector tested on COM39
 
-COM39 `a32d2fd5` normal build/flash/boot PASS. Full-size picker, OrcSDR colors,
-canonical location retention through Cancel/Confirm/invalid edit/reboot, setup routing
-and complete map diagnostics were exercised. Loaded map frames take 2.12-2.32 s;
-driver reports zero drops/overruns in the bounded sample. Integration is NOT complete:
-some captures lose controls; SD reads fail until map cache is reclaimed; no new CRC
-packets or verified-node map center arrived. Physical screen acceptance is unavailable.
+Normal firmware `6eb22466` builds, flashes and boots on COM39. The 1248x568 selector
+now runs on the device; zoom/pan, new setup Skip/Confirm controls, invalid edit and
+saved-location retention pass the bounded command/capture checks. Radio reports
+zero driver drops/overruns and one live CRC-valid encrypted message during the run.
+Overview redraws take 3.0-3.4 s with LoRa active; a zoomed view takes 6.0 s.
 
-The requested 1248x568 selector now occupies 76.9% of the screen. Four targeted host
-tests and P4 syntax pass; this layout has NOT been native-built/flashed. Its sprite
-needs 823,728 additional PSRAM bytes. Main remains unmerged; COM17/C6 unchanged.
+The user confirms both coordinate fields, Cancel, zoom and Use Location are visible
+on the physical screen. Some saved captures still omit controls. Integration remains
+incomplete: one held-cache SD read passes but the earlier intermittent failure is
+not closed. Final DMA free/largest is 1327/1088 bytes, with very tight historical
+minima. Regional-pack/verified-position dashboard and remaining recovery/release
+acceptance gates remain. COM17/C6 and existing SD packs were untouched.
 
-Detailed results, exact commands, private-data boundaries, blockers and next milestone:
-[picker device acceptance and large layout](../evidence/maps/2026-10-17-picker-device-and-large-layout.md).
+Source, exact commands, actual results, private-data boundaries, logs and next milestone:
+[enlarged selector device result](../evidence/maps/2026-10-17-large-selector-device-result.md).
 Earlier sections are chronological evidence, not the latest completion claim.
 
 
