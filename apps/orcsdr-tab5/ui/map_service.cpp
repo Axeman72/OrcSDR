@@ -31,7 +31,7 @@ namespace orcsdr::maps {
 namespace {
 constexpr char kDirectory[] = "/sd/orcmaps";
 constexpr char kWorld[] = "orcmaps_world";
-struct Request { orcmap::Viewport view; char preferred[256]{}; uint32_t serial = 0,lifetime = 0; };
+struct Request { orcmap::Viewport view; char preferred[256]{}; uint32_t serial = 0,lifetime = 0; uint64_t requested_us=0; };
 QueueHandle_t g_queue = nullptr;
 SemaphoreHandle_t g_lock = nullptr;
 SemaphoreHandle_t g_preview_lock = nullptr;
@@ -51,6 +51,8 @@ std::atomic<uint32_t> g_preview_lifetime{0};
 std::atomic<size_t> g_preview_bytes{0};
 EXT_RAM_BSS_ATTR orcmap::LabelLayout g_labels;
 EXT_RAM_BSS_ATTR UpdateTiming g_update_timing;
+EXT_RAM_BSS_ATTR PreviewTiming g_preview_pan_timing,g_preview_zoom_timing;
+std::atomic<uint32_t> g_preview_lock_misses{0};
 std::unique_ptr<orcmap::ByteSource> g_source;
 std::unique_ptr<Pipeline> g_pipeline;
 EXT_RAM_BSS_ATTR char g_archive[256]{};
@@ -95,12 +97,17 @@ void publish_preview(const Request& request) {
   xSemaphoreGive(g_preview_lock);
 }
 void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y) {
-  if(!g_preview_lock||xSemaphoreTake(g_preview_lock,0)!=pdTRUE)return;
+  if(!g_preview_lock)return;
+  if(xSemaphoreTake(g_preview_lock,0)!=pdTRUE){g_preview_lock_misses.fetch_add(1);return;}
   orcmap::FrameTransform transform;
   const auto& source=g_preview_request;
   if(prepare_preview(source.view,request.view,source.preferred,request.preferred,
       source.lifetime,g_preview_lifetime.load(),g_preview_valid,&transform)) {
+    const auto started=static_cast<uint64_t>(esp_timer_get_time());
     paint_preview(g_preview,target,transform,x,y,request.view.width_px,request.view.height_px);
+    auto& timing=transform.scale==1?g_preview_pan_timing:g_preview_zoom_timing;
+    timing.present(request.serial,request.requested_us,started,
+        static_cast<uint64_t>(esp_timer_get_time()));
   }
   xSemaphoreGive(g_preview_lock);
 }
@@ -346,6 +353,25 @@ bool frame_info(FrameInfo* out) {
 void report(void (*write)(const char*)) {
   if(!write)return;
   char line[512];
+  // Keep preview diagnostics observable even while decoding holds the worker lock.
+  if(g_preview_lock&&xSemaphoreTake(g_preview_lock,0)==pdTRUE) {
+    const auto pan_paint=g_preview_pan_timing.paint(),zoom_paint=g_preview_zoom_timing.paint();
+    const auto pan_feedback=g_preview_pan_timing.feedback(),zoom_feedback=g_preview_zoom_timing.feedback();
+    const auto pan_intervals=g_preview_pan_timing.intervals(),zoom_intervals=g_preview_zoom_timing.intervals();
+    xSemaphoreGive(g_preview_lock);
+    for(int mode=0;mode<2;++mode) {
+      for(int metric=0;metric<3;++metric) {
+        const auto& timing=metric==0?(mode==0?pan_paint:zoom_paint):
+            metric==1?(mode==0?pan_feedback:zoom_feedback):(mode==0?pan_intervals:zoom_intervals);
+        std::snprintf(line,sizeof(line),"ORC_MAP_PREVIEW mode=%s metric=%s samples=%u p50_us=%llu p95_us=%llu max_us=%llu lock_misses=%lu raw_includes_dwell=%u physical_touch_latency=0\n",
+            mode==0?"same_scale":"scaled",metric==0?"paint_call":metric==1?"request_feedback":"present_interval",
+            static_cast<unsigned>(timing.count),static_cast<unsigned long long>(timing.p50_us),
+            static_cast<unsigned long long>(timing.p95_us),static_cast<unsigned long long>(timing.max_us),
+            static_cast<unsigned long>(g_preview_lock_misses.load()),metric==2?1u:0u);
+        write(line);
+      }
+    }
+  } else write("ORC_MAP_PREVIEW busy=1\n");
   FrameInfo frame;
   if(!frame_info(&frame)) {std::snprintf(line,sizeof(line),"ORC_MAP_STATUS busy=1 generation=%lu\n",static_cast<unsigned long>(g_serial.load()));write(line);return;}
   const auto& stats=frame.stats;
@@ -387,9 +413,10 @@ Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,
   // Only the UI writes g_requested. Queue/cancel before taking the frame lock
   // so a pan can interrupt a render that is still holding that lock.
   if(!same(request,g_requested) || g_requested.serial!=g_serial.load()) {
-    request.serial=g_serial.fetch_add(1)+1;g_requested=request;
+    request.serial=g_serial.fetch_add(1)+1;request.requested_us=clock_us();g_requested=request;
     xQueueOverwrite(g_queue,&request);
   }
+  request=g_requested; // Preserve the first acceptance timestamp across repaint/lock retries.
   if(xSemaphoreTake(g_lock,0)!=pdTRUE){draw_preview(request,target,x,y);return Frame::pending;}
   if(g_cached && g_ready.serial==g_serial.load() && same(request,g_ready)) {
     if(g_frame.state==Frame::ready) {

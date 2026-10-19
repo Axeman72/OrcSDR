@@ -11,11 +11,14 @@ class UpdateTiming {
  public:
   struct Summary {size_t count=0;uint64_t p50_us=0,p95_us=0,max_us=0;};
   void reset() {*this=UpdateTiming{};}
+  void duration(uint64_t elapsed_us) {
+    samples_[next_]=elapsed_us;next_=(next_+1)%samples_.size();
+    count_=std::min(count_+1,samples_.size());
+  }
   void present(uint64_t now,uint32_t revision) {
     if(have_baseline_&&revision==revision_)return;
     if(have_baseline_&&now>=last_) {
-      samples_[next_]=now-last_;next_=(next_+1)%samples_.size();
-      count_=std::min(count_+1,samples_.size());
+      duration(now-last_);
     }
     have_baseline_=true;last_=now;revision_=revision;
   }
@@ -32,5 +35,25 @@ class UpdateTiming {
   uint64_t last_=0;
   uint32_t revision_=0;
   bool have_baseline_=false;
+};
+
+// First preview of each camera request. Intervals still include user dwell;
+// feedback starts at draw's request acceptance, not at physical touch sampling.
+class PreviewTiming {
+ public:
+  void present(uint32_t request,uint64_t requested,uint64_t started,uint64_t finished) {
+    if((have_request_&&request==request_)||finished<started||started<requested)return;
+    paint_.duration(finished-started);
+    feedback_.duration(finished-requested);
+    intervals_.present(finished,request);
+    request_=request;have_request_=true;
+  }
+  UpdateTiming::Summary paint() const {return paint_.summary();}
+  UpdateTiming::Summary feedback() const {return feedback_.summary();}
+  UpdateTiming::Summary intervals() const {return intervals_.summary();}
+ private:
+  UpdateTiming paint_,feedback_,intervals_;
+  uint32_t request_=0;
+  bool have_request_=false;
 };
 }
