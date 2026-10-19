@@ -17,21 +17,21 @@ commits and outstanding gates. Verify this handoff rather than assuming it is
 still current:
 
 - OrcSDR worktree: F:/AI/OrcSDR-TEMP/maps-integration-completion,
-  branch codex/maps-integration-completion. Deployed source checkpoint 34d3366c
-  plus preserved dirty wizard edits pins merged OrcMaps 722d0d3. Native/COM17
-  boot, bounded camera/radio/navigation and retained-map SD checks pass.
-  Measured pan paint p50/p95 116/122 ms; zoom 246/252 ms (three zoom samples).
-  33 ms is not met. Raw presentation intervals contain dwell, not continuous FPS.
-  Follow-up source patch 4eaf9fb5 (exposed-strip clearing/split timing) passes focused
-  host tests 2/2 and P4 syntax; not native-built or deployed. It adds about 8 KiB
-  PSRAM timing storage. Preserve wizard edits, evidence, artifacts and recovery.
+  branch codex/maps-integration-completion. Deployed source eb04ae2e implements
+  4eaf9fb5 plus preserved wizard edits, engine 722d0d3. Native/COM17 boot,
+  bounded camera/radio/navigation and retained-map SD checks pass. Pan-only
+  paint p50/p95 69/99 ms; zoom 248/253 ms (three scaled samples). Transfer/scaling
+  dominates; 33 ms is not met. Raw intervals include dwell, not continuous FPS.
+  Save-feedback and optional-label presentation source fix passes focused host
+  2/2 and three P4 syntax checks; not native-built or deployed. A new scoped
+  native request is pending. Preserve dirty/untracked wizard work and recovery.
 - OrcMaps worktree: F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery. PR #6 is merged
   at 722d0d382f99b2887694af333f85b1ee048f4208 and deployed on COM17. Boundary
   candidate 3d9d01c passes approved configured host CTest 7/7, documented in
   73b0d94. Boundary work is not pushed, merged, consumer-pinned or deployed.
 - COM17 USB serial 30:ED:A0:E2:E6:95 is our maps device. Current app ID
-  maps preview timing dirty 2026-10-19, C6 3.0.6; artifact
-  .local/maps/preview-timing-34d3366c-20261019/. Verify actual state/recovery
+  maps preview strips dirty 2026-10-19, C6 3.0.6; artifact
+  .local/maps/preview-strip-4eaf9fb5-20261019/. Verify actual state/recovery
   before another update. New native cycles require scoped approval.
 - Claude owns COM39 for the Dead Air dashboard and may flash it. Do not use its
   serial port, reset it or flash it without a coordinated handoff. Preserve the
@@ -49,8 +49,10 @@ and explicit compatibility behavior.
 
 Work through these remaining milestones:
 
-1. Reduce the measured cached-preview paint cost, verify split clear/transfer
-   timing and measure continuous pan/zoom feedback on COM17 under reception.
+1. Validate the prepared location save-feedback/reporting fix in a separately
+   approved native cycle; restore the original point after save/reboot tests.
+   Reduce measured transfer/scaling costs and measure continuous pan/zoom
+   feedback on COM17 under reception.
    Record p50/p95/max, cancellation, render/transfer/SD costs, cache behavior,
    PSRAM and free/largest internal DMA blocks. Aim for roughly 33 ms cached
    motion; do not claim it from host tests or worker timings containing dwell.

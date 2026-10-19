@@ -136,7 +136,10 @@ Fresh authentication and navigation recovery:
 PASS: Home→RF Lab→Home and repeated Settings→Home returned with graphics=1 in
 three snapshots. Map reopened and reached ready; driver STREAMING near 2.4 MSPS,
 zero drops/overruns, C6 still matching 3.0.6. This checks routing/state, not visual
-pixel overlap. Physical acceptance request is pending.
+pixel overlap. User subsequently confirmed: "Looks correct; dragging works" for the controls,
+city-name behavior and dragging without blackout on this deployed candidate.
+This physical confirmation applies to the preview-timing candidate, not the
+subsequent exposed-strip patch.
 
 Latest captured map-open memory: DMA free 10,283 / largest 9,728 / minimum 7,631;
 internal free 15,983 / minimum 7,751; PSRAM free 19,143,156 bytes. Main stack
