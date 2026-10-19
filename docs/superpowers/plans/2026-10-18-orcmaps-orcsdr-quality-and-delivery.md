@@ -12,10 +12,13 @@ managed ownership and pending-install state now have focused host/P4 checks;
 authenticated acceptance saves trust before exposing a catalog. These delivery
 APIs now have a coordinated installer on the existing map worker. Catalog fetch,
 ordinary installs and setup download list/progress/cancel/retry are connected in
-source at `21c5c5a2` with targeted host/P4 syntax checks. Native linking and
-hardware validation remain open; production catalog URL/key remain unconfigured.
+source at `21c5c5a2`, native-built and app-only deployed on COM17 from
+`5052153e`. Bounded boot, existing picker, retained-map SD and radio checks pass;
+actual HTTPS install/recovery validation remains open. Production URL/key are
+unconfigured.
 Journaled activation/recovery now passes focused host tests and P4 syntax checks;
-it is wired before discovery but has not been native-linked or device-tested.
+it is wired before discovery and native-linked; normal boot is tested, but
+physical interrupted-install recovery is not.
 The 33 ms target, boundary hierarchy and worldwide font/quality acceptance
 still require work. The execution ledger below is chronological history; earlier
 statements such as "not pushed" or "approval pending" describe that earlier step,
@@ -26,7 +29,7 @@ not the current state.
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
 | 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes the approved configured host regression (7/7); reference renders and device acceptance remain open. Contrast and international coverage remain open. |
 | 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Latest native-order preview measurements show pan paint p50/p95 61/83 ms and zoom233 ms (three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
-| 4 — catalog/delivery | Global candidate preflight passes. Signed catalog, staging, activation/recovery, persistent trust/ownership and pending intent have focused host/P4 syntax evidence. Recovery precedes discovery; trust acceptance persists before exposing catalogs. Native HTTPS, physical NVS/activation recovery, worker scheduling and physical wizard download validation remain open. No global-pack device installation or publication yet. |
+| 4 — catalog/delivery | Global candidate preflight passes. Signed catalog, staging, activation/recovery, persistent trust/ownership and pending intent have focused host/P4 syntax evidence. Recovery precedes discovery; trust acceptance persists before exposing catalogs. Native build and COM17 normal boot/map/retained-SD/radio checks pass. Actual HTTPS install, physical NVS/activation recovery, transfer scheduling and physical wizard download validation remain open. No global-pack device installation or publication yet. |
 | 5 — setup | Wizard-owned UI is committed at210002f4 and device-tested in bounded scopes. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
@@ -42,8 +45,10 @@ Checked items below close only their stated behavior/test scope, not an entire p
   publication pass the host transaction test.
 - Downloads default to explicitly unconfigured pending an approved HTTPS catalog
   directory/public key. Installed and embedded maps remain usable offline.
-- Next milestone: native build/placement, then COM17 bounded download/recovery/UI,
-  retained-map SD and active-radio checks. COM39 remains reserved for Dead Air.
+- Native build/placement and COM17 app-only flash now pass, with normal boot,
+  existing picker, retained-map SD and active stream checks. Actual signed HTTPS
+  transfer and physical recovery remain open; no production source is configured.
+  COM39 remains reserved for Dead Air.
 - [Commands, logs and open gates](../../evidence/maps/2026-10-19-map-download-flow.md).
 
 ### October 19 goal continuation and clarified scope
