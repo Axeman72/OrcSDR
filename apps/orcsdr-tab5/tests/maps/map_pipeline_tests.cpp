@@ -67,6 +67,12 @@ void global_label_test(const char* archive) {
   assert(pipeline.stats().labels.drawn<=64 && text.names.size()==pipeline.stats().labels.drawn);
   assert(std::find(text.names.begin(),text.names.end(),"Eugene")!=text.names.end());
   const auto names=text.names;const auto pixels=frame.Pixels();
+  const auto features=pipeline.stats().features;
+  text.names.clear();
+  assert(pipeline.render(view,frame));
+  assert(text.names.empty()&&pipeline.stats().labels.offered==0&&pipeline.stats().labels.drawn==0);
+  assert(pipeline.stats().features==features&&frame.Pixels()==pixels); // text target records names only; all map geometry must remain.
+
   text.names.clear();
   assert(pipeline.render(view,frame,&labels,&text));
   assert(text.names==names && frame.Pixels()==pixels);

@@ -52,6 +52,9 @@ int main() {
   assert(!prepare_preview(a,b,"regional","regional",7,8,true,&result));
   assert(!prepare_preview(a,b,"regional","other",7,7,true,&result));
   assert(!prepare_preview(a,b,"regional","regional",7,7,false,&result));
+  assert(!prepare_preview(a,b,"regional","regional",7,7,true,&result,true,false));
+  assert(!prepare_preview(a,b,"regional","regional",7,7,true,&result,false,true));
+  assert(prepare_preview(a,b,"regional","regional",7,7,true,&result,false,false));
   b.width_px=900;assert(!prepare_preview(a,b,"","",7,7,true,&result));
   b=a;b.zoom=11;assert(!prepare_preview(a,b,"","",7,7,true,&result));
   b.zoom=10;assert(prepare_preview(a,b,"","",7,7,true,&result)&&result.scale==4);

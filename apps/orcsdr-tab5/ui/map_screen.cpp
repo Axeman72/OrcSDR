@@ -1,6 +1,7 @@
 #include "map_screen.hpp"
 #include "map_service.hpp"
 #include "map_downloads.hpp"
+#include "map_preferences.hpp"
 #include "receiver_location.hpp"
 #include "setup_flow.hpp"
 #include "setup_ui.hpp"
@@ -112,7 +113,7 @@ void draw_map() {
     return;
   }
   const auto location=receiver_location::snapshot();maps::FrameInfo info;
-  const auto state=maps::draw(g_picker.View(),M5.Display,kMapX,kMapY,&info,location.map_pack);
+  const auto state=maps::draw(g_picker.View(),M5.Display,kMapX,kMapY,&info,location.map_pack,maps::preferences::labels(maps::preferences::Consumer::picker));
   if(state==maps::Frame::pending&&g_map_visible) {
     M5.Display.fillRect(450,604,380,32,kBg);
     text("Updating map...",460,608,2);
@@ -125,6 +126,7 @@ void draw_map() {
   M5.Display.drawLine(kMapX+kMapW/2-14,kMapY+kMapH/2,kMapX+kMapW/2+14,kMapY+kMapH/2,kAccent);
   M5.Display.drawLine(kMapX+kMapW/2,kMapY+kMapH/2-14,kMapX+kMapW/2,kMapY+kMapH/2+14,kAccent);
   // Redraw overlays whenever the asynchronous map replaces its pixels.
+  button(maps::preferences::labels(maps::preferences::Consumer::picker)?"LABELS ON":"LABELS OFF",940,84,232,52);
   button("+",kZoomX,kZoomInY,kZoomW,kZoomH);
   button("-",kZoomX,kZoomOutY,kZoomW,kZoomH);
   button("^",kPanX+72,kPanY,kZoomW,kZoomH);
@@ -405,6 +407,13 @@ void touch(int x,int y,bool pressed,bool new_press) {
     if(hit(x,y,kLatX,kCoordinateY,kCoordinateW,46)) {begin_edit(1);return;}
     if(hit(x,y,kLonX,kCoordinateY,kCoordinateW,46)) {begin_edit(2);return;}
     // Overlay controls take precedence over panning the map underneath.
+    if(hit(x,y,940,84,232,52)) {
+      using maps::preferences::Consumer;
+      if(!maps::preferences::set_labels(Consumer::picker,!maps::preferences::labels(Consumer::picker)))
+        std::snprintf(g_message,sizeof(g_message),"Label preference could not be saved. Please retry.");
+      else g_message[0]=0;
+      g_dirty=true;g_keep_map=true;return;
+    }
     if(hit(x,y,kZoomX,kZoomInY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomIn();g_dirty=true;g_keep_map=true;return;}
     if(hit(x,y,kZoomX,kZoomOutY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomOut();g_dirty=true;g_keep_map=true;return;}
     if(hit(x,y,kPanX+72,kPanY,kZoomW,kZoomH)) {pan(0,kPanStepY);return;}

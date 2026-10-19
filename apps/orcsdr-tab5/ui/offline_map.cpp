@@ -127,7 +127,7 @@ bool load(orcsdr::storage::FileSystem* filesystem) {
 bool available() { return g_available; }
 
 void draw_base(lgfx::v1::LovyanGFX& display, const View& view, uint16_t water_color,
-               uint16_t road_color, uint16_t airport_color, uint16_t border_color) {
+               uint16_t road_color, uint16_t airport_color, uint16_t border_color, bool labels) {
   display.drawRect(view.x, view.y, view.width, view.height, border_color);
   if (!g_available) return;
   for (size_t i = 0; i < g_count; ++i) {
@@ -142,7 +142,7 @@ void draw_base(lgfx::v1::LovyanGFX& display, const View& view, uint16_t water_co
   display.setTextDatum(middle_left);
   display.setTextSize(1);
   display.setTextColor(airport_color);
-  for (size_t i = 0; i < g_label_count; ++i) {
+  for (size_t i = 0; labels && i < g_label_count; ++i) {
     int x = 0, y = 0;
     if (project(view, g_labels[i].lat, g_labels[i].lon, &x, &y))
       display.drawString(g_labels[i].text, x + 3, y);
@@ -153,8 +153,8 @@ void draw_base(lgfx::v1::LovyanGFX& display, const View& view, uint16_t water_co
 }
 
 void draw_base(const View& view, uint16_t water_color, uint16_t road_color,
-               uint16_t airport_color, uint16_t border_color) {
-  draw_base(M5.Display, view, water_color, road_color, airport_color, border_color);
+               uint16_t airport_color, uint16_t border_color, bool labels) {
+  draw_base(M5.Display, view, water_color, road_color, airport_color, border_color, labels);
 }
 
 bool self_check() {

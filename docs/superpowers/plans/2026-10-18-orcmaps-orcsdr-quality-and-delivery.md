@@ -35,6 +35,17 @@ not the current state.
 
 Checked items below close only their stated behavior/test scope, not an entire phase.
 
+### Geographic label controls source checkpoint - October 19
+
+- Picker, LoRa and ADS-B now have independent persisted label controls in source.
+  Shared frame/preview identity includes the setting; ORCMAP1 geographic labels
+  honor it too, retaining geometry, attribution and radio overlays.
+- Three focused host checks pass, including the real global archive, picker
+  control and failed-save behavior; seven actual P4 syntax checks pass.
+- Native link/COM17 persistence and physical overlay checks remain open. FT8's
+  visible control is still paired with its unfinished basemap migration.
+- [Exact tests, logs and limits](../../evidence/maps/2026-10-19-geographic-label-controls.md).
+
 ### Download flow source checkpoint - October 19
 
 - `21c5c5a2` connects catalog fetch and the self-contained Get Maps screen to

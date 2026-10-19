@@ -7,20 +7,20 @@
 namespace orcsdr::maps {
 RegionalView draw_region(lgfx::v1::LovyanGFX& display,int32_t latitude,int32_t longitude,
                          double range,int x,int y,int width,int height,
-                         uint16_t background,uint16_t grid,uint16_t ink,const char* preferred) {
+                         uint16_t background,uint16_t grid,uint16_t ink,const char* preferred,bool labels) {
   RegionalView result;
   result.valid=regional_view(latitude,longitude,range,width,height,&result.camera);
   if(!result.valid)return result;
   result.legacy={latitude/1e7f,longitude/1e7f,static_cast<float>(range),x,y,width,height};
   display.fillRect(x,y,width,height,background);
   const bool prefer_legacy=preferred&&std::strcmp(preferred,"lane_county_map")==0&&offline_map::available();
-  result.frame.state=prefer_legacy?Frame::unavailable:draw(result.camera,display,x,y,&result.frame,preferred);
+  result.frame.state=prefer_legacy?Frame::unavailable:draw(result.camera,display,x,y,&result.frame,preferred,labels);
   if(result.frame.state!=Frame::ready) {
     // Legacy data remains usable without conversion. Keep its projection with
     // its basemap, rather than putting Mercator markers over equirectangular data.
     result.legacy_pixels=offline_map::available();
     if(result.legacy_pixels) {
-      offline_map::draw_base(display,result.legacy,0x0320,grid,ink,grid);
+      offline_map::draw_base(display,result.legacy,0x0320,grid,ink,grid,labels);
       std::snprintf(result.frame.title,sizeof(result.frame.title),"Legacy regional map (ORCMAP1)");
       std::snprintf(result.frame.credit,sizeof(result.frame.credit),"OpenStreetMap contributors, ODbL");
     } else display.drawRect(x,y,width,height,grid);

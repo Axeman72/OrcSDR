@@ -25,9 +25,9 @@ struct View {
 bool load(orcsdr::storage::FileSystem* filesystem);
 bool available();
 void draw_base(const View& view, uint16_t water_color, uint16_t road_color,
-               uint16_t airport_color, uint16_t border_color);
+               uint16_t airport_color, uint16_t border_color, bool labels = true);
 void draw_base(lgfx::v1::LovyanGFX& display, const View& view, uint16_t water_color,
-               uint16_t road_color, uint16_t airport_color, uint16_t border_color);
+               uint16_t road_color, uint16_t airport_color, uint16_t border_color, bool labels = true);
 bool project(const View& view, float latitude, float longitude, int* x, int* y);
 bool self_check();
 

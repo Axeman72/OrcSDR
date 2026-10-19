@@ -41,7 +41,7 @@ void cancel();
 uint32_t revision();
 bool installed(); // discovered availability, not a coverage or integrity claim
 Frame draw(const orcmap::Viewport&, lgfx::v1::LovyanGFX& target, int x, int y,
-           FrameInfo*, const char* preferred = nullptr);
+           FrameInfo*, const char* preferred = nullptr, bool labels = true);
 bool frame_info(FrameInfo*);
 void report(void (*write)(const char*)); // read-only diagnostics through the caller's console
 } // namespace orcsdr::maps

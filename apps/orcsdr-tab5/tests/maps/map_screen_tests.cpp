@@ -1,6 +1,8 @@
 // Real picker/Settings UI and camera; only display, device storage and navigation hooks are faked.
 #include "map_screen.hpp"
 #include "map_service.hpp"
+#include "map_preferences.hpp"
+#include "map_downloads.hpp"
 #include "location_store.hpp"
 #include "receiver_location.hpp"
 #include "settings_app.hpp"
@@ -27,6 +29,7 @@ bool setup_reception(bool pause) {
 }
 orcsdr::NvsStore preferences;
 orcmap::Viewport requested;
+bool requested_labels=true;
 int saves=0;
 std::string chosen_pack;
 orcsdr::maps::Frame map_result=orcsdr::maps::Frame::pending;
@@ -57,6 +60,8 @@ void click(int x,int y) {
 }
 namespace orcsdr {
 NvsStore::~NvsStore()=default;
+bool NvsStore::begin(const char*,bool){return true;}
+bool NvsStore::put_bool(const char* key,bool value){return put_bytes(key,&value,1);}
 bool NvsStore::is_key(const char* key) const {return nvs_data.count(key)!=0;}
 size_t NvsStore::bytes_length(const char* key) const {return is_key(key)?nvs_data.at(key).size():0;}
 size_t NvsStore::get_bytes(const char* key,void* out,size_t size) const {
@@ -87,9 +92,17 @@ bool snapshot(MapSnapshot* out) {
 }
 bool running() {return true;}
 void rescan() {}
-Frame draw(const orcmap::Viewport& view,lgfx::LovyanGFX&,int,int,FrameInfo*,const char*) {
-  requested=view;return map_result;
+Frame draw(const orcmap::Viewport& view,lgfx::LovyanGFX&,int,int,FrameInfo*,const char*,bool labels) {
+  requested_labels=labels;requested=view;return map_result;
 }
+}
+namespace maps::downloads {
+bool snapshot(Snapshot* out){*out={};return true;}
+bool entry(size_t,Entry*){return false;}
+bool check_catalog(){return false;}
+bool request_install(size_t){return false;}
+bool retry(){return false;}
+void cancel(){}
 }
 namespace audio_header {
 void draw_brand(const char*) {} void draw_battery(int32_t) {}
@@ -123,6 +136,13 @@ void screen_tests() {
   map_screen::configure({nullptr,save,nullptr});
   map_screen::open(map_screen::Mode::picker);
   assert(requested.zoom==3&&requested.width_px==1248&&requested.height_px==568);
+  assert(requested_labels&&visible("LABELS ON"));
+  const auto camera_before_toggle=requested;
+  click(1000,110);
+  assert(!requested_labels&&visible("LABELS OFF"));
+  assert(requested.center_lat_deg==camera_before_toggle.center_lat_deg&&requested.center_lon_deg==camera_before_toggle.center_lon_deg&&requested.zoom==camera_before_toggle.zoom);
+  maps::preferences::load();assert(!maps::preferences::labels(maps::preferences::Consumer::picker));
+  click(1000,110);assert(requested_labels);
   const auto original=requested;
   map_result=maps::Frame::ready;map_screen::draw();
   const int clears=M5.Display.screen_clears,map_clears=M5.Display.map_clears;
@@ -192,6 +212,9 @@ void screen_tests() {
   map_screen::configure({nullptr,save,select_pack});
   map_screen::open(map_screen::Mode::inventory);
   assert(visible("Map 0")&&visible("Map 3")&&!visible("Map 4"));
+  click(600,548);assert(visible("Get offline maps")&&visible("Map source is not configured. Installed maps remain available."));
+  click(100,548);assert(visible("Choose an offline map"));
+
   map_screen::touch(300,450,true,true);map_screen::touch(300,300,true,false);map_screen::touch(300,300,false,false);map_screen::tick();
   assert(visible("Map 4")&&!visible("Map 0"));
   click(300,450);click(900,540);assert(chosen_pack=="pack-4");

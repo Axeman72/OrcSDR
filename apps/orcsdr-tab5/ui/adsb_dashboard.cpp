@@ -3,6 +3,7 @@
 
 #include "dashboard_audio_control.hpp"
 #include "map_view.hpp"
+#include "map_preferences.hpp"
 #include "receiver_location.hpp"
 #include "orc_badge.hpp"
 
@@ -92,6 +93,7 @@ int32_t g_radar_cache_latitude_e7 = INT32_MIN;
 int32_t g_radar_cache_longitude_e7 = INT32_MIN;
 uint16_t g_radar_cache_range_nm = 0;
 uint32_t g_radar_map_revision = 0, g_radar_location_revision = 0;
+bool g_radar_map_labels = true,g_map_label_error = false;
 EXT_RAM_BSS_ATTR maps::RegionalView g_radar_map;
 
 uint8_t displayed_aircraft_count() {
@@ -117,7 +119,8 @@ void draw_radar_base() {
                      g_radar_cache_longitude_e7 != g_settings.longitude_e7 ||
                      g_radar_cache_range_nm != g_settings.radar_range_nm ||
                      g_radar_map_revision != maps::revision() ||
-                     g_radar_location_revision != receiver_location::snapshot().revision;
+                     g_radar_location_revision != receiver_location::snapshot().revision ||
+                     g_radar_map_labels != maps::preferences::labels(maps::preferences::Consumer::adsb);
   if (!stale) return;
   g_radar_base.deleteSprite();
   g_radar_base.setPsram(true);
@@ -127,7 +130,7 @@ void draw_radar_base() {
   if (g_settings.location_configured) {
     const auto location=receiver_location::snapshot();
     g_radar_map=maps::draw_region(g_radar_base,g_settings.latitude_e7,g_settings.longitude_e7,
-        g_settings.radar_range_nm,cx-radius,cy-radius,radius*2,radius*2,kPanel,0x2382,kMuted,location.map_pack);
+        g_settings.radar_range_nm,cx-radius,cy-radius,radius*2,radius*2,kPanel,0x2382,kMuted,location.map_pack,maps::preferences::labels(maps::preferences::Consumer::adsb));
   } else g_radar_map={};
   g_radar_base.setTextDatum(middle_center);
   g_radar_base.setTextSize(2);
@@ -139,6 +142,7 @@ void draw_radar_base() {
   g_radar_cache_latitude_e7 = g_settings.latitude_e7;
   g_radar_cache_longitude_e7 = g_settings.longitude_e7;
   g_radar_cache_range_nm = g_settings.radar_range_nm;
+  g_radar_map_labels=maps::preferences::labels(maps::preferences::Consumer::adsb);
   g_radar_map_revision=map_revision;
   g_radar_location_revision=receiver_location::snapshot().revision;
 }
@@ -423,8 +427,8 @@ void draw_radar() {
   text("SIGNAL", 88, 204, TFT_LIGHTGREY, 1, middle_left);
   text(g_live ? "GOOD" : "--", 198, 204,
        g_live ? kGreen : kMuted, 1, middle_right);
-  text(maps::installed() ? "MAPS AVAILABLE" : "NO MAP DISCOVERED", 34, 269,
-       maps::installed() ? kBlue : kMuted, 1, middle_left);
+  button(g_map_label_error?"SAVE FAILED":
+      maps::preferences::labels(maps::preferences::Consumer::adsb)?"LABELS ON":"LABELS OFF",26,252,186,48,TFT_DARKCYAN);
 
   card(14, 324, 210, 300);
   text("STATS", 32, 349, TFT_WHITE, 2, middle_left);
@@ -1000,6 +1004,11 @@ Action handle_touch(int32_t x, int32_t y) {
     return Action::none;
   }
   if (g_view == View::radar) {
+    if(hit(x,y,26,252,186,48)) {
+      using maps::preferences::Consumer;
+      g_map_label_error=!maps::preferences::set_labels(Consumer::adsb,!maps::preferences::labels(Consumer::adsb));
+      redraw_content();return Action::none;
+    }
     for (size_t i = 0; i < g_aircraft_count; ++i) {
       if (!g_aircraft[i].has_position || !g_settings.location_configured) continue;
       int px=0,py=0;

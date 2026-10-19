@@ -3,6 +3,7 @@
 
 #include "dashboard_audio_control.hpp"
 #include "map_view.hpp"
+#include "map_preferences.hpp"
 #include "receiver_location.hpp"
 #include "orc_badge.hpp"
 #include "lora_channel_control.hpp"
@@ -49,6 +50,7 @@ bool g_follow_node = false;
 bool g_node_details = false;
 bool g_traffic_details = false;
 bool g_map_center_set = false;
+bool g_map_label_error = false;
 int32_t g_map_center_lat_e7 = INT32_MAX;
 int32_t g_map_center_lon_e7 = INT32_MAX;
 uint8_t g_node_filter = 0;
@@ -399,7 +401,9 @@ void draw_map_static() {
   text("SELECTED NODE", 966, 165, kCyan, 2, middle_left);
   button(26, 604, 210, 42, "CENTER MAP", kCyan);
   button(252, 604, 210, 42, "FOLLOW NODE", kCyan, g_follow_node);
-  text("VERIFIED POSITIONS ONLY", 590, 625, kMuted, 1);
+  button(478,604,220,42,g_map_label_error?"SAVE FAILED":
+      maps::preferences::labels(maps::preferences::Consumer::lora)?"LABELS ON":"LABELS OFF",kCyan);
+  text("VERIFIED POSITIONS ONLY", 1060, 625, kMuted, 1);
   text("15 NM", 870, 625, kMuted, 1);
 }
 
@@ -686,7 +690,7 @@ void draw_map_dynamic() {
   } else {
     const auto location=receiver_location::snapshot();
     const auto map=maps::draw_region(M5.Display,g_map_center_lat_e7,g_map_center_lon_e7,
-        15.0,50,182,842,330,kBg,kGrid,kMuted,location.map_pack);
+        15.0,50,182,842,330,kBg,kGrid,kMuted,location.map_pack,maps::preferences::labels(maps::preferences::Consumer::lora));
     map_info=map.frame;
     for (size_t i = 0; i < g_snapshot.node_count; ++i) {
       const Node& node = g_snapshot.nodes[i];
@@ -1000,6 +1004,11 @@ Action handle_touch(int32_t x, int32_t y) {
     if (hit(x, y, 618, 188, 270, 44)) return {ActionKind::filter_next};
     if (hit(x, y, 902, 188, 270, 44)) return {ActionKind::clear_events};
   } else if (g_view == View::map) {
+    if(hit(x,y,478,604,220,42)) {
+      using maps::preferences::Consumer;
+      g_map_label_error=!maps::preferences::set_labels(Consumer::lora,!maps::preferences::labels(Consumer::lora));
+      draw_static();return {};
+    }
     if (hit(x, y, 26, 604, 210, 42)) return {ActionKind::center_map};
     if (hit(x, y, 252, 604, 210, 42)) return {ActionKind::follow_node};
   } else {

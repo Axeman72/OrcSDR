@@ -4,6 +4,7 @@
 #include "map_inventory.hpp"
 #include "map_activation.hpp"
 #include "map_downloads.hpp"
+#include "map_preferences.hpp"
 #include "offline_map.hpp"
 #include "memory_reclaim.hpp"
 #include "orcmap/esp_idf/file_byte_source.hpp"
@@ -35,7 +36,7 @@ namespace orcsdr::maps {
 namespace {
 constexpr char kDirectory[] = "/sd/orcmaps";
 constexpr char kWorld[] = "orcmaps_world";
-struct Request { orcmap::Viewport view; char preferred[256]{}; uint32_t serial = 0,lifetime = 0; uint64_t requested_us=0; };
+struct Request { orcmap::Viewport view; char preferred[256]{}; uint32_t serial = 0,lifetime = 0; uint64_t requested_us=0; bool labels=true; };
 QueueHandle_t g_queue = nullptr;
 SemaphoreHandle_t g_lock = nullptr;
 SemaphoreHandle_t g_preview_lock = nullptr;
@@ -90,7 +91,7 @@ template<size_t N> void text(char (&out)[N], const char* value) {
   for(char* p=out;*p;++p)if(static_cast<unsigned char>(*p)<32)*p=' ';
 }
 bool same(const Request& a,const Request& b) {
-  return a.view.center_lat_deg==b.view.center_lat_deg && a.view.center_lon_deg==b.view.center_lon_deg &&
+  return a.labels==b.labels && a.view.center_lat_deg==b.view.center_lat_deg && a.view.center_lon_deg==b.view.center_lon_deg &&
       a.view.zoom==b.view.zoom && a.view.tile_size_px==b.view.tile_size_px &&
       a.view.width_px==b.view.width_px && a.view.height_px==b.view.height_px &&
       std::strcmp(a.preferred,b.preferred)==0;
@@ -158,7 +159,7 @@ void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y
   orcmap::FrameTransform transform;
   const auto& source=g_preview_request;
   if(prepare_preview(source.view,request.view,source.preferred,request.preferred,
-      source.lifetime,g_preview_lifetime.load(),g_preview_valid,&transform)) {
+      source.lifetime,g_preview_lifetime.load(),g_preview_valid,&transform,source.labels,request.labels)) {
     const auto started=static_cast<uint64_t>(esp_timer_get_time());
     const auto paint=paint_preview(g_preview,target,transform,x,y,request.view.width_px,request.view.height_px,
         +[]()->uint64_t{return static_cast<uint64_t>(esp_timer_get_time());});
@@ -367,7 +368,7 @@ void worker(void*) {
     if(ok) {
       orcmap::m5gfx_adapter::DisplayTarget target(g_canvas);
       orcmap::m5gfx_adapter::LabelTarget text_target(g_canvas,fonts::DejaVu24);
-      g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target,&g_labels,&text_target);
+      g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target,request.labels?&g_labels:nullptr,request.labels?&text_target:nullptr);
     }
     if(g_pipeline)g_frame.stats=g_pipeline->stats();
     if(g_frame.stats.out_of_memory) {
@@ -411,6 +412,7 @@ size_t release() {
 
 bool begin(storage::FileSystem* sd) {
   if(g_task)return true;
+  preferences::load();
   g_sd=sd!=nullptr;
   g_storage=sd;
   downloads::begin();
@@ -448,6 +450,10 @@ bool frame_info(FrameInfo* out) {
 void report(void (*write)(const char*)) {
   if(!write)return;
   char line[512];
+  using preferences::Consumer;
+  std::snprintf(line,sizeof(line),"ORC_MAP_LABELS picker=%u lora=%u adsb=%u ft8=%u\n",
+      preferences::labels(Consumer::picker)?1u:0u,preferences::labels(Consumer::lora)?1u:0u,
+      preferences::labels(Consumer::adsb)?1u:0u,preferences::labels(Consumer::ft8)?1u:0u);write(line);
   downloads::Snapshot install_status;
   if(downloads::snapshot(&install_status)) {
     std::snprintf(line,sizeof(line),"ORC_MAP_INSTALL phase=%u busy=%u pending=%u revision=%lu\n",
@@ -523,9 +529,9 @@ void report(void (*write)(const char*)) {
       heap_caps_get_free_size(MALLOC_CAP_SPIRAM),heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
   write(line);
 }
-Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,FrameInfo* info,const char* preferred) {
+Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,FrameInfo* info,const char* preferred,bool labels) {
   if(!g_task || !g_queue || !g_lock)return Frame::unavailable;
-  Request request{};request.view=view;request.lifetime=g_preview_lifetime.load();
+  Request request{};request.labels=labels;request.view=view;request.lifetime=g_preview_lifetime.load();
   if(preferred && std::strlen(preferred)>=sizeof(request.preferred))return Frame::unavailable;
   text(request.preferred,preferred);
   // Only the UI writes g_requested. Queue/cancel before taking the frame lock

@@ -138,6 +138,7 @@ idf_component_register(
         "../ui/map_inventory.cpp"
         "../ui/map_service.cpp"
         "../ui/map_view.cpp"
+        "../ui/map_preferences.cpp"
         "../ui/map_screen.cpp"
         "../ui/setup_ui.cpp"
         "../ui/map_world_compat.cpp"
