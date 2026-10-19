@@ -6,13 +6,14 @@ on:
     paths:
       - 'apps/orcsdr-tab5/ui/dead_air_*'
       - 'tests/dead_air_model_tests.cpp'
-      - 'tests/dead_air_journal_tests.cpp'
+      - 'tests/dead_air_render_tests.cpp'
       - 'tests/dead_air_journal_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
   pull_request:
     paths:
       - 'apps/orcsdr-tab5/ui/dead_air_*'
       - 'tests/dead_air_model_tests.cpp'
+      - 'tests/dead_air_render_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
 permissions:
   contents: read
@@ -41,3 +42,15 @@ jobs:
             -o /tmp/dead-air-journal-tests
       - name: Execute deterministic journal tests
         run: /tmp/dead-air-journal-tests
+      - name: Compile M5GFX renderer against host stand-in
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Itests/acars_ui_stubs -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_render_tests.cpp \
+            tests/dead_air_ui_stubs/audio_header_stub.cpp \
+            apps/orcsdr-tab5/ui/dead_air_dashboard.cpp \
+            apps/orcsdr-tab5/ui/dead_air_model.cpp \
+            apps/orcsdr-tab5/ui/screen_controller.cpp \
+            -o /tmp/dead-air-render-tests
+      - name: Execute M5GFX render bounds and touch tests
+        run: /tmp/dead-air-render-tests

@@ -48,7 +48,7 @@ void reading(const char* name, const Reading& value, int x, int y, const char* f
 }
 void plot(const float* data, size_t count, bool valid, int x, int y, int w, int h,
           float minimum, float maximum, uint16_t color) {
-  M5.Display.drawRect(x, y, w, h, kEdge);
+  M5.Display.drawRoundRect(x, y, w, h, 0, kEdge);
   for (int t = 1; t < 4; ++t)
     M5.Display.drawFastHLine(x + 1, y + h * t / 4, w - 2, kEdge);
   if (!valid || count < 2 || !(maximum > minimum)) {
