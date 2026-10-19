@@ -1,0 +1,46 @@
+#pragma once
+// Dead Air application glue: owns the dashboard lifecycle, the PSRAM-backed event model/queue, the
+// SD journal worker task and the receiver-to-Snapshot adapter. main.cpp supplies only what it alone
+// can reach (radio state, tuning, mute, battery, clock) through Hooks and forwards: open(), close(),
+// tick(), draw(), touch() and feed_spectrum().
+//
+// Nothing here renders from a USB/IQ/DSP task and nothing here touches the SD card on the UI task:
+// the journal is written by a dedicated low-priority worker that drains a bounded SPSC queue.
+#include <cstddef>
+#include <cstdint>
+
+namespace orcsdr::dead_air_app {
+
+struct Hooks {
+  bool (*receiver_ready)() = nullptr;      // dongle open and stream running
+  uint32_t (*frequency_hz)() = nullptr;    // tuned frequency
+  const char* (*demod)() = nullptr;        // demodulator actually in use (e.g. "NFM")
+  uint32_t (*sample_rate)() = nullptr;     // IQ sample rate, S/s
+  uint32_t (*config_signature)() = nullptr;  // changes whenever frequency, rate, gain or mode changes
+  uint32_t (*rf_sample_counter)() = nullptr; // monotonically increasing; advances when new IQ was measured
+  bool (*rf_level_dbfs)(float* out) = nullptr;  // latest measured IQ power in dBFS; false when none
+  void (*tune)(uint32_t hz) = nullptr;     // retune (the receiver settles on its own schedule)
+  uint32_t (*step_frequency)(uint32_t hz, int direction) = nullptr;
+  bool (*sound_enabled)() = nullptr;
+  int (*battery_percent)() = nullptr;
+  uint32_t (*utc_epoch)() = nullptr;       // 0 when the wall clock is not verified
+  bool (*sd_ready)() = nullptr;            // mounts on demand; true when the card is usable
+  void (*toggle_mute)() = nullptr;
+  void (*go_home)() = nullptr;
+  void (*open_settings)() = nullptr;
+};
+
+void install(const Hooks& hooks);
+void open();                       // screen opened: allocate state, start worker, first draw
+void close();                      // left for any reason; stops the worker and closes the file
+void tick();                       // main loop: build snapshot, run detector, repaint on change
+void draw(bool static_panel);      // refresh requested by the ScreenController
+void touch(int32_t x, int32_t y);
+bool active();
+bool wants_spectrum();             // true while the Spectrum tab is the visible, owned page
+// UI-task only. `levels` is the receiver's smoothed power spectrum (10*log10 of raw FFT power over
+// `bins` bins, windowed CU8 samples). It is converted to relative dBFS here.
+void feed_spectrum(const float* levels, size_t bins, uint32_t sample_rate_sps);
+void describe(char* out, size_t size);  // one diagnostic line for the serial console
+
+}  // namespace orcsdr::dead_air_app

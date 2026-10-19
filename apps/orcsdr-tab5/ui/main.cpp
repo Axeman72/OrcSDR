@@ -61,6 +61,7 @@
 #include "sstv_diag.hpp"
 #include "sstv_receiver.hpp"
 #include "acars_app.hpp"
+#include "dead_air_app.hpp"
 #include "acars_archive_sd.hpp"
 #include "acars_receiver.hpp"
 #include "acars_selftest.hpp"
@@ -6878,6 +6879,7 @@ void refresh_active_screen() {
     case Id::ft8: draw_ft8_dashboard(false); break;
     case Id::sstv: draw_sstv_dashboard(false); break;
     case Id::acars: orcsdr::acars_app::draw(false); break;
+    case Id::dead_air: orcsdr::dead_air_app::draw(false); break;
     default: break;  // Settings, documentation, and no screen own their draws.
   }
 }
@@ -6949,6 +6951,7 @@ void close_visualizer() {
     case orcsdr::screens::Id::shortwave: orcsdr::shortwave::draw(); break;
     case orcsdr::screens::Id::sstv: draw_sstv_dashboard(true); break;
     case orcsdr::screens::Id::acars: orcsdr::acars_app::draw(true); break;
+    case orcsdr::screens::Id::dead_air: orcsdr::dead_air_app::draw(true); break;
     case orcsdr::screens::Id::airband: orcsdr::airband::redraw(); break;
     case orcsdr::screens::Id::cb: orcsdr::cb::draw(); break;
     case orcsdr::screens::Id::p25: orcsdr::p25::draw(); break;
@@ -7270,6 +7273,7 @@ void draw_sdr_screen(RtlBand band, uint32_t frequency_hz, uint8_t volume) {
   orcsdr::ft8::leave();
   orcsdr::sstv_app::close();
   orcsdr::acars_app::close();
+  orcsdr::dead_air_app::close();
   orcsdr::settings::leave();
   if (band != RtlBand::fm) orcsdr::fm::leave();
   if (band != RtlBand::am) orcsdr::am::leave();
@@ -7457,7 +7461,8 @@ void draw_band_edges() {
  * Two-window Welch averaging keeps the single render core responsive.
  */
 void draw_spectrum(const uint8_t* iq, size_t bytes) {
-  const bool web_scope = orcsdr::web_console::spectrum_demanded() || sstv_tune_spectrum_wanted();
+  const bool web_scope = orcsdr::web_console::spectrum_demanded() || sstv_tune_spectrum_wanted() ||
+                         orcsdr::dead_air_app::wants_spectrum();
   if (!web_scope && !orcsdr::home::active() && rtl_ui_band == RtlBand::lora &&
       !orcsdr::lora::spectrum_active()) return;
   if (!web_scope && !orcsdr::home::active() && rtl_ui_band == RtlBand::airband &&
@@ -7732,6 +7737,13 @@ void draw_spectrum(const uint8_t* iq, size_t bytes) {
   if (sstv_tune_spectrum_wanted()) {
     orcsdr::sstv_app::feed_spectrum(rtl_spectrum_levels, kRtlSpectrumBins,
                                     rtl_active_sample_rate_sps.load(std::memory_order_relaxed));
+    rtl_spectrum_trace_last_ms = now;
+    rtl_spectrum_trace_valid = true;
+    return;
+  }
+  if (orcsdr::dead_air_app::wants_spectrum()) {
+    orcsdr::dead_air_app::feed_spectrum(rtl_spectrum_levels, kRtlSpectrumBins,
+                                        rtl_active_sample_rate_sps.load(std::memory_order_relaxed));
     rtl_spectrum_trace_last_ms = now;
     rtl_spectrum_trace_valid = true;
     return;
@@ -12978,6 +12990,8 @@ void navigation_restore_screen(orcsdr::screens::Id restore) {
     orcsdr::sstv_app::draw(true);   // Settings opened from the SSTV header returns here, not to Home
   } else if (restore == orcsdr::screens::Id::acars) {
     orcsdr::acars_app::draw(true);
+  } else if (restore == orcsdr::screens::Id::dead_air) {
+    orcsdr::dead_air_app::draw(true);
   } else {
     draw_sdr_screen(rtl_ui_band, rtl_ui_frequency_hz,
                     rtl_live_volume.load(std::memory_order_acquire));
@@ -13009,6 +13023,7 @@ void show_home(bool demo) {
   }
   orcsdr::sstv_app::close();
   orcsdr::acars_app::close();
+  orcsdr::dead_air_app::close();
   home_enter();
   orcsdr::audio_header::reset(rtl_header_audio_control);
   orcsdr::navigation::show_home(demo);
@@ -14050,6 +14065,69 @@ void open_acars_dashboard() {
   orcsdr::acars_app::install(acars_app_hooks());
   orcsdr::acars_app::open();
 }
+// Dead Air logic lives in dead_air_app; these adapters hand it what only this file can reach. It rides the
+// general (BROWSE, NFM) receive path and never owns the radio, so every reading below is the live receiver's.
+orcsdr::dead_air_app::Hooks dead_air_app_hooks() {
+  orcsdr::dead_air_app::Hooks hooks;
+  hooks.receiver_ready = [] {
+    return rtl_device_ready() && rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running;
+  };
+  hooks.frequency_hz = [] { return rtl_ui_frequency_hz; };
+  hooks.demod = [] { return rtl_mode_name(rtl_ui_band); };
+  hooks.sample_rate = [] { return rtl_active_sample_rate_sps.load(std::memory_order_acquire); };
+  hooks.config_signature = [] {
+    uint32_t h = rtl_ui_frequency_hz * 2654435761u;
+    h ^= rtl_active_sample_rate_sps.load(std::memory_order_acquire) + 0x9e3779b9u + (h << 6) + (h >> 2);
+    h ^= static_cast<uint32_t>(rtl_ui_band) * 40503u + (h << 5);
+#if !RTL_USE_LEGACY_USB
+    if (g_rtl != nullptr) {
+      int gain = 0;
+      esp_rtl_sdr_gain_mode_t mode = ESP_RTL_SDR_GAIN_MODE_MANUAL;
+      if (esp_rtl_sdr_get_tuner_gain(g_rtl, &gain) == ESP_OK) h ^= static_cast<uint32_t>(gain) * 2246822519u;
+      if (esp_rtl_sdr_get_tuner_gain_mode(g_rtl, &mode) == ESP_OK) h ^= static_cast<uint32_t>(mode) * 3266489917u;
+    }
+#endif
+    return h;
+  };
+  hooks.rf_sample_counter = [] {
+    return static_cast<uint32_t>(rtl_iq_processed_samples.load(std::memory_order_relaxed) >> 8);
+  };
+  hooks.rf_level_dbfs = [](float* out) {
+    const float v = rtl_signal_dbfs.load(std::memory_order_relaxed);
+    if (v <= -89.9f) return false;  // -90 is the meter's "no data" reset value
+    *out = v;
+    return true;
+  };
+  hooks.tune = [](uint32_t hz) { (void)queue_local_rtl_listen(RtlBand::browse, hz, false); };
+  hooks.step_frequency = [](uint32_t hz, int direction) { return rtl_step_frequency(RtlBand::browse, hz, direction); };
+  hooks.sound_enabled = [] { return rtl_audio_user_enabled.load(std::memory_order_relaxed); };
+  hooks.battery_percent = [] { return static_cast<int>(M5.Power.getBatteryLevel()); };
+  hooks.utc_epoch = [] {
+    const auto clock = orcsdr::time_service::now();
+    return clock.wallclock_valid ? static_cast<uint32_t>(clock.utc) : 0u;
+  };
+  hooks.sd_ready = [] {
+    if (!orcsdr::storage::mounted()) (void)orcsdr::storage::mount_tab5_sd();
+    return orcsdr::storage::mounted();
+  };
+  hooks.toggle_mute = [] { set_rtl_audio_user_enabled(!rtl_audio_user_enabled.load(std::memory_order_acquire)); };
+  hooks.go_home = [] { show_home(); };
+  hooks.open_settings = [] { open_global_settings(orcsdr::settings::Section::system); };
+  return hooks;
+}
+void open_dead_air_dashboard() {
+  persist_dashboard_open(orcsdr::dashboards::Id::dead_air);
+  orcsdr::home::leave();
+  orcsdr::ft8::leave();
+  orcsdr::sstv_app::close();
+  orcsdr::acars_app::close();
+  rtl_rate_override_sps.store(0, std::memory_order_release);
+  orcsdr::dead_air_app::install(dead_air_app_hooks());
+  // Keep the current tuning when a receiver is running; otherwise start on the general receive default.
+  const uint32_t hz = rtl_ui_frequency_hz ? rtl_ui_frequency_hz : kRtlBrowseDefaultHz;
+  (void)queue_local_rtl_listen(RtlBand::browse, hz, false);
+  orcsdr::dead_air_app::open();
+}
 void open_sstv_dashboard() {
   persist_dashboard_open(orcsdr::dashboards::Id::sstv);
   orcsdr::home::leave();
@@ -14067,6 +14145,8 @@ const orcsdr::sstv_diag::Hooks kSstvDiagHooks = {
 void open_dashboard(orcsdr::dashboards::Id id) {
   using Id = orcsdr::dashboards::Id;
   if (id != Id::settings && orcsdr::settings::active()) close_global_settings();
+  if (id != Id::dead_air) orcsdr::dead_air_app::close();
+  if (id == Id::dead_air) { open_dead_air_dashboard(); return; }
   if (id == Id::rf_lab) {
     persist_dashboard_open(id);
     orcsdr::rf24::leave();
@@ -16600,7 +16680,8 @@ void poll_sdr_touch(bool from_stream) {
   const int scope_width = spectrum_draw_width();
 
   if ((orcsdr::sstv::ui_active() && orcsdr::screens::owns(orcsdr::screens::Id::sstv)) ||
-      (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars))) {
+      (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars)) ||
+      (orcsdr::dead_air_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::dead_air))) {
     if (pressed && !was_pressed) handle_sdr_touch(touch.x, touch.y);
     was_pressed = pressed;
     return;
@@ -16946,7 +17027,8 @@ void handle_sdr_touch(int32_t x, int32_t y) {
     return;
   }
   if (orcsdr::audio_header::settings_hit(x, y)) {
-    open_global_settings(orcsdr::ft8::active() || orcsdr::acars_app::active() ? orcsdr::settings::Section::system :
+    open_global_settings(orcsdr::ft8::active() || orcsdr::acars_app::active() || orcsdr::dead_air_app::active()
+                             ? orcsdr::settings::Section::system :
                          rtl_ui_band == RtlBand::adsb
                              ? orcsdr::settings::Section::location_adsb
                              : (rtl_ui_band == RtlBand::p25 || rtl_ui_band == RtlBand::lora)
@@ -16960,6 +17042,10 @@ void handle_sdr_touch(int32_t x, int32_t y) {
   }
   if (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars)) {
     orcsdr::acars_app::touch(x, y);
+    return;
+  }
+  if (orcsdr::dead_air_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::dead_air)) {
+    orcsdr::dead_air_app::touch(x, y);
     return;
   }
   if (orcsdr::ft8::active()) {
@@ -17797,7 +17883,15 @@ bool ui_doc_pause_reception() {
     orcsdr::settings::enter(global_settings_state(), ui_doc.settings_section);
     orcsdr::screens::finish_transition();
   } else if (ui_doc.was_ui_active) {
-    if (ui_doc.screen == orcsdr::screens::Id::acars) {
+    if (ui_doc.screen == orcsdr::screens::Id::dead_air) {
+      if (orcsdr::dead_air_app::active()) {
+        orcsdr::screens::begin_transition(orcsdr::screens::Id::dead_air, millis());
+        orcsdr::dead_air_app::draw(true);
+        orcsdr::screens::finish_transition();
+      } else {
+        orcsdr::dead_air_app::open();
+      }
+    } else if (ui_doc.screen == orcsdr::screens::Id::acars) {
       // ACARS rides the browse band, so the band-based fallback below would close it and show Home. The documentation
       // screen may have closed the app, so reopen it when it is no longer active; otherwise just redraw it as it was.
       if (orcsdr::acars_app::active()) {
@@ -18131,6 +18225,7 @@ const char* ui_touch_route() {
   const bool pocsag_ui = rtl_ui_band == RtlBand::pocsag && orcsdr::pocsag::active();
   if (orcsdr::sstv::ui_active() && orcsdr::screens::owns(orcsdr::screens::Id::sstv)) return "sstv";
   if (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars)) return "acars";
+  if (orcsdr::dead_air_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::dead_air)) return "dead_air";
   const bool radio_ui = rtl_ui_active.load(std::memory_order_acquire);
   const bool fm_ui = rtl_ui_band == RtlBand::fm && orcsdr::fm::active();
   const bool am_ui = rtl_ui_band == RtlBand::am && orcsdr::am::active();
@@ -19216,6 +19311,12 @@ void process_command(char* command) {
                   heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
     return;
   }
+  if (strcmp(command, "RTL_DEAD_AIR STATUS") == 0) {
+    char line[200];
+    orcsdr::dead_air_app::describe(line, sizeof(line));
+    Serial.println(line);
+    return;
+  }
   if (strcmp(command, "RTL_ACARS STATUS") == 0) {
     char line[900];
     orcsdr::acars_app::describe(line, sizeof(line));
@@ -19288,10 +19389,11 @@ void process_command(char* command) {
     else if (strcmp(name, "WEATHER") == 0) open_dashboard(Id::weather);
     else if (strcmp(name, "POCSAG") == 0) open_dashboard(Id::pocsag);
     else if (strcmp(name, "ACARS") == 0) open_dashboard(Id::acars);
+    else if (strcmp(name, "DEAD_AIR") == 0) open_dashboard(Id::dead_air);
     else if (strcmp(name, "MARINE") == 0) open_dashboard(Id::marine);
     else if (strcmp(name, "SATELLITE") == 0) open_dashboard(Id::satellite);
     else if (strcmp(name, "UTILITIES") == 0) open_dashboard(Id::utilities);
-    else { Serial.println("RTL_UI_OPEN_INVALID use HOME|FM|AM|SHORTWAVE|P25|ADSB|LORA|RF_LAB|WIFI_ANALYSIS|FT8|SETTINGS|WEATHER|CB|POCSAG|AIRBAND|ACARS|MARINE|SATELLITE|UTILITIES"); return; }
+    else { Serial.println("RTL_UI_OPEN_INVALID use HOME|FM|AM|SHORTWAVE|P25|ADSB|LORA|RF_LAB|WIFI_ANALYSIS|FT8|SETTINGS|WEATHER|CB|POCSAG|AIRBAND|ACARS|DEAD_AIR|MARINE|SATELLITE|UTILITIES"); return; }
     Serial.printf("RTL_UI_OPEN_OK target=%s\n", name);
     return;
   }
@@ -22354,6 +22456,7 @@ void loop() {
   const bool rf_lab_ui = orcsdr::rf_lab::active();
   orcsdr::sstv_app::tick();
   orcsdr::acars_app::tick();
+  orcsdr::dead_air_app::tick();
   if (rtl_stream_ui_refresh_pending.exchange(false, std::memory_order_acq_rel) &&
       !settings_ui && !home_ui && !visualizer_ui && !rf_lab_ui) {
     refresh_active_screen();
@@ -22647,6 +22750,7 @@ void loop() {
       orcsdr::screens::status().active != orcsdr::screens::Id::ft8 &&
        orcsdr::screens::status().active != orcsdr::screens::Id::sstv &&
       orcsdr::screens::status().active != orcsdr::screens::Id::acars &&
+      orcsdr::screens::status().active != orcsdr::screens::Id::dead_air &&
       !orcsdr::screens::owns(screen_for_band(rtl_ui_band)) &&
       !orcsdr::home::active()) {
     draw_sdr_screen(rtl_ui_band, rtl_ui_frequency_hz,
@@ -22721,6 +22825,8 @@ void loop() {
     poll_sdr_touch(false);
     draw_sstv_dashboard(false);
   } else if (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars)) {
+    poll_sdr_touch(false);
+  } else if (orcsdr::dead_air_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::dead_air)) {
     poll_sdr_touch(false);
   } else if (pocsag_ui && orcsdr::screens::owns(orcsdr::screens::Id::pocsag)) {
     const auto touch = ui_touch_detail(0);

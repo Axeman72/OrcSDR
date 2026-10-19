@@ -66,6 +66,23 @@ void plot(const float* data, size_t count, bool valid, int x, int y, int w, int 
     M5.Display.drawLine(xa, py(data[i - 1]), xb, py(data[i]), color);
   }
 }
+const char* recorder_text(RecorderState state) {
+  switch (state) {
+    case RecorderState::starting: return "STARTING";
+    case RecorderState::active: return "SAVING TO SD";
+    case RecorderState::failed: return "SD FAILED";
+    case RecorderState::stopped: return "STOPPED";
+    default: return "NO SD / OFF";
+  }
+}
+uint16_t recorder_color(RecorderState state) {
+  switch (state) {
+    case RecorderState::active: return kGreen;
+    case RecorderState::starting: return kYellow;
+    case RecorderState::failed: return kRed;
+    default: return kMuted;
+  }
+}
 void nav() {
   static constexpr const char* tabs[] = {"Overview", "Spectrum", "Audio", "Environment", "Events", "Review"};
   M5.Display.fillRect(0, 641, 1280, 79, kBg);
@@ -119,8 +136,9 @@ void overview() {
              g_snapshot.demod);
     label(buffer, 40, 291, kCyan, 3);
   } else label("RECEIVER UNAVAILABLE", 40, 291, kYellow, 2);
-  label(g_snapshot.recording ? "STOP IN SESSION CONTROLS" : "RECORDING REQUIRES ADAPTER",
-        40, 343, kMuted, 1);
+  char journal[64];
+  snprintf(journal, sizeof(journal), "EVENT LOG: %s", recorder_text(g_snapshot.recorder_state));
+  label(journal, 40, 343, recorder_color(g_snapshot.recorder_state), 2);
   box(646, 120, 614, 252);
   heading("LIVE OBSERVATIONS", 668, 143);
   reading("RF (dBFS)", g_snapshot.rf_level_dbfs, 670, 192, "%.1f");
@@ -158,9 +176,12 @@ void spectrum() {
   divider(40, 248, 271);
   label("DEMODULATION", 40, 276, kMuted, 2);
   label(g_snapshot.receiver_ready ? g_snapshot.demod : "--", 40, 325, TFT_WHITE, 3);
-  label("STEP / SCAN CONTROL", 40, 395, kMuted, 2);
-  label("Awaiting receiver adapter", 40, 445, kYellow, 2);
-  label("No guessed frequencies", 40, 542, kMuted, 1);
+  label("TUNE (BAND STEP)", 40, 395, kMuted, 2);
+  button("- STEP", 40, 420, 128, kCyan, g_snapshot.receiver_ready);
+  button("+ STEP", 183, 420, 128, kCyan, g_snapshot.receiver_ready);
+  label(g_snapshot.receiver_settled ? "SETTLED" : "SETTLING...", 40, 510,
+        g_snapshot.receiver_settled ? kGreen : kYellow, 2);
+  label("Single tuned channel, not a sweep", 40, 560, kMuted, 1);
   box(346, 120, 914, 511);
   heading("RF SPECTRUM  /  dBFS", 366, 144);
   if (g_snapshot.receiver_ready) label(hz, 986, 144, kGreen, 2);
@@ -235,8 +256,22 @@ void events() {
 void review() {
   box(20, 120, 460, 511);
   heading("SESSION ARCHIVE", 40, 144);
-  label("Recorder not connected", 40, 240, kYellow);
-  label("No clips will be fabricated", 40, 300, kMuted);
+  label("EVENT LOG (JSONL)", 40, 200, kMuted, 2);
+  label(recorder_text(g_snapshot.recorder_state), 40, 245,
+        recorder_color(g_snapshot.recorder_state), 3);
+  char line[56];
+  if (g_snapshot.recorder_session) {
+    snprintf(line, sizeof(line), "Session %lu", static_cast<unsigned long>(g_snapshot.recorder_session));
+    label(line, 40, 300, TFT_WHITE, 2);
+  }
+  snprintf(line, sizeof(line), "Saved %lu", static_cast<unsigned long>(g_snapshot.recorder_saved));
+  label(line, 40, 345, TFT_WHITE, 2);
+  snprintf(line, sizeof(line), "Lost %lu  Dropped %lu",
+           static_cast<unsigned long>(g_snapshot.recorder_missing),
+           static_cast<unsigned long>(g_snapshot.recorder_dropped));
+  label(line, 40, 390,
+        g_snapshot.recorder_missing || g_snapshot.recorder_dropped ? kYellow : kMuted, 2);
+  label("Audio/IQ clips: not implemented", 40, 560, kMuted, 1);
   box(497, 120, 763, 511);
   heading("EVIDENCE REVIEW", 517, 144);
   plot(nullptr, 0, false, 519, 195, 718, 248, -1.0f, 1.0f, kGreen);
@@ -296,6 +331,10 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
         return {};
       }
     }
+  }
+  if (g_page == Page::spectrum && g_snapshot.receiver_ready) {
+    if (hit(x, y, 40, 420, 128, 52)) return {ActionKind::tune_down, -1};
+    if (hit(x, y, 183, 420, 128, 52)) return {ActionKind::tune_up, 1};
   }
   if (g_page == Page::events && g_events != nullptr) {
     if (hit(x, y, 818, 505, 420, 52)) {

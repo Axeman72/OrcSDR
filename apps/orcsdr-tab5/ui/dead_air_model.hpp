@@ -12,6 +12,8 @@ enum class Source : uint8_t { rf, audio, environment, manual };
 enum class Kind : uint8_t { rf_rise, audio_burst, temperature_change, humidity_change,
                             pressure_change, manual_marker };
 enum class Status : uint8_t { unavailable, warming_up, current, stale };
+// Event-journal (SD) health as reported by the storage worker. "active" only while a file is open.
+enum class RecorderState : uint8_t { unavailable, starting, active, failed, stopped };
 
 struct Reading {
   float value = 0.0f;
@@ -63,6 +65,13 @@ struct Snapshot {
   bool audio_envelope_valid = false;
   bool environment_sensor_attached = false;
   uint32_t revision = 0;
+  // Event journal health (not audio/IQ recording; those are not implemented).
+  RecorderState recorder_state = RecorderState::unavailable;
+  uint32_t recorder_session = 0;
+  uint32_t recorder_saved = 0;
+  uint32_t recorder_missing = 0;  // events lost before reaching the file
+  uint32_t recorder_dropped = 0;  // queue-full drops counted at the producer
+  bool receiver_settled = false;  // false while a retune or gain change settles
 };
 
 struct RfObservation {

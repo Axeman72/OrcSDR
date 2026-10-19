@@ -97,3 +97,26 @@ navigation, event marking, and ScreenController ownership. It does not
 measure actual physical readability or native M5GFX page-flip behavior.
 Use the repo's pinned ESP-IDF build script locally and capture the full
 build log and device serial observations with branch and SHA before merging.
+
+## Local integration status (branch claude/dead-air-dashboard-integrate-7d15aa)
+
+Added `ui/dead_air_app.{hpp,cpp}`, the glue module (the Dead Air equivalent of `acars_app`).
+`main.cpp` only provides hooks and forwards open/close/tick/draw/touch/feed_spectrum.
+
+Connected to real data:
+- Receiver: ready/streaming state, tuned frequency, demodulator name (BROWSE band = NFM), IQ sample rate.
+- RF level: `rtl_signal_dbfs` (CU8 IQ power, dBFS), observed only when new IQ was processed. Retune, gain,
+  sample-rate or receiver-restart changes bump the configuration revision and open an 800 ms settling window
+  during which no detection or baseline sampling happens.
+- Spectrum: the receiver's FFT (`draw_spectrum`) is max-pooled to 96 bins and offset to the same full-scale
+  reference as the IQ meter. It is computed only while the Spectrum tab is visible. The offset assumes a
+  Hann window; treat absolute values as approximate, relative shape as real.
+- Tuning: Spectrum tab -/+ STEP buttons use the existing band-aware `rtl_step_frequency`.
+- Event journal: `EventModel` -> `EventQueue` (PSRAM) -> dedicated worker task "dead_air_sd" (priority 1,
+  stack in PSRAM) -> `SdJournalSink`/`EventJournal`. Health (state, session, saved, lost, dropped) is shown
+  on Overview and Review. The worker closes and syncs the file when the screen is left.
+
+Still NOT connected: demodulated-audio level/envelope (Audio tab shows unavailable), ENV III sensor
+(Environment tab shows unavailable), audio/IQ clip recording and replay, device-motion reading, waterfall.
+
+Serial: `RTL_UI_OPEN DEAD_AIR`, `RTL_DEAD_AIR STATUS`.
