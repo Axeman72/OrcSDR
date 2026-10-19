@@ -19,23 +19,22 @@ commits and outstanding gates. Verify this handoff rather than assuming it is
 still current:
 
 - OrcSDR worktree: F:/AI/OrcSDR-TEMP/maps-integration-completion,
-  branch codex/maps-integration-completion, committed source210002f4, parent
-  f38d1f78. Owned wizard/location work now committed; no dirty implementation
-  to reconstruct. Native/app-onlyCOM17 boot/preservation/external-editor/nav/map/
-  radio and retained-mapSD checks pass in bounded scopes. Source engine722d0d3.
-  Panpaintp50/p95 69/100ms, zoom250/257ms (two samples);33ms unmet.
-  Runtime derivedinternalrotation3, sourceDepth16/targetDepth272 (RGB565 byte
-  order flags). Preserve orientation and display ownership. Save feedback/label
-  physically accepted; coordinate save/reboot tested and original restored.
-  Retune script timing failures preserved, followed by settled STREAMINGHome.
-  Evidence docs/evidence/maps/2026-10-19-maps-checkpoint-com17.md.
+  branch codex/maps-integration-completion. Native deployed sourceaca08b75
+  preconverts preview RGB565 byte order; source344765d1 adds optional actual
+  M5GFX host test. Wizard/location implementation committed at210002f4.
+  Native/app-onlyCOM17 boot/preservation/map/nav/radio and retained-mapSD read
+  pass in bounded scopes. Panpaint61/83ms p50/p95, zoom233ms(three samples);
+  33ms unmet. Internalrotation3; source/targetDepth272 nowmatch. Preserve user
+  orientation and display ownership. Physical colors/controls pending for this
+  candidate; prior save-feedback and strip gestures physically accepted.
+  Evidence docs/evidence/maps/2026-10-19-preview-native-order-com17.md.
 - OrcMaps worktree: F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery. PR #6 is merged
   at 722d0d382f99b2887694af333f85b1ee048f4208 and deployed on COM17. Boundary
   candidate 3d9d01c passes approved configured host CTest 7/7, documented in
   73b0d94. Boundary work is not pushed, merged, consumer-pinned or deployed.
 - COM17 USB serial 30:ED:A0:E2:E6:95 is our maps device. Current app ID
-  maps setup checkpoint 2026-10-19, C6 3.0.6; artifact
-  .local/maps/maps-checkpoint-210002f4-20261019/. Verify actual state/recovery
+  maps native preview 2026-10-19, C6 3.0.6; artifact
+  .local/maps/preview-format-aca08b75-20261019/. Verify actual state/recovery
   before another update. New native cycles require scoped approval.
 - Claude owns COM39 for the Dead Air dashboard and may flash it. Do not use its
   serial port, reset it or flash it without a coordinated handoff. Preserve the

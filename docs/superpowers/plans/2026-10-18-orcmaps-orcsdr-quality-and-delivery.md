@@ -15,22 +15,21 @@ not the current state.
 | --- | --- |
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
 | 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes the approved configured host regression (7/7); reference renders and device acceptance remain open. Contrast and international coverage remain open. |
-| 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Latest bounded strip-clearing measurements show pan paint p50/p95 69/99 ms and scaled paint 248/253 ms (only three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
+| 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Latest native-order preview measurements show pan paint p50/p95 61/83 ms and zoom233 ms (three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
 | 4 — catalog/delivery | Candidate size/provenance and preliminary delivery model recorded. Trusted catalog, resumable installation and publication remain incomplete. |
-| 5 — setup | Wizard-owned UI is prepared and included in the tested dirty build. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
+| 5 — setup | Wizard-owned UI is committed at210002f4 and device-tested in bounded scopes. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
 Checked items below close only their stated behavior/test scope, not an entire phase.
-Current source checkpoint: `210002f4`, with `f38d1f78` panel diagnostics.
-The preserved wizard/location work is now committed; there is no dirty wizard
-implementation to reconstruct. The current native checkpoint build passes and
-COM17 app-only write/preservation pass; startup, external-editor, map/nav/radio and retained-map SD checks pass in
-  their bounded scopes. Retune harness failures are recorded separately.
-Location-feedback candidate `ea6a6b72` + prior dirty edits passed native save,
-return and reboot checks; user confirmed “Saving feedback and saved label look
-good”. Original receiver coordinates restored after testing. Panel runtime facts and editor-lifetime hardware behavior are now recorded
-in the checkpoint evidence.
-Preserve all evidence, artifacts and recovery.
+Current deployed source: `aca08b75` (native RGB565 preview), following committed
+wizard checkpoint `210002f4`. Host test registration `344765d1` changes no
+firmware. The bounded actual-M5GFX pixel test, native build/app-only flash,
+startup/map/nav/radio and retained-map SD readback pass. Current pan paint
+p50/p95 61.397/83.178 ms; zoom233 ms (three samples). **33 ms remains unmet.**
+Both preview and target now report format272, rotation3 unchanged. No added
+preview memory. Physical color/controls acceptance for this candidate is pending.
+Prior save-feedback and strip candidates have user acceptance. Preserve all
+artifacts/recovery. Session-wide routine build/COM17 approval remains in effect.
 
 Continuation: [ready-to-use completion goal prompt](2026-10-19-orcmaps-completion-goal-prompt.md).
 
@@ -57,41 +56,40 @@ approval requests below remain evidence of earlier boundaries.
 - Subagents are permitted when useful. Give them bounded scope and explicit
   file/device ownership; this does not waive expensive-work approval requirements.
 
-### Latest verified device state — October 19 committed checkpoint
+### Latest verified device state — October 19 native-order preview
 
-- COM17 app `maps setup checkpoint 2026-10-19`, source210002f4 (parentf38d1f78
-  panel diagnostics). AppSHA256
-  `3b4aae6d556f09c6f46c3e57c73f0090c815a6eaabac1af2104860720a58c424`.
-  Native build/app-only flash/startup and partition preservation pass; engine
-  722d0d3, driver0.9.3, C6unchanged3.0.6. COM39 untouched.
-- Artifact `.local/maps/maps-checkpoint-210002f4-20261019/`; previous location
-  feedback app and full recovery retained. App5065024bytes, headroom1226432;
-  DMAreserve40960. Labels/update/preview/facts externalBSS; facts176bytes.
-- External wizard-input exit passes on hardware: editor1→0, setup receiverIDLE,
-  Home receiverSTREAMING and graphics1. Host real-editor tests also prove password
-  clearing and preserving a newer unrelated editor. Bounded Home/RFLab/Settings
-  navigation and map reopening pass. Full downloads/firstboot remain incomplete.
-- Pan24samples paintp50/p95 68.716/100.098ms; zoom only2samples
-  249.535/257.435ms. **33ms unmet.** Transfer dominates; no continuousFPS claim.
-  Runtime internalrotation3, sourceDepth16/targetDepth272; both RGB565 but
-  different byte-order flags. Direct rowmemcpy requires internalrotation0 in
-  checked M5GFX; do not change requested orientation or ownership as a shortcut.
-- Retained-map SD hashreadback passes with2835456mapbytes. Combined script later
-  failed a retuneACK expectation; a followup immediate state check caughtSTOPPING.
-  Settled Home status passes STREAMING~2.399MSPS, zero drops/overruns, graphics1;
-  no SD rewrite or reset needed. Logs preserve all failures.
-- LatestDMAfree/largest/minimum10155/9216/7439bytes; internalfree/minimum
-  15875/7563; PSRAMfree19131248. Not a closed general/pairing budget.
-  Device left Home receiving BROWSE26591754Hz; serial released.
-- Prior strip candidate physically accepted: “Dragging/zoom and controls look
-  good”. Locationfeedback physically accepted: “Saving feedback and saved label
-  look good”. Save/return/reboot persisted coordinates; original44.7145048,
-  -123.2137829 restored and fieldpixels matched before. No new location writes
-  during this checkpoint. No RF-decoding-quality or blanket phase completion.
+- COM17 app `maps native preview 2026-10-19`, sourceaca08b75; appSHA256
+  `a5ed68c89fe832ecb5dab52a6a99c131d5992ad24e0fb289bc7abedbd00f4547`.
+  App5065040bytes, headroom1226416; labels/update/preview/facts remain external
+  BSS, DMAreserve40960. No extra preview allocation. Pin722d0d3/driver0.9.3/
+  C63.0.6 unchanged. COM39 untouched.
+- Artifact `.local/maps/preview-format-aca08b75-20261019/`, previous210002f4
+  app and fresh non-app backups verified/retained. Native build/miniz/FT8/pin
+  gates, app-only flash/preservation/startup pass. Exact commands/logs in evidence.
+- Pan24samples paintp50/p95/max61.397/83.178/83.643ms;
+  transfer48.459/83.157/83.621ms. Zoom3samples paint232.754/233.155ms,
+  transfer200.906/201.236ms. Observed lower sequential-run cost, not a general
+  percentage speedup or continuousFPS claim. **33ms unmet.** Worker-publication
+  conversion cost not separately quantified.
+- Runtime sourceDepth272/targetDepth272; both native RGB565 byte order.
+  Internalrotation3 unchanged, so direct M5GFX rowcopy remains unavailable.
+  Real-M5GFX host test covers65536values/eight traversals/reverse destination,
+  passes1/1; P4 syntax and native gates pass. Physical color acceptance pending.
+- Retained-map existing8KiB SD readback hash matches with2835456mapbytes held;
+  no new SD write. Complete SD/read/resume plan passes. Navigation Home/RFLab/
+  repeatedSettings/Home passes graphics1; picker reopened ready. Driver~2.4MSPS,
+  zero observed drops/overruns, C6still3.0.6. No RF-decode-quality assertion.
+  Device left receiving BROWSE26591754Hz at picker, serial released.
+- Prior checkpoint210002f4 external-setup editor exit passed editor1→0,
+  receptionIDLE→STREAMING. Save feedback and saved label physically accepted;
+  coordinate persistence verified and original44.7145048,-123.2137829 restored.
+  No new location writes in this native-order cycle. Final memory/pairing,
+  worldwide quality and complete setup/download acceptance remain open.
 
-Evidence: [checkpoint commands/results/logs](../../evidence/maps/2026-10-19-maps-checkpoint-com17.md),
-[location save/reboot and physical acceptance](../../evidence/maps/2026-10-19-location-save-feedback-com17.md),
-[editor lifetime regression](../../evidence/maps/2026-10-19-setup-editor-lifetime-source.md).
+Evidence: [native-order comparison/logs](../../evidence/maps/2026-10-19-preview-native-order-com17.md),
+[actual library test/source](../../evidence/maps/2026-10-19-preview-native-order-source.md),
+[preceding setup checkpoint](../../evidence/maps/2026-10-19-maps-checkpoint-com17.md),
+[save/reboot/physical acceptance](../../evidence/maps/2026-10-19-location-save-feedback-com17.md).
 No new overnight soak required.
 
 ### Remaining work in execution order
@@ -99,7 +97,8 @@ No new overnight soak required.
 1. **Reduce transfer cost using measured facts.** Save feedback and saved-label
    display pass native and physical acceptance. Owned editor teardown passes
    host/device checks. Internalrotation3 and RGB565 byte-order difference are
-   observed; direct M5GFX rowcopy is unavailable at that rotation. Investigate
+   observed; native-order preview now removes repeated conversion, but direct
+   M5GFX rowcopy is still unavailable at that rotation. Investigate
    an ownership-safe transfer improvement without changing the user's default
    orientation, arbitrary DMA calls or vendoring managed components. Pan/zoom
    still miss33ms. Continuous gestures/cancellation/all-orientation/finalmemory
@@ -159,6 +158,12 @@ features follow the offline baseline. No new large download, hosting purchase,
 map-data publication or device erase is authorized by this checkpoint.
 
 ## Execution ledger — historical checkpoints
+
+- October 19: sourceaca08b75 preconverts immutable previews to native RGB565.
+  Actual-M5GFX host pixel regression1/1, P4 syntax, native build/app-only flash,
+  startup, map/navigation/radio and retained-map SD readback pass onCOM17.
+  Pan61/83ms p50/p95, zoom233ms(three samples);33ms unmet. No orientation or
+  allocation change. Physical color check pending; global goal remains open.
 
 - October 19: location-feedback native build/app-only flash/save/return/reboot
   passed on COM17; user physically accepted Saving and saved label. Original
