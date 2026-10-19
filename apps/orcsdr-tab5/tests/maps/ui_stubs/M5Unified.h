@@ -17,11 +17,13 @@ namespace lgfx {inline namespace v1 {
 class LovyanGFX {
  public:
   std::vector<std::string> strings;
+  int screen_clears=0,map_clears=0;
   template<class... T> void setFont(T...) {}
   template<class... T> void setTextDatum(T...) {}
   template<class... T> void setTextSize(T...) {}
   template<class... T> void setTextColor(T...) {}
-  template<class... T> void fillScreen(T...) {strings.clear();}
+  template<class... T> void fillScreen(T...) {strings.clear();++screen_clears;}
+  void fillRect(int x,int y,int w,int h,int) {if(x==16&&y==72&&w==1248&&h==568)++map_clears;}
   template<class... T> void fillRect(T...) {}
   template<class... T> void fillRoundRect(T...) {}
   template<class... T> void drawRoundRect(T...) {}

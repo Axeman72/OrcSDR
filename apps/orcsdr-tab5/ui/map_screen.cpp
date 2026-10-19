@@ -2,6 +2,7 @@
 #include "map_service.hpp"
 #include "receiver_location.hpp"
 #include "setup_flow.hpp"
+#include "setup_ui.hpp"
 #include "screen_controller.hpp"
 #include "focus_nav.hpp"
 #include "navigation_service.hpp"
@@ -30,10 +31,13 @@ Mode g_mode=Mode::inventory;
 bool g_auto=false,g_dirty=true,g_drag=false,g_has_proposal=false;
 bool g_lat_set=false,g_lon_set=false,g_return_settings=false;
 bool g_picker_ready=false;
+bool g_setup_paused=false;
 screens::Id g_return=screens::Id::home;
 settings::Section g_section=settings::Section::data_maps;
 int g_last_x=0,g_last_y=0,g_edit=0,g_index=0,g_scroll=0;
 bool g_location_menu=true,g_details=false;
+bool g_map_touch=false,g_map_moved=false;
+bool g_map_visible=false,g_keep_map=false;
 int32_t g_lat=0,g_lon=0;
 char g_entry[16]{},g_message[96]{};
 orcmap::LocationPicker g_picker;
@@ -74,7 +78,7 @@ void picker_at(int32_t latitude,int32_t longitude) {
 void moved_picker() {
   const auto point=g_picker.Selection();g_lat=static_cast<int32_t>(std::llround(point.lat_deg*1e7));
   g_lon=static_cast<int32_t>(std::llround(point.lon_deg*1e7));
-  g_lat_set=g_lon_set=g_has_proposal=true;g_dirty=true;
+  g_lat_set=g_lon_set=g_has_proposal=true;g_dirty=true;g_keep_map=true;
 }
 void pan(int dx,int dy) {
   if(g_picker_ready&&g_picker.DragByGesture(dx,dy))moved_picker();
@@ -105,11 +109,15 @@ void draw_map() {
   }
   const auto location=receiver_location::snapshot();maps::FrameInfo info;
   const auto state=maps::draw(g_picker.View(),M5.Display,kMapX,kMapY,&info,location.map_pack);
-  if(state!=maps::Frame::ready) {
+  if(state==maps::Frame::pending&&g_map_visible) {
+    M5.Display.fillRect(450,604,380,32,kBg);
+    text("Updating map...",460,608,2);
+  } else if(state!=maps::Frame::ready) {
+    g_map_visible=false;
     M5.Display.fillRect(kMapX,kMapY,kMapW,kMapH,kBg);
     M5.Display.drawRect(kMapX,kMapY,kMapW,kMapH,0x2945);
     text(state==maps::Frame::pending?"Loading offline map...":"No basemap installed. Pan or enter coordinates to choose a location.",kMapX+12,kMapY+12,1);
-  } else wrapped(info.credit,kMapX+12,kMapY+kMapH-44,100,2);
+  } else {g_map_visible=true;wrapped(info.credit,kMapX+12,kMapY+kMapH-44,100,2);}
   M5.Display.drawLine(kMapX+kMapW/2-14,kMapY+kMapH/2,kMapX+kMapW/2+14,kMapY+kMapH/2,kAccent);
   M5.Display.drawLine(kMapX+kMapW/2,kMapY+kMapH/2-14,kMapX+kMapW/2,kMapY+kMapH/2+14,kAccent);
   // Redraw overlays whenever the asynchronous map replaces its pixels.
@@ -161,18 +169,6 @@ void draw_inventory() {
     text("Metadata/size checked; archive hash not verified.",32,454,2);
   }
 }
-void draw_location_methods() {
-  text("Set your receiver location",32,112,3);
-  text("Choose a method. You can change this later in Settings.",32,160,2);
-  button("NETWORK LOCATION",32,220,550,68);text("Approximate area from Wi-Fi internet",610,242,2);
-  button("SEARCH ZIP / ADDRESS",32,306,550,68);text("Requires an internet connection",610,328,2);
-  button("CHOOSE ON MAP",32,392,550,68);text("Pan and zoom; works offline",610,414,2);
-  button("ENTER LATITUDE / LONGITUDE",32,478,550,68);text("Enter coordinates directly",610,500,2);
-  const auto location=receiver_location::snapshot();char line[96];
-  if(location.configured)std::snprintf(line,sizeof(line),"Saved: %.6f, %.6f",location.latitude_e7/1e7,location.longitude_e7/1e7);
-  else std::snprintf(line,sizeof(line),"Location has not been saved yet.");
-  text(line,32,582,3,location.configured?kGreen:kInk);
-}
 void draw_edit() {
   M5.Display.fillRect(0,90,1280,540,kBg);
   text(g_edit==1?"LATITUDE E7 (-900000000 to 900000000)":"LONGITUDE E7 (-1800000000 to 1800000000)",40,110);
@@ -182,9 +178,11 @@ void draw_edit() {
   button("SAVE FIELD",820,300,250);button("CANCEL FIELD",820,400,250);
 }
 void close_screen() {
+  if(g_mode==Mode::setup)setup_ui::reset();
   g_edit=0;maps::cancel();screens::begin_transition(g_return,millis());screens::finish_transition();
   if(g_return_settings)navigation::open_settings(g_section);
   else if(g_hooks.restore)g_hooks.restore(g_return);
+  if(g_setup_paused) {g_setup_paused=false;if(g_hooks.setup_reception)g_hooks.setup_reception(false);}
 }
 void finish() {
   const auto previous=g_flow;g_flow.done=true;
@@ -194,7 +192,7 @@ void finish() {
   g_saved=g_flow;g_saved.automatic=false;g_auto=false;
   close_screen();
 }
-void cancel() {close_screen();}
+void cancel() {setup_ui::reset();close_screen();}
 } // namespace
 void configure(const Hooks& hooks) {g_hooks=hooks;}
 void load(NvsStore& preferences) {
@@ -212,6 +210,13 @@ void load(NvsStore& preferences) {
 }
 bool first_run_pending() {return g_saved.automatic;}
 void open(Mode mode,bool automatic) {
+  if(mode==Mode::setup&&!g_setup_paused&&g_hooks.setup_reception) {
+    if(!g_hooks.setup_reception(true))return;
+    g_setup_paused=true;
+  } else if(mode!=Mode::setup&&g_setup_paused) {
+    g_setup_paused=false;if(g_hooks.setup_reception)g_hooks.setup_reception(false);
+  }
+  g_map_visible=false;g_keep_map=false;
   const bool nested=screens::is_active(screens::Id::maps)||
       (settings::active()&&screens::status().return_to==screens::Id::maps);
   if(!nested) {g_return_settings=settings::active();g_section=settings::section();}
@@ -222,18 +227,28 @@ void open(Mode mode,bool automatic) {
   screens::begin_transition(screens::Id::maps,millis());
   g_mode=mode;g_auto=automatic;g_flow=automatic?g_saved:setup::Flow{};
   g_flow.writable=g_saved.writable;g_saved.automatic=false;
-  g_edit=0;g_message[0]=0;g_dirty=true;g_index=0;g_scroll=0;g_drag=false;g_location_menu=true;g_details=false;
+  setup_ui::reset();g_edit=0;g_message[0]=0;g_dirty=true;g_index=0;g_scroll=0;g_drag=false;g_map_touch=false;g_map_moved=false;g_location_menu=true;g_details=false;
   const auto location=receiver_location::snapshot();g_lat=location.latitude_e7;g_lon=location.longitude_e7;
   g_lat_set=g_lon_set=g_has_proposal=location.configured;
   picker_at(g_lat,g_lon);maps::cancel();draw();screens::finish_transition();
 }
 void draw() {
   if(!screens::is_active(screens::Id::maps))return;
-  M5.Display.setFont(nullptr);M5.Display.fillScreen(kBg);focus_nav::clear();
+  M5.Display.setFont(nullptr);
+  const bool preserve=g_keep_map&&g_map_visible&&location_step()&&!g_edit;
+  g_keep_map=false;
+  if(preserve) {
+    M5.Display.fillRect(0,0,1280,kMapY,kBg);
+    M5.Display.fillRect(0,kMapY+kMapH,1280,720-kMapY-kMapH,kBg);
+  } else {M5.Display.fillScreen(kBg);g_map_visible=false;}
+  focus_nav::clear();
+  if(g_mode==Mode::setup&&g_hooks.brand)g_hooks.brand();
+  if(g_mode==Mode::setup&&g_setup_paused)text("Reception paused during setup.",430,52,2);
   if(location_step()&&!(g_mode==Mode::setup&&g_location_menu))text(g_mode==Mode::setup?"SETUP: LOCATION":"LOCATION",16,24,2,kAccent);
-  else text(g_mode==Mode::setup?"ORCSDR SETUP":"LOCAL MAPS",32,28,3,kAccent);
+  else if(g_mode!=Mode::setup||!g_hooks.brand)text(g_mode==Mode::setup?"ORCSDR SETUP":"LOCAL MAPS",32,28,3,kAccent);
+  if(g_mode==Mode::setup){const char* labels[]={"1 / 6 WELCOME","2 / 6 WI-FI","3 / 6 LOCATION","4 / 6 MAPS","6 / 6 READY"};text(labels[static_cast<int>(g_flow.step)],430,24,3,kAccent);}
   button("CANCEL",1050,20,195);
-  if(location_step()&&g_mode==Mode::setup&&g_location_menu)draw_location_methods();
+  if(location_step()&&g_mode==Mode::setup&&g_location_menu)setup_ui::draw(setup_ui::Page::location);
   else if(location_step())draw_picker();
   else if(maps_step())draw_inventory();
   else if(g_flow.step==setup::Step::welcome) {
@@ -241,25 +256,29 @@ void draw() {
     text("then choose your offline maps.",32,260,3);
     text("You can skip steps and return later.",32,320,3);button("QUICK START",32,390,260,46,true);
   } else if(g_flow.step==setup::Step::network) {
-    text("Wi-Fi is optional.",32,150,3);
-    text("Offline maps and manual location work without it.",32,205,3);
-    button("NETWORK SETTINGS",32,260,350);
-  } else text("Setup complete. You can rerun it from Settings > System.",32,180);
+    setup_ui::draw(setup_ui::Page::network);
+  } else {text("Setup complete",32,160,5);text("Your location and map choices are saved.",32,240,3);}
+  if(g_mode==Mode::setup&&setup_ui::input_active()){g_dirty=false;return;}
   if(g_mode==Mode::setup) {
-    if(g_flow.step!=setup::Step::welcome)button("BACK",32,650);
+    if(g_flow.step!=setup::Step::welcome)button("BACK",32,632,180,80);
     if(location_step()&&!g_location_menu)button("SKIP",700,kFooterY,196);
-    else button(g_flow.step==setup::Step::complete?"FINISH":"NEXT / SKIP",920,650,310,46,true);
+    else button(g_flow.step==setup::Step::complete?"FINISH":"CONTINUE",920,632,310,80,true);
   }
   if(g_edit)draw_edit();
   if(g_message[0])text(g_message,32,location_step()&&!g_edit?704:610,2,TFT_ORANGE);
   g_dirty=false;
 }
 void tick() {
+  if(g_setup_paused&&!screens::is_active(screens::Id::maps)) {
+    setup_ui::reset();
+    g_setup_paused=false;if(g_hooks.setup_reception)g_hooks.setup_reception(false);
+  }
   if(!screens::owns(screens::Id::maps))return;
   if(g_dirty)draw();
   const uint32_t now=millis();
   if(now-g_last_tick<250)return;
   g_last_tick=now;
+  if(g_mode==Mode::setup&&setup_ui::poll())g_dirty=true;
   if(location_step()&&!(g_mode==Mode::setup&&g_location_menu)&&!g_edit&&maps::revision()!=g_last_map_revision) {
     draw_map();
   }
@@ -270,13 +289,26 @@ void tick() {
 }
 void touch(int x,int y,bool pressed,bool new_press) {
   if(!screens::owns(screens::Id::maps))return;
-  if(!pressed) {g_drag=false;return;}
+  if(!pressed) {
+    if(g_map_touch&&!g_map_moved&&hit(x,y,kMapX,kMapY,kMapW,kMapH)) {
+      g_picker.RecenterAtScreen(g_last_x-kMapX,g_last_y-kMapY);moved_picker();
+    }
+    g_drag=false;g_map_touch=false;return;
+  }
+  if(new_press)g_map_touch=false;
   if(maps_step()&&hit(x,y,32,174,1070,336)) {
     if(new_press) {g_drag=true;g_last_y=y;}
     else if(g_drag&&std::abs(y-g_last_y)>=60) {
       g_scroll=std::clamp(g_scroll+(y<g_last_y?1:-1),0,std::max(0,static_cast<int>(g_packs.count)-4));
       g_last_y=y;g_details=false;g_dirty=true;return;
     }
+  }
+  if(g_mode==Mode::setup&&new_press&&
+      (setup_ui::input_active()||((g_flow.step==setup::Step::network||
+       (location_step()&&g_location_menu))&&y>=100&&y<632))) {
+    const auto result=setup_ui::touch(g_flow.step==setup::Step::network?setup_ui::Page::network:setup_ui::Page::location,x,y);
+    if(result==setup_ui::Result::picker){g_location_menu=false;const auto current=receiver_location::snapshot();g_lat=current.latitude_e7;g_lon=current.longitude_e7;picker_at(g_lat,g_lon);g_has_proposal=true;g_lat_set=g_lon_set=true;}
+    g_dirty=true;return;
   }
   if(g_edit) {
     if(!new_press)return;
@@ -291,27 +323,22 @@ void touch(int x,int y,bool pressed,bool new_press) {
     }
     return;
   }
-  if(location_step()&&g_mode==Mode::setup&&g_location_menu&&new_press) {
-    if(hit(x,y,32,392,550,68)) {g_location_menu=false;const auto current=receiver_location::snapshot();g_lat=current.latitude_e7;g_lon=current.longitude_e7;picker_at(g_lat,g_lon);g_has_proposal=true;g_lat_set=g_lon_set=true;g_dirty=true;return;}
-    if(hit(x,y,32,220,550,68)||hit(x,y,32,306,550,68)||hit(x,y,32,478,550,68)) {
-      navigation::open_settings(settings::Section::location_adsb);
-      if(g_hooks.location_method)g_hooks.location_method(y<306?0:y<478?1:2);
-      return;
-    }
-  }
   if(location_step()&&!(g_mode==Mode::setup&&g_location_menu)&&new_press) {
     g_drag=false;
     if(hit(x,y,kLatX,kCoordinateY,kCoordinateW,46)) {begin_edit(1);return;}
     if(hit(x,y,kLonX,kCoordinateY,kCoordinateW,46)) {begin_edit(2);return;}
     // Overlay controls take precedence over panning the map underneath.
-    if(hit(x,y,kZoomX,kZoomInY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomIn();g_dirty=true;return;}
-    if(hit(x,y,kZoomX,kZoomOutY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomOut();g_dirty=true;return;}
+    if(hit(x,y,kZoomX,kZoomInY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomIn();g_dirty=true;g_keep_map=true;return;}
+    if(hit(x,y,kZoomX,kZoomOutY,kZoomW,kZoomH)) {if(g_picker_ready)g_picker.ZoomOut();g_dirty=true;g_keep_map=true;return;}
     if(hit(x,y,kPanX+72,kPanY,kZoomW,kZoomH)) {pan(0,kPanStepY);return;}
     if(hit(x,y,kPanX,kPanY+64,kZoomW,kZoomH)) {pan(kPanStepX,0);return;}
     if(hit(x,y,kPanX+144,kPanY+64,kZoomW,kZoomH)) {pan(-kPanStepX,0);return;}
     if(hit(x,y,kPanX+72,kPanY+128,kZoomW,kZoomH)) {pan(0,-kPanStepY);return;}
     if(hit(x,y,kUseX,kFooterY,kUseW,60)) {
       if((g_has_proposal||g_picker_ready)&&g_hooks.location) {
+        // Acknowledge the press before the synchronous, verified storage write.
+        // The normal redraw restores the action if saving fails.
+        button("SAVING...",kUseX,kFooterY,kUseW,60,true);
         if(g_hooks.location(g_lat,g_lon)) {if(g_mode==Mode::setup)advance();else cancel();}
         else {std::snprintf(g_message,sizeof(g_message),"Location could not be saved. Please retry.");g_dirty=true;}
       }
@@ -321,18 +348,23 @@ void touch(int x,int y,bool pressed,bool new_press) {
   }
   if(location_step()&&!(g_mode==Mode::setup&&g_location_menu)&&hit(x,y,kMapX,kMapY,kMapW,kMapH)) {
     if(!g_picker_ready)return;
-    if(new_press) {g_picker.RecenterAtScreen(x-kMapX,y-kMapY);g_drag=true;g_last_x=x;g_last_y=y;moved_picker();}
-    else if(g_drag&&(x!=g_last_x||y!=g_last_y)) {g_picker.DragByGesture(x-g_last_x,y-g_last_y);g_last_x=x;g_last_y=y;moved_picker();}
+    // Decide tap versus drag before changing the camera; touch-down must not
+    // jump to the finger and queue a render that the first drag supersedes.
+    if(new_press) {g_drag=true;g_map_touch=true;g_map_moved=false;g_last_x=x;g_last_y=y;}
+    else if(g_drag&&(g_map_moved||std::abs(x-g_last_x)>=6||std::abs(y-g_last_y)>=6)&&
+            (x!=g_last_x||y!=g_last_y)) {
+      g_map_moved=true;g_picker.DragByGesture(x-g_last_x,y-g_last_y);
+      g_last_x=x;g_last_y=y;moved_picker();
+    }
     return;
   }
   if(!new_press)return;
   if(hit(x,y,1050,20,195,46)) {cancel();return;}
   if(g_mode==Mode::setup) {
-    if(hit(x,y,32,650,180,46)) {if(location_step()&&!g_location_menu) {g_location_menu=true;g_dirty=true;return;}g_flow.back();(void)checkpoint();g_dirty=true;return;}
+    if(hit(x,y,32,632,180,80)) {if(setup_ui::back()){g_dirty=true;return;}if(location_step()&&!g_location_menu) {g_location_menu=true;g_dirty=true;return;}g_flow.back();(void)checkpoint();g_dirty=true;return;}
     if((location_step()&&hit(x,y,700,kFooterY,196,46))||
-       ((!location_step()||g_location_menu)&&hit(x,y,920,650,310,46))) {if(g_flow.step==setup::Step::complete)finish();else advance();return;}
+       ((!location_step()||g_location_menu)&&hit(x,y,920,632,310,80))) {if(g_flow.step==setup::Step::complete)finish();else advance();return;}
     if(g_flow.step==setup::Step::welcome&&hit(x,y,32,390,260,46)) {g_flow.quick_start();(void)checkpoint();g_dirty=true;return;}
-    if(g_flow.step==setup::Step::network&&hit(x,y,32,260,350,46)) {navigation::open_settings(settings::Section::connectivity);return;}
   }
   if(maps_step()) {
     if(hit(x,y,32,174,1070,336)) {const int row=(y-174)/84;if(g_scroll+row<g_packs.count)g_index=g_scroll+row;g_details=false;g_dirty=true;}
@@ -349,6 +381,8 @@ void touch(int x,int y,bool pressed,bool new_press) {
 }
 void key(const keyboard_input::Key& key) {
   using keyboard_input::Special;
+  if(g_mode==Mode::setup&&setup_ui::input_active()) {setup_ui::key(g_flow.step==setup::Step::network?setup_ui::Page::network:setup_ui::Page::location,key);g_dirty=true;return;}
+  if(g_mode==Mode::setup&&key.special==Special::escape&&setup_ui::back()){g_dirty=true;return;}
   if(g_edit) {
     const auto action=keyboard_input::apply_edit(g_entry,sizeof(g_entry),11,key);
     if(action==keyboard_input::EditAction::accept)finish_edit();
@@ -358,7 +392,7 @@ void key(const keyboard_input::Key& key) {
   }
   if(key.special==Special::escape) {cancel();return;}
   if(location_step()&&g_picker_ready&&(key.ch=='+'||key.ch=='-')) {
-    if(key.ch=='+')g_picker.ZoomIn();else g_picker.ZoomOut();g_dirty=true;return;
+    if(key.ch=='+')g_picker.ZoomIn();else g_picker.ZoomOut();g_dirty=true;g_keep_map=true;return;
   }
   if(location_step()&&g_picker_ready&&key.ctrl) {
     int dx=0,dy=0;

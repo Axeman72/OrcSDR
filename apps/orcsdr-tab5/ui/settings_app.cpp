@@ -248,7 +248,10 @@ void draw_firmware_updates() {
 void draw_location() {
   text("RECEIVER LOCATION", 330, 115, kBlue, 3);
   char value[48];
-  value_row("PROFILE LABEL", g_state.location_label[0] ? g_state.location_label : "NOT SET",
+  // A name is optional. An unnamed saved coordinate is still a configured
+  // location; never substitute the independently selected map-pack identity.
+  value_row("LOCATION", !g_state.location_configured ? "NOT SET" :
+            g_state.location_label[0] ? g_state.location_label : "SAVED LOCATION",
             165);
   snprintf(value, sizeof(value), g_state.location_configured ? "%.7f" : "NOT SET",
            g_state.latitude_e7 / 10000000.0);

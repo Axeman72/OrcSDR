@@ -8,7 +8,7 @@ endif()
 set(ui "${CMAKE_CURRENT_SOURCE_DIR}/../../ui")
 set(engine "${ORCMAPS_ROOT}")
 add_executable(orcsdr_maps_tests
-  map_screen_tests.cpp "${ui}/map_screen.cpp" "${ui}/settings_app.cpp"
+  map_screen_tests.cpp "${ui}/text_editor.cpp" "${ui}/map_screen.cpp" "${ui}/setup_ui.cpp" "${ui}/settings_app.cpp"
   "${ui}/screen_controller.cpp" "${ui}/receiver_location.cpp"
   "${ui}/focus_nav.cpp" "${ui}/keyboard_input.cpp" "${ui}/clock_settings.cpp"
   map_pipeline_tests.cpp map_inventory_tests.cpp map_world_tests.cpp "${ui}/map_pipeline.cpp" "${ui}/map_inventory.cpp"
@@ -52,6 +52,15 @@ add_test(NAME map_timing COMMAND orcsdr_map_timing_tests)
 add_executable(orcsdr_map_download_tests map_download_response_tests.cpp)
 target_include_directories(orcsdr_map_download_tests PRIVATE "${ui}")
 add_test(NAME map_download_response COMMAND orcsdr_map_download_tests)
+add_executable(orcsdr_setup_ui_tests setup_ui_tests.cpp "${ui}/setup_ui.cpp"
+  "${ui}/text_editor.cpp" "${ui}/keyboard_input.cpp" "${ui}/focus_nav.cpp")
+target_include_directories(orcsdr_setup_ui_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ui_stubs" "${ui}")
+if(MSVC)
+  target_compile_options(orcsdr_setup_ui_tests PRIVATE /UNDEBUG /EHsc)
+else()
+  target_compile_options(orcsdr_setup_ui_tests PRIVATE -UNDEBUG)
+endif()
+add_test(NAME setup_ui COMMAND orcsdr_setup_ui_tests)
 add_executable(orcsdr_sd_dma_tests ../sdmmc_dma_buffer_tests.cpp)
 target_include_directories(orcsdr_sd_dma_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ui_stubs" "${ui}")
 if(MSVC)

@@ -116,6 +116,8 @@
 #include "realtime_log.hpp"
 #include "lora_channel_control.hpp"
 #include "location_estimate.hpp"
+#include "setup_ui.hpp"
+#include "orc_badge.hpp"
 #include "navigation_service.hpp"
 #include "offline_map.hpp"
 #include "map_service.hpp"
@@ -1826,13 +1828,15 @@ char settings_location_label[40]{};
 EXT_RAM_BSS_ATTR char settings_map_pack[256]{};
 bool adsb_atc_listening = false;
 bool catalog_radio_paused = false;
+bool setup_radio_paused = false;
+std::atomic<bool> setup_receiver_inhibit{false};
 
 // True while an exclusive I/O client (Wi-Fi connect, probe or power-off,
 // catalog download) holds the radio paused. A hotplug start waits for it;
 // resume_radio_after_io() restarts a radio that was already running.
 bool radio_io_paused() {
   return catalog_radio_paused || wifi_connect_radio_paused || wifi_poweroff_radio_paused ||
-         wifi_c6_probe_radio_paused;
+         wifi_c6_probe_radio_paused || setup_receiver_inhibit.load(std::memory_order_acquire);
 }
 char rtl_sdr_status[96] = "RTL-SDR: waiting for USB-A host";
 char rtl_sdr_serial[48]{};
@@ -3532,6 +3536,7 @@ bool restart_rtl_speaker_i2s(uint8_t volume) {
 }
 
 bool ensure_speaker_running(uint8_t volume) {
+  if(setup_receiver_inhibit.load(std::memory_order_acquire))return false;
   if (!rtl_speaker_start_allowed.load(std::memory_order_acquire)) return false;
   if (!rtl_speaker_codec_primed.load(std::memory_order_acquire)) {
     if (!M5.Speaker.isRunning() && !restart_rtl_speaker_i2s(volume)) return false;
@@ -3600,6 +3605,7 @@ void idle_rtl_speaker(const char* reason) {
 }
 
 void resume_rtl_speaker() {
+  if(setup_receiver_inhibit.load(std::memory_order_acquire))return;
   sync_rtl_audio_for_band(rtl_ui_band);
   if (!rtl_device_ready()) {
     idle_rtl_speaker("no_receiver");
@@ -10268,7 +10274,7 @@ bool pause_radio_for_io(bool& paused) {
   // Overlapping I/O clients share one physical pause. Each keeps its own flag
   // so the final client to finish is the only one that resumes the radio.
   if (catalog_radio_paused || wifi_connect_radio_paused || wifi_poweroff_radio_paused ||
-      wifi_c6_probe_radio_paused) {
+      wifi_c6_probe_radio_paused || setup_radio_paused) {
     paused = true;
     return true;
   }
@@ -10309,7 +10315,7 @@ void resume_radio_after_io(bool& paused) {
   if (!paused) return;
   paused = false;
   if (catalog_radio_paused || wifi_connect_radio_paused || wifi_poweroff_radio_paused ||
-      wifi_c6_probe_radio_paused) return;
+      wifi_c6_probe_radio_paused || setup_radio_paused) return;
   const bool resume_radio = radio_io_resume_pending;
   const bool resume_speaker = radio_io_speaker_resume_pending;
   radio_io_resume_pending = false;
@@ -13014,13 +13020,62 @@ bool save_map_selection(const char* identity) {
   return true;
 }
 
-void handle_global_settings_action(const orcsdr::settings::Action& action);
-void setup_location_method(int method) {
-  handle_global_settings_action(orcsdr::settings::begin_location_method(method));
+void setup_snapshot(orcsdr::setup_ui::Snapshot* out) {
+  *out=orcsdr::setup_ui::Snapshot{};
+  out->connected=wifi_connected;out->connecting=wifi_connecting;out->scanning=wifi_scan_running;
+  strlcpy(out->ssid,orcsdr::wifi::ssid(),sizeof(out->ssid));
+  strlcpy(out->message,wifi_status_message,sizeof(out->message));
+  if(!wifi_scan_running&&wifi_scan_result_count>0) {
+    out->count=std::min<uint8_t>(wifi_scan_result_count,std::size(out->networks));
+    for(uint8_t i=0;i<out->count;++i) {
+      strlcpy(out->networks[i].ssid,wifi_scan_results[i].ssid,sizeof(out->networks[i].ssid));
+      out->networks[i].secure=wifi_scan_results[i].secure;
+    }
+  }
+  const auto location=orcsdr::receiver_location::snapshot();
+  out->location_set=location.configured;out->latitude_e7=location.latitude_e7;out->longitude_e7=location.longitude_e7;
+  const auto lookup=orcsdr::location_estimate::state();
+  out->lookup_busy=lookup.busy;out->lookup_ready=lookup.ready;
+  out->lookup_latitude_e7=lookup.latitude_e7;out->lookup_longitude_e7=lookup.longitude_e7;
+  strlcpy(out->lookup_label,lookup.label,sizeof(out->lookup_label));
+  strlcpy(out->lookup_message,lookup.message,sizeof(out->lookup_message));
 }
+void setup_scan() {
+  settings_wifi_power_enabled=true;preferences.putBool("set_wifi_power",true);
+  wifi_scan_requested.store(true,std::memory_order_release);
+}
+bool setup_connect(const char* ssid,const char* password) {
+  if(!ssid||!ssid[0]||!password||std::strlen(ssid)>32||std::strlen(password)>63)return false;
+  bool saved=false;
+  for(uint8_t i=0;i<wifi_profile_count;++i)saved|=std::strcmp(wifi_profiles[i].ssid,ssid)==0;
+  if(!saved&&wifi_profile_count>=std::size(wifi_profiles))return false;
+  settings_wifi_power_enabled=true;preferences.putBool("set_wifi_power",true);
+  start_wifi_connection(ssid,password,true);return true;
+}
+bool setup_lookup(const char* query) {return orcsdr::location_estimate::request(query,wifi_connected);}
+void setup_brand() {
+  (void)orcsdr::badge::draw(20,4,64);
+  M5.Display.setTextDatum(top_left);M5.Display.setTextColor(TFT_WHITE,0x0841);M5.Display.setTextSize(5);
+  M5.Display.drawString("OrcSDR",100,4);
+  M5.Display.setTextColor(0x2e7f,0x0841);M5.Display.setTextSize(3);M5.Display.drawString("SETUP",100,46);
+}
+bool setup_reception(bool pause) {
+  if(!pause) {
+    setup_receiver_inhibit.store(false,std::memory_order_release);
+    resume_radio_after_io(setup_radio_paused);
+    return true;
+  }
+  setup_receiver_inhibit.store(true,std::memory_order_release);
+  if(pause_radio_for_io(setup_radio_paused))return true;
+  setup_receiver_inhibit.store(false,std::memory_order_release);
+  Serial.println("RTL_SETUP_PAUSE failed; setup not opened");
+  return false;
+}
+
 void configure_navigation_service() {
   orcsdr::map_screen::configure({navigation_restore_screen,
-      save_map_receiver_location, save_map_selection, setup_location_method});
+      save_map_receiver_location, save_map_selection, setup_brand,setup_reception});
+  orcsdr::setup_ui::configure({setup_snapshot,setup_scan,setup_connect,setup_lookup,save_map_receiver_location});
   orcsdr::navigation::configure({
       home_dashboard_snapshot,
       navigation_sync_audio,
@@ -15207,6 +15262,7 @@ bool point_in_button(int32_t x, int32_t y) {
 
 bool queue_local_rtl_listen(RtlBand band, uint32_t frequency_hz,
                             bool persist_navigation) {
+  if(setup_receiver_inhibit.load(std::memory_order_acquire))return false;
   if (band == RtlBand::adsb) frequency_hz = kAdsbDefaultHz;
   if (band == RtlBand::lora) {
     load_lora_config();
@@ -22506,6 +22562,7 @@ void loop() {
   }
   rtl_audio_test_service();
   service_boot_device_staging();
+  orcsdr::map_screen::tick(); // Also releases setup pause after external navigation.
   if (orcsdr::map_screen::first_run_pending() &&
       boot_init_stage == BootInitStage::ready &&
       orcsdr::screens::owns(orcsdr::screens::Id::home))
@@ -22750,7 +22807,6 @@ void loop() {
   if (orcsdr::screens::owns(orcsdr::screens::Id::maps)) {
     const auto touch = ui_touch_detail(0);
     orcsdr::map_screen::touch(touch.x, touch.y, touch.isPressed(), touch.wasPressed());
-    orcsdr::map_screen::tick();
   } else if (orcsdr::visualizer::active()) {
     // service_visualizer() above owns the complete full-screen surface.
   } else if (settings_ui) {
