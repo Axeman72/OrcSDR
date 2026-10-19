@@ -4,10 +4,12 @@
 
 ## Current phase and handoff — October 19, 2026
 
-**Active: Phase 2 and Phase 3. Neither phase is complete.** Labels are implemented
-and running on COM17; the immediate priority is measured responsiveness and
-memory headroom. Boundary hierarchy and worldwide font/quality acceptance are
-still required. The execution ledger below is chronological history; earlier
+**Active delivery work: Phase 4; Phases 2 and 3 remain open.** Labels and cached
+gestures run on COM17. Delivery now has a signed catalog consumer and hidden
+resumable staging source, with focused host/P4 syntax evidence. The next step
+is recovery-safe activation and worker/setup integration, then hardware checks.
+The 33 ms target, boundary hierarchy and worldwide font/quality acceptance
+still require work. The execution ledger below is chronological history; earlier
 statements such as "not pushed" or "approval pending" describe that earlier step,
 not the current state.
 
@@ -16,7 +18,7 @@ not the current state.
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
 | 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes the approved configured host regression (7/7); reference renders and device acceptance remain open. Contrast and international coverage remain open. |
 | 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Latest native-order preview measurements show pan paint p50/p95 61/83 ms and zoom233 ms (three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
-| 4 — catalog/delivery | Global candidate archive/manifest/checksum prepared; local hash matches and both engine/consumer discovery accept it. Host provisioning now preserves existing names and publishes verified packs manifest-last (24 focused tests pass). No global-pack device installation, trusted catalog, resumable downloader or publication yet. |
+| 4 — catalog/delivery | Global candidate preflight passes. Host catalog signing and firmware consumer are implemented/tested. Resumable hidden staging passes focused host and P4 syntax checks at f80c2980; native HTTPS behavior, activation/recovery, persistent trust state, scheduling and wizard downloads remain open. No global-pack device installation or publication yet. |
 | 5 — setup | Wizard-owned UI is committed at210002f4 and device-tested in bounded scopes. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
@@ -393,6 +395,21 @@ Commands and log paths: [signed consumer evidence](../../evidence/maps/2026-10-1
 Next: implement bounded catalog fetching, persistent accepted revision/hash and
 the shared archive resume/activation worker, then wizard download controls.
 Production key/endpoint, memory budgets and hardware recovery remain open.
+
+Source checkpoint `f80c2980` adds hidden resumable archive staging and an
+ESP-IDF HTTPS transport. The worker-side core uses checked alternating resume
+records, synced prefixes, response identity checks, SD read-back SHA-256 and
+actual PMTiles header/root validation. It prepares files under a hidden
+subdirectory; it deliberately does not publish an installed manifest or replace
+an old pack before recovery-safe activation exists. The only shared-storage
+addition is shrink-only `File::truncate`, used on owned staging tails.
+Transfer CTest 1/1, existing SD DMA-buffer regression 1/1 and P4 syntax 3/3 pass.
+Actual TLS/FAT/hardware allocation/radio behavior remain untested; no Tab5 was
+accessed. See [transfer staging evidence](../../evidence/maps/2026-10-19-map-transfer-staging.md)
+and [shared SD reliability record](../../SD_CARD_RELIABILITY.md).
+Next: implement journaled activation/version retirement and recovery, wire
+catalog acquisition/persistent trust/worker state, then test the complete
+download workflow before offering it in the wizard.
 
 - [ ] Define pack entries: stable ID/name, bounds/coverage, detail/zoom, schema compatibility, source/build date, download bytes, SHA-256, attribution/license, immutable URL and mirrors.
 - [ ] Sign trusted catalog metadata using a reviewed approach consistent with existing project trust practices, without confusing the historical data catalog and map manifests.
