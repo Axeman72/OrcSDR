@@ -1,0 +1,186 @@
+#include "map_transfer.hpp"
+#include "map_http_headers.hpp"
+#include "orcmap/pack_json.hpp"
+#include <cJSON.h>
+#include <mbedtls/sha256.h>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <vector>
+#include <algorithm>
+
+namespace testfs {
+std::filesystem::path root;
+bool fail_manifest=false,corrupt_read=false,fail_write=false;
+std::filesystem::path path(const char* p){return root/std::string(p).substr(1);}
+}
+namespace orcsdr::storage {
+struct File::State {
+  FILE* stream=nullptr;std::string path;
+  ~State(){if(stream)std::fclose(stream);}
+};
+File::File(std::shared_ptr<State> s):state_(std::move(s)){}
+File::operator bool()const{return state_&&state_->stream;}
+size_t File::read(uint8_t* p,size_t n){
+  if(!*this)return 0;
+  auto got=std::fread(p,1,n,state_->stream);
+  if(got&&testfs::corrupt_read&&state_->path.find(".part")!=std::string::npos){p[0]^=1;testfs::corrupt_read=false;}
+  return got;
+}
+size_t File::write(const uint8_t* p,size_t n){
+  if(!*this)return 0;
+  if(testfs::fail_write&&state_->path.find("archive.part")!=std::string::npos&&std::ftell(state_->stream)>60000)n/=2;
+  return std::fwrite(p,1,n,state_->stream);
+}
+bool File::seek(size_t p){return *this&&std::fseek(state_->stream,static_cast<long>(p),SEEK_SET)==0;}
+size_t File::size()const{
+  if(!*this)return 0;auto p=std::ftell(state_->stream);std::fseek(state_->stream,0,SEEK_END);
+  auto end=std::ftell(state_->stream);std::fseek(state_->stream,p,SEEK_SET);return end<0?0:end;
+}
+bool File::sync(){return *this&&std::fflush(state_->stream)==0;}
+bool File::close(){if(!*this)return true;auto r=std::fclose(state_->stream);state_->stream=nullptr;return r==0;}
+bool File::truncate(size_t size){
+  if(!*this||size>this->size()||!sync())return false;
+  std::error_code ec;std::filesystem::resize_file(testfs::path(state_->path.c_str()),size,ec);
+  return !ec&&std::fseek(state_->stream,0,SEEK_END)==0;
+}
+File FileSystem::open(const char* p,const char* mode,bool)const{
+  auto s=std::make_shared<File::State>();s->path=p;
+  const std::string binary=std::string(1,mode[0])+"b";
+  s->stream=std::fopen(testfs::path(p).string().c_str(),binary.c_str());return File(std::move(s));
+}
+bool FileSystem::exists(const char* p)const{return std::filesystem::exists(testfs::path(p));}
+bool FileSystem::mkdir(const char* p)const{return std::filesystem::create_directories(testfs::path(p));}
+bool FileSystem::remove(const char* p)const{return std::filesystem::remove(testfs::path(p));}
+bool FileSystem::rename(const char* from,const char* to)const{
+  if(testfs::fail_manifest&&std::string(to).find(".manifest.json")!=std::string::npos)return false;
+  if(exists(to))return false;
+  std::error_code ec;std::filesystem::rename(testfs::path(from),testfs::path(to),ec);return !ec;
+}
+}
+namespace t=orcsdr::maps::transfer;
+using orcsdr::maps::catalog::Pack;
+std::vector<uint8_t> body;
+std::string hash(const std::vector<uint8_t>& bytes){
+  uint8_t digest[32];mbedtls_sha256(bytes.data(),bytes.size(),digest,0);
+  char out[65]{};for(size_t i=0;i<32;++i)std::snprintf(out+i*2,3,"%02x",digest[i]);return out;
+}
+std::string load(const std::filesystem::path& path){
+  std::ifstream f(path,std::ios::binary);return {std::istreambuf_iterator<char>(f),{}};
+}
+Pack pack(const char* manifest){
+  const auto original=load(manifest);
+  std::unique_ptr<cJSON,decltype(&cJSON_Delete)> json(cJSON_Parse(original.c_str()),cJSON_Delete);
+  cJSON_ReplaceItemInObjectCaseSensitive(json.get(),"size_bytes",cJSON_CreateNumber(static_cast<double>(body.size())));
+  cJSON_ReplaceItemInObjectCaseSensitive(json.get(),"output_sha256",cJSON_CreateString(hash(body).c_str()));
+  cJSON_ReplaceItemInObjectCaseSensitive(json.get(),"max_zoom",cJSON_CreateNumber(0));
+  std::unique_ptr<char,decltype(&cJSON_free)> text(cJSON_PrintUnformatted(json.get()),cJSON_free);
+  Pack result;orcmap::ParsePackManifestJson(text.get(),&result.manifest);
+  result.manifest.pack_id=orcmap::MakePackId(result.manifest);
+  cJSON_ReplaceItemInObjectCaseSensitive(json.get(),"pack_id",cJSON_CreateString(result.manifest.pack_id.c_str()));
+  text.reset(cJSON_PrintUnformatted(json.get()));result.manifest_json=text.get();
+  result.urls={"https://maps.example.test/"+hash(body)+"/fixture.pmtiles"};return result;
+}
+struct Stream:t::Stream {
+  size_t position=0,fail_after=SIZE_MAX;int opens=0;uint64_t requested=0;
+  bool changed_tag=false,corrupt_after=false;
+  bool open(std::string_view,const orcsdr::maps::download::Request& r,t::Headers& h)override{
+    ++opens;requested=r.offset;position=static_cast<size_t>(r.offset);
+    h.status=r.offset?206:200;h.has_length=true;h.length=body.size()-position;
+    h.etag=changed_tag?"\"changed\"":"\"fixture-v1\"";
+    if(r.offset)h.range="bytes "+std::to_string(r.offset)+"-"+std::to_string(body.size()-1)+"/"+std::to_string(body.size());
+    return true;
+  }
+  int read(uint8_t* p,size_t n)override{
+    if(position>=fail_after)return -1;
+    const auto take=std::min({n,body.size()-position,fail_after-position,size_t(7000)});
+    std::memcpy(p,body.data()+position,take);position+=take;
+    if(position==body.size()&&corrupt_after)testfs::corrupt_read=true;
+    return static_cast<int>(take);
+  }
+  void close()override{}
+};
+int main(int argc,char** argv){
+  if(argc!=4)return 2;
+  testfs::root=std::filesystem::weakly_canonical(argv[3]);
+  const auto allowed=std::filesystem::weakly_canonical(std::filesystem::current_path())/
+      ".local/maps/map-transfer-fixture-20261019";
+  if(testfs::root!=allowed){std::printf("refusing fixture path outside fixed workspace test directory\n");return 2;}
+  std::filesystem::create_directories(testfs::root);
+  auto original=load(argv[1]);body.assign(original.begin(),original.end());body.resize(2*1024*1024+123,0);
+  orcsdr::storage::FileSystem fs;
+  std::vector<uint8_t> buffer(16384);
+  const auto p=pack(argv[2]);
+  int failures=0;
+  auto check=[&](bool ok,const char* what){if(!ok){std::printf("FAIL %s\n",what);++failures;}};
+  t::HeaderCapture capture;
+  check(capture.add("ETag","\"v1\""),"HTTP ETag captured");
+  check(!capture.add("etag","\"v2\""),"duplicate HTTP critical header refused");
+  capture={};check(!capture.add("ETag",std::string(129,'x')),"oversized HTTP ETag refused");
+  check(t::https_endpoint("https://cdn.example.test/a?temporary=x"),"HTTPS redirect query allowed");
+  check(!t::https_endpoint("http://cdn.example.test/a")&&
+        !t::https_endpoint("https://user:secret@cdn.example.test/a")&&
+        !t::https_endpoint("https://cdn.example.test/\r\nx"),"downgrade and unsafe redirects refused");
+  auto reset=[&]{std::filesystem::remove_all(testfs::root);std::filesystem::create_directories(testfs::root/"orcmaps");
+    std::ofstream(testfs::root/"orcmaps/old.pmtiles")<<"valuable map";
+    testfs::fail_manifest=false;testfs::corrupt_read=false;testfs::fail_write=false;};
+  auto run=[&](Stream& s,uint64_t free=100000000){
+    const auto result=t::stage(fs,p,0,s,free,buffer.data(),buffer.size(),{});
+    std::printf("transfer result=%d request=%llu opens=%d\n",static_cast<int>(result),
+                static_cast<unsigned long long>(s.requested),s.opens);return result;};
+  reset();bool pre_cancel=true;Stream not_started;
+  t::Hooks before_start{&pre_cancel,[](void* value){return *static_cast<bool*>(value);}};
+  check(t::stage(fs,p,0,not_started,100000000,buffer.data(),buffer.size(),before_start)==t::Error::cancelled&&
+        not_started.opens==0,"cancel before transfer avoids network");
+  reset();Stream first;
+  check(run(first,1)==t::Error::space&&first.opens==0,"insufficient space before HTTP");
+  first.fail_after=65000;
+  check(run(first)==t::Error::network,"network failure leaves checkpoint");
+  auto paths=t::paths(p);
+  check(!fs.exists(paths.manifest.c_str()),"partial transfer undiscoverable");
+  {std::ofstream tail(testfs::path(paths.partial.c_str()),std::ios::binary|std::ios::app);tail<<"unsynced tail";}
+  const auto before=load(testfs::path(paths.partial.c_str()));
+  Stream changed;changed.changed_tag=true;
+  check(run(changed)==t::Error::response,"changed ETag rejected");
+  check(load(testfs::path(paths.partial.c_str()))==before,"bad response preserves staging bytes");
+  Stream resumed;
+  check(run(resumed)==t::Error::none&&resumed.requested==65000,"resume truncates unsynced tail");
+  check(fs.exists(paths.manifest.c_str()),"verified staging manifest prepared");
+  check(!std::filesystem::exists(testfs::root/"orcmaps/pack.manifest.json"),"staging stays outside flat discovery");
+  check(load(testfs::root/"orcmaps/old.pmtiles")=="valuable map","old packs preserved");
+  Stream again;
+  check(run(again)==t::Error::none&&again.opens==0,"prepared pack revalidated without network");
+  reset();Stream corrupted;corrupted.corrupt_after=true;
+  check(run(corrupted)==t::Error::hash&&!fs.exists(paths.manifest.c_str()),"SD readback corruption rejected");
+  reset();Stream activation;testfs::fail_manifest=true;
+  check(run(activation)==t::Error::storage&&!fs.exists(paths.manifest.c_str()),"staging rename failure preserves old packs");
+  testfs::fail_manifest=false;Stream recovery;
+  check(run(recovery)==t::Error::none&&recovery.opens==0,"staged archive orphan verified and prepared");
+  reset();Stream partial;partial.fail_after=65000;
+  check(run(partial)==t::Error::network,"metadata recovery fixture interrupted");
+  {std::fstream record(testfs::path(paths.record[1].c_str()),std::ios::binary|std::ios::in|std::ios::out);
+   record.seekp(249);record.put('x');}
+  Stream fallback;
+  check(run(fallback)==t::Error::none&&fallback.requested==0,"bad metadata falls back to earlier valid checkpoint");
+  reset();Stream write_error;testfs::fail_write=true;
+  check(run(write_error)==t::Error::storage,"partial SD write rejected");
+  testfs::fail_write=false;Stream write_recovery;
+  check(run(write_recovery)==t::Error::none&&write_recovery.requested==0,"partial write tail discarded before retry");
+  reset();Stream cancel_stream;bool cancelled=false;
+  t::Hooks hooks{&cancelled,[](void* p){return *static_cast<bool*>(p);},
+    [](void* p,uint64_t used,uint64_t){if(used>=65000)*static_cast<bool*>(p)=true;}};
+  check(t::stage(fs,p,0,cancel_stream,100000000,buffer.data(),buffer.size(),hooks)==t::Error::cancelled,
+        "cancellation checkpoints prefix");
+  Stream cancelled_resume;
+  check(run(cancelled_resume)==t::Error::none&&cancelled_resume.requested>0,"cancelled staging resumes");
+  reset();const auto good=body;body[0]=0;
+  const auto invalid=pack(argv[2]);Stream bad_archive;
+  check(t::stage(fs,invalid,0,bad_archive,100000000,buffer.data(),buffer.size(),{})==t::Error::archive,
+        "matching body hash cannot bypass PMTiles header validation");
+  body=good;
+  std::printf("RESULT: transfer scenarios %s\n",failures?"FAIL":"PASS");return failures?1:0;
+}

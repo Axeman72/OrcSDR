@@ -41,6 +41,32 @@ path is reproduced in a host test.
   before creation. Existing SD self-check/benchmark commands use fixed names and
   delete them; do not run them on valuable cards without checking those names.
 
+## 2026-10-19 map-download staging source checkpoint
+
+The new transfer path uses the shared `File` wrapper and its existing buffering,
+sync and DMA guard; it does not bypass those protections with direct SDMMC or
+raw stdio writes. Its caller-owned transfer buffer must be PSRAM on P4. The
+40 KiB internal reserve and existing FT8/LoRa/SSTV write paths are unchanged.
+
+One additive operation, `File::truncate`, is shrink-only and is used to restore
+an owned staging file to its last synced resume checkpoint. It flushes, refuses
+extension, invokes SDK FAT/VFS `ftruncate` and restores the cursor. It does not
+truncate logs, existing map packs or user-selected files. No card contents were
+changed while preparing/testing this source.
+
+Two alternating checked resume records prevent a torn newer record from being
+the sole recovery source. Bad responses are rejected before changing a staging
+tail. Completion requires full SD read-back hashing plus an actual PMTiles
+header/root check. Prepared files remain in a hidden subdirectory outside flat
+map discovery; version replacement still needs a recovery transaction.
+
+The focused host transfer harness and shared DMA test each pass 1/1; three P4
+syntax checks pass. The host storage adapter flushes stdio and injects faults;
+it does **not** execute real FAT fsync/truncate or establish power-loss durability.
+Physical-card behavior, retained-map pressure, largest internal DMA block,
+radio/logging continuity and controlled interruption remain separate gates.
+See [transfer evidence and exact logs](evidence/maps/2026-10-19-map-transfer-staging.md).
+
 ## 2026-10-17 COM39 device checkpoint
 
 `5c6f2853` builds and boots; retained-map read/write and real LoRa CSV readback

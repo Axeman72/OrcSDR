@@ -23,6 +23,7 @@ class File {
   bool seek(size_t position);
   bool flush();
   bool sync();  // Flush stdio and commit filesystem data/metadata to the card.
+  bool truncate(size_t size); // Shrink only; caller owns the staging file.
   bool close();
   bool isDirectory() const;
   const char* name() const;

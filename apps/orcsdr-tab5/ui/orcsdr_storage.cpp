@@ -4,6 +4,7 @@
 #include "wifi_service.hpp"
 #include <algorithm>
 #include <cerrno>
+#include <climits>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -83,6 +84,12 @@ bool File::flush() { return !state_ || !state_->stream || fflush(state_->stream)
 bool File::sync() {
   return state_ && state_->stream && fflush(state_->stream) == 0 &&
          fsync(fileno(state_->stream)) == 0;
+}
+bool File::truncate(size_t length) {
+  if(!state_||!state_->stream||length>static_cast<size_t>(LONG_MAX)||
+      !sync()||length>size())return false;
+  return ftruncate(fileno(state_->stream),static_cast<off_t>(length))==0&&
+      fseek(state_->stream,0,SEEK_END)==0;
 }
 bool File::close() {
   if (!state_) return true;
