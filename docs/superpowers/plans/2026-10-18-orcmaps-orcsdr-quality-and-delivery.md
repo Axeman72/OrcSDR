@@ -14,7 +14,7 @@ not the current state.
 | Phase | Current status |
 | --- | --- |
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
-| 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy, contrast and international coverage remain open. |
+| 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes focused profile/style checks but awaits broader regression, reference renders and device acceptance. Contrast and international coverage remain open. |
 | 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Continuous-motion timing and the 33 ms target remain unverified. |
 | 4 — catalog/delivery | Candidate size/provenance and preliminary delivery model recorded. Trusted catalog, resumable installation and publication remain incomplete. |
 | 5 — setup | Wizard-owned UI is prepared and included in the tested dirty build. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
@@ -111,6 +111,13 @@ Exact commands, logs, hashes and recovery paths are recorded there.
    presentation remain open. English-first names and bounded label storage do
    not establish worldwide readability. Verify closer labels on the real global
    device pack; the positive zoom-6 case is currently host-tested.
+   OrcMaps local candidate `3d9d01c` now distinguishes country/region/local
+   boundaries, preserves legacy classification and bumps style versions.
+   Focused profile CTest passes 1/1; standalone RunStyleTests passes with zero
+   failures. New direct/cache pixel coverage is added but unrun. The requested
+   full configured host regression approval is pending. This candidate is not
+   pushed, merged, pinned in OrcSDR or deployed. Evidence/log commands:
+   `F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery/docs/evidence/2026-10-19-boundary-hierarchy-source.md`.
 4. **Finish delivery and the self-contained wizard.** Choose and cost the
    owned catalog/hosting model, implement trusted resumable verified installation
    and failure recovery, then connect wizard-owned network/location/maps/download
@@ -271,6 +278,8 @@ Primary files: src/render/renderer.cpp, include/orcmap/render_target.hpp, style 
 - [ ] Prove supported-script/fallback behavior across the worldwide views, including visible missing-glyph handling. International names remain a first-release global-base requirement.
 - [x] Add the minimum graphics-independent text/measurement capability and label placement needed for settlements and selected regional labels. Merged in OrcMaps 722d0d3; broader script/quality acceptance remains open.
 - [ ] Retain and distinguish country/state/county boundary information; style states and counties visibly at appropriate zooms.
+  Shared-engine source candidate 3d9d01c and focused profile/style checks exist;
+  full regressions, real reference renders and panel acceptance remain open.
 - [ ] Preserve useful road hierarchy, water, forests/parks and quiet colors beneath bright radio overlays.
 - [x] Use bounded PSRAM-backed candidates/scratch on P4; avoid per-label unbounded allocation. Fixed pool linked in external BSS; tile RenderScratch reused. Runtime memory headroom remains open. No full MapLibre style interpreter.
 - [ ] Add real-geography comparisons at the fixed views, plus malformed/oversized-name and dense-city tests. Maintain miniz and polygon-ring gates.

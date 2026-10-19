@@ -20,6 +20,10 @@ client can stream large ranges through small fixed SD buffers. One uninterrupted
 GET resumed only after a failure could use fewer requests; these scenarios model
 deliberately chunked transfers. Retries and metadata requests add operations.
 
+PowerShell arithmetic assertions passed from the integration worktree; recorded
+inputs/results are in `global-pack-delivery-arithmetic-20261019.json` beside the
+invocation directory. This checks arithmetic only, not pricing or an endpoint.
+
 ## One viable candidate: R2 Standard behind an owned domain
 
 Published R2 Standard rates are $0.015/GB-month storage, $4.50/million Class A
