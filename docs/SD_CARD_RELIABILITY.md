@@ -118,6 +118,15 @@ make CSV appends transactional or qualify sudden power loss/card removal.
 
 ## Device acceptance before declaring reliability
 
+October 19 map installation follow-up: hidden staging now has journaled
+activation/recovery source. Focused host tests cover interrupted first install
+and replacement, corrupted journals/bytes, status errors and external metadata
+conflicts. Recovery runs before PMTiles discovery and fails visibly rather than
+treating SD I/O errors as absent files. Previous archives and unmanaged maps are
+retained. These are host/P4-syntax results, not physical SD power-loss proof;
+installer hardware validation and worker/UI wiring remain open.
+[Exact commands, logs and limitations](evidence/maps/2026-10-19-map-activation-recovery.md).
+
 | Check | Current candidate status |
 |---|---|
 | Normal native link/boot and unchanged reserve/firmware identity | PASS on COM39, 5c6f2853, full 40 KiB reserve |

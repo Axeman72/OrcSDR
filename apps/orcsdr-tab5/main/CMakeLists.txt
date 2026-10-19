@@ -103,6 +103,7 @@ idf_component_register(
         "../ui/catalog_sync.cpp"
         "../ui/map_catalog.cpp"
         "../ui/map_transfer.cpp"
+        "../ui/map_activation.cpp"
         "../ui/map_http_stream.cpp"
         "../ui/cb_dashboard.cpp"
         "../ui/cb_scanner.cpp"

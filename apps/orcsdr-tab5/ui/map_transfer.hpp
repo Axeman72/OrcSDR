@@ -32,4 +32,7 @@ Paths paths(const catalog::Pack&);
 // location, NVS setting or catalog revision is changed here.
 Error stage(storage::FileSystem&,const catalog::Pack&,size_t mirror,Stream&,
             uint64_t free_bytes,uint8_t* buffer,size_t buffer_bytes,const Hooks&) noexcept;
+// Read-only full hash and actual PMTiles checks for activation/revalidation.
+Error verify_archive(storage::FileSystem&,const catalog::Pack&,const std::string& path,
+                     uint8_t*,size_t,const Hooks&) noexcept;
 } // namespace orcsdr::maps::transfer

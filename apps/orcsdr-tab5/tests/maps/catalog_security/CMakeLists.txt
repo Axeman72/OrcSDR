@@ -17,7 +17,7 @@ target_link_libraries(map_catalog_security_test PRIVATE "${MBEDCRYPTO_LIBRARY}")
 if(WIN32)
   target_link_libraries(map_catalog_security_test PRIVATE bcrypt)
 endif()
-add_executable(map_transfer_test transfer_test.cpp "${ui}/map_transfer.cpp"
+add_executable(map_transfer_test transfer_test.cpp "${ui}/map_transfer.cpp" "${ui}/map_activation.cpp"
   "${ORCMAPS_ROOT}/src/tiles/pmtiles_reader.cpp"
   "${ORCMAPS_ROOT}/src/tiles/compression.cpp"
   "${ORCMAPS_ROOT}/src/tiles/mvt_stream.cpp"

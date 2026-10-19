@@ -7,7 +7,9 @@
 **Active delivery work: Phase 4; Phases 2 and 3 remain open.** Labels and cached
 gestures run on COM17. Delivery now has a signed catalog consumer and hidden
 resumable staging source, with focused host/P4 syntax evidence. The next step
-is recovery-safe activation and worker/setup integration, then hardware checks.
+is persistent catalog/ownership state and worker/setup integration, then hardware checks.
+Journaled activation/recovery now passes focused host tests and P4 syntax checks;
+it is wired before discovery but has not been native-linked or device-tested.
 The 33 ms target, boundary hierarchy and worldwide font/quality acceptance
 still require work. The execution ledger below is chronological history; earlier
 statements such as "not pushed" or "approval pending" describe that earlier step,
@@ -18,7 +20,7 @@ not the current state.
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
 | 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes the approved configured host regression (7/7); reference renders and device acceptance remain open. Contrast and international coverage remain open. |
 | 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Latest native-order preview measurements show pan paint p50/p95 61/83 ms and zoom233 ms (three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
-| 4 — catalog/delivery | Global candidate preflight passes. Host catalog signing and firmware consumer are implemented/tested. Resumable hidden staging passes focused host and P4 syntax checks at f80c2980; native HTTPS behavior, activation/recovery, persistent trust state, scheduling and wizard downloads remain open. No global-pack device installation or publication yet. |
+| 4 — catalog/delivery | Global candidate preflight passes. Signed catalog, hidden resumable staging and journaled activation/recovery have focused host/P4 syntax evidence. Recovery is wired before inventory discovery. Native HTTPS, physical activation/recovery, persistent trust/ownership state, scheduling and wizard downloads remain open. No global-pack device installation or publication yet. |
 | 5 — setup | Wizard-owned UI is committed at210002f4 and device-tested in bounded scopes. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
@@ -76,7 +78,7 @@ approval requests below remain evidence of earlier boundaries.
 - Runtime sourceDepth272/targetDepth272; both native RGB565 byte order.
   Internalrotation3 unchanged, so direct M5GFX rowcopy remains unavailable.
   Real-M5GFX host test covers65536values/eight traversals/reverse destination,
-  passes1/1; P4 syntax and native gates pass. Physical color acceptance pending.
+  passes1/1; P4 syntax and native gates pass. Physical colors/controls accepted by the user.
 - Retained-map existing8KiB SD readback hash matches with2835456mapbytes held;
   no new SD write. Complete SD/read/resume plan passes. Navigation Home/RFLab/
   repeatedSettings/Home passes graphics1; picker reopened ready. Driver~2.4MSPS,

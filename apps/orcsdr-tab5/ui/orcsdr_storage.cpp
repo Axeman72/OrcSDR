@@ -167,6 +167,13 @@ File FileSystem::open(const char* path, const char* mode, bool) const {
 bool FileSystem::exists(const char* path) const { const std::string mounted = mounted_path(path); struct stat info{}; return path && stat(mounted.c_str(), &info) == 0; }
 bool FileSystem::mkdir(const char* path) const { const std::string mounted = mounted_path(path); return path && (::mkdir(mounted.c_str(), 0775) == 0 || errno == EEXIST); }
 bool FileSystem::remove(const char* path) const { const std::string mounted = mounted_path(path); return path && unlink(mounted.c_str()) == 0; }
+EntryStatus FileSystem::status(const char* path) const {
+  if(!path||!mounted())return EntryStatus::error;
+  struct stat info{};
+  if(::stat(mounted_path(path).c_str(),&info)==0)
+    return S_ISDIR(info.st_mode)?EntryStatus::directory:EntryStatus::file;
+  return errno==ENOENT?EntryStatus::missing:EntryStatus::error;
+}
 bool FileSystem::rename(const char* from, const char* to) const { const std::string source = mounted_path(from); const std::string destination = mounted_path(to); return from && to && ::rename(source.c_str(), destination.c_str()) == 0; }
 
 }  // namespace orcsdr::storage

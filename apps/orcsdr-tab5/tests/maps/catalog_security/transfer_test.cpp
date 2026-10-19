@@ -1,4 +1,5 @@
 #include "map_transfer.hpp"
+#include "map_activation.hpp"
 #include "map_http_headers.hpp"
 #include "orcmap/pack_json.hpp"
 #include <cJSON.h>
@@ -14,8 +15,12 @@
 #include <algorithm>
 
 namespace testfs {
+struct PowerLoss{};
 std::filesystem::path root;
 bool fail_manifest=false,corrupt_read=false,fail_write=false;
+bool fail_status=false;
+int power_after=0,mutations=0;
+void boundary(){if(power_after&&++mutations==power_after)throw PowerLoss{};}
 std::filesystem::path path(const char* p){return root/std::string(p).substr(1);}
 }
 namespace orcsdr::storage {
@@ -41,7 +46,12 @@ size_t File::size()const{
   if(!*this)return 0;auto p=std::ftell(state_->stream);std::fseek(state_->stream,0,SEEK_END);
   auto end=std::ftell(state_->stream);std::fseek(state_->stream,p,SEEK_SET);return end<0?0:end;
 }
-bool File::sync(){return *this&&std::fflush(state_->stream)==0;}
+bool File::sync(){
+  if(!*this||std::fflush(state_->stream))return false;
+  if(state_->path.find("/activation.pending")!=std::string::npos||
+     state_->path.find("/activation.done")!=std::string::npos)testfs::boundary();
+  return true;
+}
 bool File::close(){if(!*this)return true;auto r=std::fclose(state_->stream);state_->stream=nullptr;return r==0;}
 bool File::truncate(size_t size){
   if(!*this||size>this->size()||!sync())return false;
@@ -54,12 +64,22 @@ File FileSystem::open(const char* p,const char* mode,bool)const{
   s->stream=std::fopen(testfs::path(p).string().c_str(),binary.c_str());return File(std::move(s));
 }
 bool FileSystem::exists(const char* p)const{return std::filesystem::exists(testfs::path(p));}
+EntryStatus FileSystem::status(const char* p)const{
+  if(testfs::fail_status&&std::string(p).find("activation.pending")!=std::string::npos)return EntryStatus::error;
+  std::error_code ec;const auto value=std::filesystem::status(testfs::path(p),ec);
+  if(ec==std::errc::no_such_file_or_directory)return EntryStatus::missing;
+  if(ec)return EntryStatus::error;
+  if(std::filesystem::is_directory(value))return EntryStatus::directory;
+  return std::filesystem::is_regular_file(value)?EntryStatus::file:EntryStatus::missing;
+}
 bool FileSystem::mkdir(const char* p)const{return std::filesystem::create_directories(testfs::path(p));}
 bool FileSystem::remove(const char* p)const{return std::filesystem::remove(testfs::path(p));}
 bool FileSystem::rename(const char* from,const char* to)const{
   if(testfs::fail_manifest&&std::string(to).find(".manifest.json")!=std::string::npos)return false;
   if(exists(to))return false;
-  std::error_code ec;std::filesystem::rename(testfs::path(from),testfs::path(to),ec);return !ec;
+  std::error_code ec;std::filesystem::rename(testfs::path(from),testfs::path(to),ec);
+  if(ec)std::printf("rename failure %s; destination bytes=%zu\n",ec.message().c_str(),testfs::path(to).string().size());
+  if(!ec){if(testfs::power_after)std::printf("rename mutation: %s -> %s\n",from,to);testfs::boundary();}return !ec;
 }
 }
 namespace t=orcsdr::maps::transfer;
@@ -127,7 +147,8 @@ int main(int argc,char** argv){
         !t::https_endpoint("https://cdn.example.test/\r\nx"),"downgrade and unsafe redirects refused");
   auto reset=[&]{std::filesystem::remove_all(testfs::root);std::filesystem::create_directories(testfs::root/"orcmaps");
     std::ofstream(testfs::root/"orcmaps/old.pmtiles")<<"valuable map";
-    testfs::fail_manifest=false;testfs::corrupt_read=false;testfs::fail_write=false;};
+    testfs::fail_manifest=false;testfs::corrupt_read=false;testfs::fail_write=false;
+    testfs::power_after=0;testfs::mutations=0;testfs::fail_status=false;};
   auto run=[&](Stream& s,uint64_t free=100000000){
     const auto result=t::stage(fs,p,0,s,free,buffer.data(),buffer.size(),{});
     std::printf("transfer result=%d request=%llu opens=%d\n",static_cast<int>(result),
@@ -156,8 +177,8 @@ int main(int argc,char** argv){
   check(run(again)==t::Error::none&&again.opens==0,"prepared pack revalidated without network");
   reset();Stream corrupted;corrupted.corrupt_after=true;
   check(run(corrupted)==t::Error::hash&&!fs.exists(paths.manifest.c_str()),"SD readback corruption rejected");
-  reset();Stream activation;testfs::fail_manifest=true;
-  check(run(activation)==t::Error::storage&&!fs.exists(paths.manifest.c_str()),"staging rename failure preserves old packs");
+  reset();Stream manifest_rename_failure;testfs::fail_manifest=true;
+  check(run(manifest_rename_failure)==t::Error::storage&&!fs.exists(paths.manifest.c_str()),"staging rename failure preserves old packs");
   testfs::fail_manifest=false;Stream recovery;
   check(run(recovery)==t::Error::none&&recovery.opens==0,"staged archive orphan verified and prepared");
   reset();Stream partial;partial.fail_after=65000;
@@ -182,5 +203,96 @@ int main(int argc,char** argv){
   check(t::stage(fs,invalid,0,bad_archive,100000000,buffer.data(),buffer.size(),{})==t::Error::archive,
         "matching body hash cannot bypass PMTiles header validation");
   body=good;
+  namespace activation=orcsdr::maps::activation;
+  const auto current_body=body;
+  body.back()=1;const auto previous=pack(argv[2]);const auto previous_body=body;body=current_body;
+  auto install_previous=[&] {
+    std::ofstream archive(testfs::root/"orcmaps/previous.pmtiles",std::ios::binary);
+    archive.write(reinterpret_cast<const char*>(previous_body.data()),previous_body.size());archive.close();
+    std::ofstream(testfs::root/"orcmaps/previous.manifest.json",std::ios::binary)<<previous.manifest_json;
+  };
+  for(int point=1;point<=5;++point) {
+    reset();install_previous();Stream prepared;
+    check(run(prepared)==t::Error::none,"activation fixture staged");
+    testfs::power_after=point;bool interrupted=false;
+    try{const auto result=activation::activate(fs,p,"/orcmaps/previous.manifest.json",buffer.data(),buffer.size(),{});
+        std::printf("activate returned %d after %d boundaries\n",static_cast<int>(result),testfs::mutations);}
+    catch(const testfs::PowerLoss&){interrupted=true;}
+    testfs::power_after=0;
+    check(interrupted,"power boundary reached");
+    check(activation::recover(fs,paths.directory)==activation::Error::none,"activation recovered");
+    const auto target=activation::target_manifest(p);
+    check(point==5?(!fs.exists("/orcmaps/previous.manifest.json")&&fs.exists(target.c_str())):
+                  (fs.exists("/orcmaps/previous.manifest.json")&&!fs.exists(target.c_str())),
+          "only committed new or restored old manifest visible");
+    const auto old=load(testfs::root/"orcmaps/previous.pmtiles");
+    check(old==std::string(previous_body.begin(),previous_body.end()),"previous archive bytes preserved");
+    size_t visible=0;
+    for(const auto& file:std::filesystem::directory_iterator(testfs::root/"orcmaps"))
+      if(file.is_regular_file()&&file.path().filename().string().find(".manifest.json")!=std::string::npos)++visible;
+    check(visible==1,"no duplicate visible pack identities");
+    std::printf("activation interruption boundary %d checked\n",point);
+  }
+  auto prepare_activation=[&] {
+    reset();install_previous();Stream prepared;
+    check(run(prepared)==t::Error::none,"activation validation fixture staged");
+  };
+  auto activate=[&] {return activation::activate(fs,p,"/orcmaps/previous.manifest.json",
+      buffer.data(),buffer.size(),{});};
+  prepare_activation();
+  check(activate()==activation::Error::none,"replacement committed");
+  const auto target=activation::target_manifest(p);
+  check(activation::recover(fs,paths.directory)==activation::Error::none,"committed recovery idempotent");
+  check(activate()==activation::Error::none,"committed activation retry idempotent");
+  testfs::fail_status=true;
+  check(activation::recover(fs,paths.directory)==activation::Error::storage&&
+        activation::finalize(fs,paths.directory)==activation::Error::storage,
+        "SD status errors cannot masquerade as missing journals");
+  testfs::fail_status=false;
+  check(activation::finalize(fs,paths.directory)==activation::Error::none&&
+        activation::finalize(fs,paths.directory)==activation::Error::none,"finalization idempotent");
+  check(fs.exists((paths.directory+"/previous.bak").c_str())&&
+        fs.exists("/orcmaps/previous.pmtiles")&&fs.exists(target.c_str()),"finalization retains recovery data");
+  prepare_activation();
+  {std::ofstream(testfs::path((paths.directory+"/activation.pending").c_str()),std::ios::binary)<<"torn";}
+  check(activation::recover(fs,paths.directory)==activation::Error::none&&
+        load(testfs::path((paths.directory+"/activation.invalid").c_str()))=="torn"&&
+        fs.exists("/orcmaps/previous.manifest.json"),"torn initial journal quarantined without losing old map");
+  prepare_activation();
+  testfs::power_after=3;
+  try{activate();}catch(const testfs::PowerLoss&){}
+  testfs::power_after=0;
+  {std::ofstream(testfs::path((paths.directory+"/activation.pending").c_str()),std::ios::binary)<<"torn";}
+  check(activation::recover(fs,paths.directory)==activation::Error::corrupt&&
+        fs.exists((paths.directory+"/previous.bak").c_str()),"corrupt mutated journal retains backup for attention");
+  prepare_activation();
+  testfs::power_after=3;
+  try{activate();}catch(const testfs::PowerLoss&){}
+  testfs::power_after=0;
+  std::ofstream(testfs::root/"orcmaps/previous.manifest.json",std::ios::binary)<<"external replacement";
+  check(activation::recover(fs,paths.directory)==activation::Error::conflict&&
+        load(testfs::root/"orcmaps/previous.manifest.json")=="external replacement",
+        "recovery never overwrites externally changed metadata");
+  prepare_activation();
+  check(activation::activate(fs,p,"/orcmaps/../previous.manifest.json",buffer.data(),buffer.size(),{})==
+        activation::Error::input&&fs.exists("/orcmaps/previous.manifest.json"),"old manifest traversal refused");
+  check(activation::recover(fs,"/orcmaps/.stage-../invalid")==activation::Error::input,
+        "recovery directory traversal refused");
+  prepare_activation();
+  {std::fstream archive(testfs::path(paths.archive.c_str()),std::ios::binary|std::ios::in|std::ios::out);
+   archive.seekp(-1,std::ios::end);archive.put('x');}
+  check(activate()==activation::Error::corrupt&&fs.exists("/orcmaps/previous.manifest.json")&&
+        !fs.exists(target.c_str()),"activation rehashes staging before changing visible maps");
+  for(int point=1;point<=4;++point) {
+    reset();Stream prepared;check(run(prepared)==t::Error::none,"first install staged");
+    testfs::power_after=point;bool interrupted=false;
+    try{activation::activate(fs,p,"",buffer.data(),buffer.size(),{});}
+    catch(const testfs::PowerLoss&){interrupted=true;}
+    testfs::power_after=0;
+    check(interrupted&&activation::recover(fs,paths.directory)==activation::Error::none,
+          "first install interruption recovered");
+    check(fs.exists(target.c_str())==(point==4),"only committed first install visible");
+    check(load(testfs::root/"orcmaps/old.pmtiles")=="valuable map","unmanaged map preserved");
+  }
   std::printf("RESULT: transfer scenarios %s\n",failures?"FAIL":"PASS");return failures?1:0;
 }

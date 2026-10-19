@@ -199,4 +199,16 @@ Error stage(storage::FileSystem& fs,const catalog::Pack& pack,size_t mirror,Stre
   try{return prepare(fs,pack,mirror,stream,free,buffer,bytes,hooks);}
   catch(const std::bad_alloc&){return Error::allocation;}
 }
+Error verify_archive(storage::FileSystem& fs,const catalog::Pack& pack,const std::string& path,
+                     uint8_t* buffer,size_t bytes,const Hooks& hooks) noexcept {
+  try {
+    orcmap::PackManifest expected;
+    if(!buffer||bytes<4096||bytes>65536||
+        orcmap::ParsePackManifestJson(pack.manifest_json,&expected)!=orcmap::PackJsonError::kNone||
+        orcmap::ValidatePackManifest(expected)!=orcmap::PackValidationError::kNone||
+        expected.output_sha256!=pack.manifest.output_sha256||expected.pack_id!=pack.manifest.pack_id||
+        expected.size_bytes>kMaximum)return Error::input;
+    return verify_file(fs,path,expected,buffer,bytes,hooks);
+  }catch(const std::bad_alloc&){return Error::allocation;}
+}
 } // namespace orcsdr::maps::transfer

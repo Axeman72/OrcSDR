@@ -2,6 +2,7 @@
 #include "map_timing.hpp"
 #include "map_preview.hpp"
 #include "map_inventory.hpp"
+#include "map_activation.hpp"
 #include "offline_map.hpp"
 #include "memory_reclaim.hpp"
 #include "orcmap/esp_idf/file_byte_source.hpp"
@@ -27,6 +28,7 @@
 #include <memory>
 #include <new>
 #include <iterator>
+#include <cerrno>
 
 namespace orcsdr::maps {
 namespace {
@@ -71,6 +73,7 @@ std::unique_ptr<orcmap::ByteSource> g_source;
 std::unique_ptr<Pipeline> g_pipeline;
 EXT_RAM_BSS_ATTR char g_archive[256]{};
 bool g_sd = false, g_cached = false;
+EXT_RAM_BSS_ATTR storage::FileSystem* g_storage = nullptr;
 std::atomic<bool> g_scan{true};
 std::atomic<bool> g_installed{false};
 std::atomic<uint32_t> g_serial{0}, g_revision{0};
@@ -206,14 +209,48 @@ class Files final : public orcmap::PackFileSystem {
   orcmap::esp_idf::PackFileSystem files_;
 };
 
+activation::Error recover_before_discovery() {
+  if(!g_storage)return activation::Error::none;
+  const auto root=g_storage->status("/orcmaps");
+  if(root==storage::EntryStatus::missing)return activation::Error::none;
+  if(root!=storage::EntryStatus::directory)return activation::Error::storage;
+  try {
+    const std::unique_ptr<DIR,decltype(&closedir)> dir(opendir(kDirectory),closedir);
+    if(!dir)return activation::Error::storage;
+    size_t entries=0,jobs=0;
+    while(true) {
+      errno=0;const auto* entry=readdir(dir.get());
+      if(!entry)return errno?activation::Error::storage:activation::Error::none;
+      if(++entries>4096)return activation::Error::storage;
+      const auto path=std::string("/orcmaps/")+entry->d_name;
+      if(!activation::valid_directory(path))continue;
+      if(g_storage->status(path.c_str())!=storage::EntryStatus::directory)
+        return activation::Error::storage;
+      const auto pending=g_storage->status((path+"/activation.pending").c_str());
+      if(pending==storage::EntryStatus::missing)continue;
+      if(pending!=storage::EntryStatus::file||++jobs>64)return activation::Error::storage;
+      const auto result=activation::recover(*g_storage,path);
+      if(result!=activation::Error::none)return result;
+      vTaskDelay(1);
+    }
+  }catch(const std::bad_alloc&){return activation::Error::allocation;}
+}
+
 void discover() {
   Files files;
-  (void)g_inventory.scan(files,kDirectory,g_sd);
+  // Never expose partially activated metadata before its journal is recovered.
+  const auto recovery=recover_before_discovery();
+  (void)g_inventory.scan(files,kDirectory,g_sd&&recovery==activation::Error::none);
   static EXT_RAM_BSS_ATTR MapSnapshot next;
   // Value-initialise in place; a temporary snapshot would exceed the worker stack.
   next.~MapSnapshot();new(&next) MapSnapshot();
   next.loaded=true;next.sd=g_sd;next.overflow=g_inventory.limit_exceeded();
   next.out_of_memory=g_inventory.out_of_memory();
+  if(recovery!=activation::Error::none) {
+    auto& item=next.packs[next.count++];item.kind=Kind::rejected;
+    text(item.title,"SD map recovery");text(item.status,"Recovery needs attention; files retained");
+    std::printf("ORCMAPS_RECOVERY error=%u; SD PMTiles discovery withheld\n",static_cast<unsigned>(recovery));
+  }
   auto& world=next.packs[next.count++];
   world.kind=Kind::firmware;text(world.identity,"firmware-world");text(world.title,"Firmware world overview");
   text(world.region,"World; overview detail only");text(world.credit,"Made with Natural Earth");
@@ -373,6 +410,7 @@ size_t release() {
 bool begin(storage::FileSystem* sd) {
   if(g_task)return true;
   g_sd=sd!=nullptr;
+  g_storage=sd;
   g_lock=xSemaphoreCreateMutex();
   g_preview_lock=xSemaphoreCreateMutex();
   g_queue=xQueueCreateWithCaps(1,sizeof(Request),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);

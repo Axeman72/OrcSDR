@@ -6,6 +6,8 @@
 
 namespace orcsdr::storage {
 
+enum class EntryStatus {missing,file,directory,error};
+
 class File {
  public:
   File() = default;
@@ -41,6 +43,7 @@ class FileSystem {
  public:
   File open(const char* path, const char* mode = "r", bool create = false) const;
   bool exists(const char* path) const;
+  EntryStatus status(const char* path) const; // Distinguish absence from SD I/O failure.
   bool mkdir(const char* path) const;
   bool remove(const char* path) const;
   bool rename(const char* from, const char* to) const;
