@@ -347,11 +347,13 @@ void describe(char* out, size_t size) {
   if (!g_state) { std::snprintf(out, size, "DEAD_AIR open=0"); return; }
   const Worker& w = g_state->worker;
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
-                g_state->model.baseline_ready() ? 1 : 0);
+                g_state->model.baseline_ready() ? 1 : 0, g_state->last_level_valid ? static_cast<double>(g_state->last_level) : -999.0,
+                static_cast<double>(g_state->model.rf_baseline_dbfs()), static_cast<double>(rf_rise_threshold_db(g_state->model.sensitivity())),
+                static_cast<unsigned long>(g_hooks.frequency_hz ? g_hooks.frequency_hz() : 0));
 }
 
 }  // namespace orcsdr::dead_air_app
