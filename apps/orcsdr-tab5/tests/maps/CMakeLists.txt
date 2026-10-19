@@ -41,6 +41,18 @@ else()
   target_compile_options(orcsdr_map_preview_tests PRIVATE -UNDEBUG)
 endif()
 add_test(NAME map_preview COMMAND orcsdr_map_preview_tests)
+# Optional actual-M5GFX byte-order regression; no copied vendor implementation.
+set(M5GFX_ROOT "" CACHE PATH "Resolved M5GFX component for format checks")
+if(M5GFX_ROOT)
+  if(NOT EXISTS "${M5GFX_ROOT}/src/lgfx/v1/misc/pixelcopy.cpp")
+    message(FATAL_ERROR "M5GFX_ROOT must contain the resolved M5GFX component")
+  endif()
+  add_executable(orcsdr_map_preview_format_tests map_preview_format_tests.cpp
+    "${M5GFX_ROOT}/src/lgfx/v1/misc/pixelcopy.cpp")
+  target_include_directories(orcsdr_map_preview_format_tests PRIVATE "${M5GFX_ROOT}/src")
+  add_test(NAME map_preview_format COMMAND orcsdr_map_preview_format_tests)
+endif()
+
 add_executable(orcsdr_map_timing_tests map_timing_tests.cpp)
 target_include_directories(orcsdr_map_timing_tests PRIVATE "${ui}")
 if(MSVC)

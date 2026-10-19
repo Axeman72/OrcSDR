@@ -31,3 +31,16 @@ Logs preview-format-{configure,build,tests,p4-syntax}-20261019.log.
 P4 syntax PASS with existing SDK literal-suffix warning. No native/hardware
 speed or pixel acceptance yet. This is a bounded performance experiment under
 the user's current-session build/COM17 test authority. No publication/merge.
+
+
+The same test is now registered by the existing maps host CMake project when
+M5GFX_ROOT is supplied explicitly. Clean checkouts without managed components
+can leave that option empty; no vendored source is required. Repeatable command:
+
+    cmake -S apps/orcsdr-tab5/tests/maps -B .local/maps/timing-host-20261019 -D M5GFX_ROOT=F:/AI/OrcSDR-TEMP/maps-integration-completion/apps/orcsdr-tab5/managed_components/m5stack__m5gfx
+    cmake --build .local/maps/timing-host-20261019 --config Debug --target orcsdr_map_preview_format_tests
+    ctest --test-dir .local/maps/timing-host-20261019 -C Debug -R '^map_preview_format$' --output-on-failure
+
+PASS1/1; preview-format-integrated-{configure,build,test}-20261019.log.
+This host-test registration was added after the native artifact was sealed;
+it changes no firmware input or device behavior.
