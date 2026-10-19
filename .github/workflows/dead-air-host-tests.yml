@@ -1,0 +1,31 @@
+name: Dead Air host tests
+on:
+  push:
+    branches:
+      - 'chatgpt/dead-air-*'
+    paths:
+      - 'apps/orcsdr-tab5/ui/dead_air_*'
+      - 'tests/dead_air_model_tests.cpp'
+      - '.github/workflows/dead-air-host-tests.yml'
+  pull_request:
+    paths:
+      - 'apps/orcsdr-tab5/ui/dead_air_*'
+      - 'tests/dead_air_model_tests.cpp'
+      - '.github/workflows/dead-air-host-tests.yml'
+permissions:
+  contents: read
+jobs:
+  dead-air-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile model with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_model_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_model.cpp \
+            -o /tmp/dead-air-model-tests
+      - name: Execute deterministic RF/event tests
+        run: /tmp/dead-air-model-tests
