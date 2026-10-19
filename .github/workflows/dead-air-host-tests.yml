@@ -6,6 +6,8 @@ on:
     paths:
       - 'apps/orcsdr-tab5/ui/dead_air_*'
       - 'tests/dead_air_model_tests.cpp'
+      - 'tests/dead_air_journal_tests.cpp'
+      - 'tests/dead_air_journal_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
   pull_request:
     paths:
@@ -29,3 +31,13 @@ jobs:
             -o /tmp/dead-air-model-tests
       - name: Execute deterministic RF/event tests
         run: /tmp/dead-air-model-tests
+      - name: Compile journal with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_journal_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_model.cpp \
+            apps/orcsdr-tab5/ui/dead_air_journal.cpp \
+            -o /tmp/dead-air-journal-tests
+      - name: Execute deterministic journal tests
+        run: /tmp/dead-air-journal-tests

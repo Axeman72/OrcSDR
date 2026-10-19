@@ -77,6 +77,8 @@ struct RfObservation {
 
 class EventModel {
  public:
+  using EventListener = void (*)(void* context, const Event& event);
+  void set_listener(EventListener listener, void* context);
   void reset();
   void set_sensitivity(Sensitivity sensitivity);
   Sensitivity sensitivity() const { return sensitivity_; }
@@ -106,6 +108,9 @@ class EventModel {
   float baseline_ = 0.0f;
   bool have_tune_ = false, pending_ = false, latched_ = false;
   Sensitivity sensitivity_ = Sensitivity::standard;
+  // Callback must only enqueue, never write to SD or touch the display.
+  EventListener listener_ = nullptr;
+  void* listener_context_ = nullptr;
 };
 
 // A source may be physically present but still warming up or stale. In every

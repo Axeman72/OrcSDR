@@ -38,6 +38,10 @@ const char* kind_name(Kind kind) {
   }
   return "OBSERVATION";
 }
+void EventModel::set_listener(EventListener listener, void* context) {
+  listener_ = listener;
+  listener_context_ = context;
+}
 void EventModel::reset() {
   count_ = next_ = total_ = 0;
   config_revision_ = tuned_hz_ = candidate_since_ = cooldown_until_ = 0;
@@ -67,6 +71,7 @@ void EventModel::push(Event event) {
   next_ = (next_ + 1) % kEventCapacity;
   count_ = std::min(count_ + 1, kEventCapacity);
   ++total_;
+  if (listener_) listener_(listener_context_, event);
 }
 bool EventModel::append_measured(const Event& event) {
   const bool valid_kind =
