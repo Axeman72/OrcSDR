@@ -94,7 +94,8 @@ bool EventJournal::start(JournalSink& sink, uint32_t session_id) {
   const int n = std::snprintf(line, sizeof(line),
       "{\"v\":1,\"type\":\"session_start\",\"session_id\":%lu}\n",
       static_cast<unsigned long>(session_id));
-  if (!complete(n, sizeof(line)) || !sink.append(line, static_cast<size_t>(n))) {
+  if (!complete(n, sizeof(line)) || !sink.append(line, static_cast<size_t>(n)) ||
+      !sink.sync()) {
     failed_ = true;
     return false;
   }
@@ -133,6 +134,8 @@ size_t EventJournal::drain(EventQueue& queue, JournalSink& sink, size_t max_reco
     ++saved_; ++processed;
     pending_ = false;
   }
+  // Persist each bounded worker batch; no SD calls run in the UI/IQ task.
+  if (processed != 0 && !failed_ && !sink.sync()) failed_ = true;
   return processed;
 }
 bool EventJournal::finish(EventQueue& queue, JournalSink& sink) {

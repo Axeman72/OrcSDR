@@ -6,11 +6,12 @@ using namespace orcsdr::dead_air;
 struct MemorySink : JournalSink {
   std::string contents;
   bool fail = false, synced = false;
+  unsigned sync_calls = 0;
   bool append(const char* line, size_t len) override {
     if (fail) return false;
     contents.append(line, len); return true;
   }
-  bool sync() override { synced = true; return !fail; }
+  bool sync() override { synced = true; ++sync_calls; return !fail; }
 };
 static Event rf(uint32_t seq) {
   Event e{}; e.sequence = seq; e.monotonic_ms = seq * 10;
@@ -41,7 +42,9 @@ static void queue_and_writer() {
   assert(!q.push(rf(65))); assert(q.dropped() == 1 && q.pending() == 64);
   MemorySink sink; EventJournal journal;
   assert(journal.start(sink, 1234));
+  const unsigned sync_before = sink.sync_calls;
   assert(journal.drain(q, sink, 3) == 3);
+  assert(sink.sync_calls == sync_before + 1);
   assert(journal.saved() == 3 && q.pending() == 61);
   assert(journal.finish(q, sink));
   assert(journal.saved() == 64 && journal.missing() == 0);
