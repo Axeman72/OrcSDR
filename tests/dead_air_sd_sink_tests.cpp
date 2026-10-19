@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <cstdio>
 static std::unordered_map<std::string, std::string> disk;
-static bool mounted = true, partial_write = false;
+static bool g_sd_mounted = true, partial_write = false;
 namespace orcsdr::storage {
 struct File::State { std::string path; };
 File::File(std::shared_ptr<State> state) : state_(std::move(state)) {}
@@ -19,18 +19,18 @@ size_t File::write(const uint8_t* data, size_t len) {
   disk[state_->path].append(reinterpret_cast<const char*>(data), accepted);
   return accepted;
 }
-bool File::sync() { return state_ && mounted; }
+bool File::sync() { return state_ && g_sd_mounted; }
 bool File::close() { if (!state_) return true; state_.reset(); return true; }
 File FileSystem::open(const char* path, const char* mode, bool) const {
-  if (!mounted || !path || !mode || mode[0] != 'a') return {};
+  if (!g_sd_mounted || !path || !mode || mode[0] != 'a') return {};
   auto state = std::make_shared<File::State>();
   state->path = path;
   disk.try_emplace(path, "");
   return File(std::move(state));
 }
 bool FileSystem::exists(const char* path) const { return disk.find(path) != disk.end(); }
-bool FileSystem::mkdir(const char* path) const { return std::strcmp(path, "/dead_air") == 0 && mounted; }
-bool mounted() { return ::mounted; }
+bool FileSystem::mkdir(const char* path) const { return std::strcmp(path, "/dead_air") == 0 && g_sd_mounted; }
+bool mounted() { return ::g_sd_mounted; }
 }
 using namespace orcsdr::dead_air;
 int main() {
@@ -66,7 +66,7 @@ int main() {
   assert(!bad.append("more\n", 5));
   assert(!bad.close());
   partial_write = false;
-  mounted = false;
+  g_sd_mounted = false;
   SdJournalSink absent;
   assert(!absent.open(fs, 126));
   assert(absent.failed());
