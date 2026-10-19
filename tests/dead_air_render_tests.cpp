@@ -48,7 +48,9 @@ int main() {
     auto action = da::handle_touch(x, 673, 1000 + i);
     assert(action.kind == da::ActionKind::none);
     assert(da::page() == static_cast<da::Page>(i));
-    assert(!host_display::prims.empty());
+    // Tapping an already selected tab is intentionally a no-op.
+    if (i == 0) assert(host_display::prims.empty());
+    else assert(!host_display::prims.empty());
     validate_bounds();
   }
   // Sensitivity buttons/marker are real touch actions only on Events.
