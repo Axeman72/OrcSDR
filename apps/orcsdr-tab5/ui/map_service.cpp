@@ -20,6 +20,7 @@
 #include <freertos/task.h>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -54,6 +55,17 @@ EXT_RAM_BSS_ATTR UpdateTiming g_update_timing;
 // Ten bounded 256-sample rings, under 21 KiB including metadata; stage rings
 // add about 8 KiB of PSRAM and no internal/DMA allocation.
 EXT_RAM_BSS_ATTR PreviewTiming g_preview_pan_timing,g_preview_zoom_timing;
+struct PreviewFacts {
+  bool valid=false,display_target=false,copy_bbox_exact=false;
+  uint32_t request=0,source_depth=0,target_depth=0;
+  int rotation=0,offset=0,derived_rotation=0,physical_w=0,physical_h=0;
+  int logical_w=0,logical_h=0,source_w=0,source_h=0;
+  int32_t clip_x=0,clip_y=0,clip_w=0,clip_h=0;
+  uint64_t clipped_map_pixels=0,copy_bbox_pixels=0;
+};
+// Last observed facts per transform bucket, protected by g_preview_lock.
+EXT_RAM_BSS_ATTR PreviewFacts g_preview_facts[2];
+static_assert(sizeof(g_preview_facts)<=256,"Bound preview diagnostics independently of timing rings");
 std::atomic<uint32_t> g_preview_lock_misses{0};
 std::unique_ptr<orcmap::ByteSource> g_source;
 std::unique_ptr<Pipeline> g_pipeline;
@@ -98,6 +110,42 @@ void publish_preview(const Request& request) {
   }
   xSemaphoreGive(g_preview_lock);
 }
+void capture_preview_facts(const Request& request,lgfx::v1::LovyanGFX& target,
+    const orcmap::FrameTransform& transform,int x,int y) {
+  auto& facts=g_preview_facts[transform.scale==1?0:1];facts=PreviewFacts{};
+  facts.valid=true;facts.request=request.serial;
+  facts.source_depth=static_cast<uint32_t>(g_preview.getColorDepth());
+  facts.target_depth=static_cast<uint32_t>(target.getColorDepth());
+  facts.logical_w=target.width();facts.logical_h=target.height();
+  facts.source_w=g_preview.width();facts.source_h=g_preview.height();
+  target.getClipRect(&facts.clip_x,&facts.clip_y,&facts.clip_w,&facts.clip_h);
+  // getPanel() is a Panel_Device API on the real display. Do not reinterpret
+  // an arbitrary sprite/custom target's panel as a physical display device.
+  if(&target==&M5.Display) {
+    const auto* panel=M5.Display.getPanel();
+    if(panel) {
+      facts.display_target=true;facts.rotation=panel->getRotation();
+      const auto& config=panel->config();facts.offset=config.offset_rotation;
+      facts.physical_w=config.panel_width;facts.physical_h=config.panel_height;
+      // Exact formula in the checked Panel_FrameBufferBase::setRotation.
+      // This is explicitly derived, not a read of its protected state.
+      facts.derived_rotation=((facts.rotation+facts.offset)&3)|((facts.rotation&4)^(facts.offset&4));
+    }
+  }
+  const int64_t left=std::max<int64_t>(x,facts.clip_x),top=std::max<int64_t>(y,facts.clip_y);
+  const int64_t right=std::min<int64_t>(int64_t{x}+request.view.width_px,int64_t{facts.clip_x}+facts.clip_w);
+  const int64_t bottom=std::min<int64_t>(int64_t{y}+request.view.height_px,int64_t{facts.clip_y}+facts.clip_h);
+  facts.clipped_map_pixels=static_cast<uint64_t>(std::max<int64_t>(0,right-left))*std::max<int64_t>(0,bottom-top);
+  facts.copy_bbox_exact=transform.scale==1;
+  const int64_t image_left=int64_t{x}+(facts.copy_bbox_exact?std::lround(transform.dx):static_cast<int64_t>(std::floor(transform.dx)));
+  const int64_t image_top=int64_t{y}+(facts.copy_bbox_exact?std::lround(transform.dy):static_cast<int64_t>(std::floor(transform.dy)));
+  const int64_t image_right=facts.copy_bbox_exact?image_left+facts.source_w:
+      int64_t{x}+static_cast<int64_t>(std::ceil(transform.dx+facts.source_w*transform.scale));
+  const int64_t image_bottom=facts.copy_bbox_exact?image_top+facts.source_h:
+      int64_t{y}+static_cast<int64_t>(std::ceil(transform.dy+facts.source_h*transform.scale));
+  facts.copy_bbox_pixels=static_cast<uint64_t>(std::max<int64_t>(0,std::min(right,image_right)-std::max(left,image_left)))*
+      std::max<int64_t>(0,std::min(bottom,image_bottom)-std::max(top,image_top));
+}
 void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y) {
   if(!g_preview_lock)return;
   if(xSemaphoreTake(g_preview_lock,0)!=pdTRUE){g_preview_lock_misses.fetch_add(1);return;}
@@ -111,6 +159,7 @@ void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y
     auto& timing=transform.scale==1?g_preview_pan_timing:g_preview_zoom_timing;
     if(paint.painted)timing.present(request.serial,request.requested_us,started,
         static_cast<uint64_t>(esp_timer_get_time()),paint.clear_us,paint.transfer_us);
+    if(paint.painted)capture_preview_facts(request,target,transform,x,y);
   }
   xSemaphoreGive(g_preview_lock);
 }
@@ -363,8 +412,21 @@ void report(void (*write)(const char*)) {
     const auto pan_intervals=g_preview_pan_timing.intervals(),zoom_intervals=g_preview_zoom_timing.intervals();
     const auto pan_clear=g_preview_pan_timing.clear(),zoom_clear=g_preview_zoom_timing.clear();
     const auto pan_transfer=g_preview_pan_timing.transfer(),zoom_transfer=g_preview_zoom_timing.transfer();
+    const PreviewFacts facts[2]={g_preview_facts[0],g_preview_facts[1]};
     xSemaphoreGive(g_preview_lock);
     for(int mode=0;mode<2;++mode) {
+      const auto& observed=facts[mode];
+      if(observed.valid) {
+        std::snprintf(line,sizeof(line),"ORC_MAP_PREVIEW_FACTS mode=%s request=%lu display_target=%u rotation_raw=%d rotation_offset=%d derived_internal_rotation=%d physical=%dx%d logical=%dx%d source=%dx%d source_depth=%lu target_depth=%lu clip=%ld,%ld,%ld,%ld clipped_map_pixels=%llu copy_bbox_pixels=%llu copy_bbox_exact=%u\n",
+            mode==0?"same_scale":"scaled",static_cast<unsigned long>(observed.request),observed.display_target?1u:0u,
+            observed.rotation,observed.offset,observed.derived_rotation,observed.physical_w,observed.physical_h,
+            observed.logical_w,observed.logical_h,observed.source_w,observed.source_h,
+            static_cast<unsigned long>(observed.source_depth),static_cast<unsigned long>(observed.target_depth),
+            static_cast<long>(observed.clip_x),static_cast<long>(observed.clip_y),static_cast<long>(observed.clip_w),static_cast<long>(observed.clip_h),
+            static_cast<unsigned long long>(observed.clipped_map_pixels),static_cast<unsigned long long>(observed.copy_bbox_pixels),
+            observed.copy_bbox_exact?1u:0u);
+        write(line);
+      }
       for(int metric=0;metric<5;++metric) {
         const auto& timing=metric==0?(mode==0?pan_paint:zoom_paint):
             metric==1?(mode==0?pan_feedback:zoom_feedback):metric==2?(mode==0?pan_intervals:zoom_intervals):
