@@ -172,6 +172,7 @@ idf_component_register(
         "../ui/web_audio_transport.cpp"
         "../ui/dead_air_model.cpp"
         "../ui/dead_air_journal.cpp"
+        "../ui/dead_air_sd_journal.cpp"
         "../ui/dead_air_dashboard.cpp"
         "../ui/rf24_dashboard.cpp"
         "../ui/wifi_service.cpp"

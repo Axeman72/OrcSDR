@@ -7,6 +7,7 @@ on:
       - 'apps/orcsdr-tab5/ui/dead_air_*'
       - 'tests/dead_air_model_tests.cpp'
       - 'tests/dead_air_render_tests.cpp'
+      - 'tests/dead_air_sd_sink_tests.cpp'
       - 'tests/dead_air_journal_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
   pull_request:
@@ -14,6 +15,7 @@ on:
       - 'apps/orcsdr-tab5/ui/dead_air_*'
       - 'tests/dead_air_model_tests.cpp'
       - 'tests/dead_air_render_tests.cpp'
+      - 'tests/dead_air_sd_sink_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
 permissions:
   contents: read
@@ -54,3 +56,14 @@ jobs:
             -o /tmp/dead-air-render-tests
       - name: Execute M5GFX render bounds and touch tests
         run: /tmp/dead-air-render-tests
+      - name: Compile OrcSDR SD sink against host filesystem
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_sd_sink_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_model.cpp \
+            apps/orcsdr-tab5/ui/dead_air_journal.cpp \
+            apps/orcsdr-tab5/ui/dead_air_sd_journal.cpp \
+            -o /tmp/dead-air-sd-tests
+      - name: Execute SD journal contract tests
+        run: /tmp/dead-air-sd-tests
