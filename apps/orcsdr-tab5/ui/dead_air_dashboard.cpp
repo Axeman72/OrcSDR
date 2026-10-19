@@ -9,6 +9,7 @@
 #include <new>
 #include <utility>
 #include "acars_dirty_rects.hpp"
+#include "dead_air_sweep.hpp"
 
 namespace orcsdr::dead_air {
 namespace {
@@ -19,6 +20,7 @@ constexpr int kTabY = 649, kTabX = 20, kTabWidth = 198, kTabGap = 12, kTabHeight
 constexpr int kBodyY = 114, kBodyBottom = 635;
 constexpr int kModeX0 = 40, kModeY0 = 290, kModeDx = 95, kModeDy = 60, kModeW = 86;
 constexpr int kStepY = 452;
+constexpr int kSweepY = 530;
 EventModel* g_events = nullptr;
 Snapshot* g_snapshot = nullptr;  // heap, not static: internal .data/.bss below the DMA-pool margin aborts boot
 Page g_page = Page::overview;
@@ -237,8 +239,8 @@ void spectrum() {
     label(kModeNames[i], x + 14, y + 26, selected ? kGreen : g_snapshot->receiver_ready ? TFT_WHITE : kMuted);
   }
   label("TUNE (BAND STEP)", 40, 432, kMuted, 2);
-  button("- STEP", 40, 452, 128, kCyan, g_snapshot->receiver_ready);
-  button("+ STEP", 183, 452, 128, kCyan, g_snapshot->receiver_ready);
+  button("- STEP", 40, 452, 128, kCyan, g_snapshot->receiver_ready && !g_snapshot->sweeping);
+  button("+ STEP", 183, 452, 128, kCyan, g_snapshot->receiver_ready && !g_snapshot->sweeping);
   label(g_snapshot->receiver_settled ? "SETTLED" : "SETTLING...", 40, 535,
         g_snapshot->receiver_settled ? kGreen : kYellow, 2);
   label("Single channel,", 40, 580, kMuted, 2);
@@ -249,8 +251,21 @@ void spectrum() {
   plot(g_snapshot->spectrum_dbfs, kBins,
        g_snapshot->receiver_ready && g_snapshot->spectrum_valid,
        373, 177, 862, 292, -120.0f, 0.0f, kGreen);
-  heading("WATERFALL", 366, 509);
-  label("Awaiting real IQ history (no synthetic waterfall)", 377, 570, kMuted);
+  heading("SWEEP  /  GENERATED SCHEDULE", 366, 509);
+  const bool ready = g_snapshot->receiver_ready;
+  const bool run = g_snapshot->sweeping;
+  button(run ? "STOP SWEEP" : "START SWEEP", 366, kSweepY, 230, run ? kRed : kGreen, ready);
+  button(sweep_preset(g_snapshot->sweep_preset).name, 606, kSweepY, 300, kCyan, ready && !run);
+  char dwell[32];
+  snprintf(dwell, sizeof(dwell), "DWELL %u ms", static_cast<unsigned>(g_snapshot->sweep_dwell_ms));
+  button(dwell, 916, kSweepY, 320, kCyan, ready && !run);
+  char info[96];
+  if (run)
+    snprintf(info, sizeof(info), "HOP %lu  UNOBSERVED %.1f s  RF DETECTOR OFF",
+             static_cast<unsigned long>(g_snapshot->sweep_hops), g_snapshot->sweep_unobserved_ms / 1000.0);
+  else
+    snprintf(info, sizeof(info), "One tuner, one channel at a time. Not simultaneous coverage.");
+  label(info, 366, 608, run ? kYellow : kMuted, 2);
 }
 void audio() {
   box(20, 120, 1240, 251);
@@ -441,11 +456,17 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
     }
   }
   if (g_page == Page::spectrum && g_snapshot->receiver_ready) {
-    if (hit(x, y, 40, kStepY, 128, 52)) return {ActionKind::tune_down, -1};
-    if (hit(x, y, 183, kStepY, 128, 52)) return {ActionKind::tune_up, 1};
-    for (int i = 0; i < kModeCount; ++i)
-      if (hit(x, y, kModeX0 + (i % 3) * kModeDx, kModeY0 + (i / 3) * kModeDy, kModeW, 52))
-        return {ActionKind::set_demod, i};
+    if (hit(x, y, 366, kSweepY, 230, 52))
+      return {g_snapshot->sweeping ? ActionKind::stop_scan : ActionKind::start_scan, 0};
+    if (!g_snapshot->sweeping) {
+      if (hit(x, y, 606, kSweepY, 300, 52)) return {ActionKind::sweep_preset, 0};
+      if (hit(x, y, 916, kSweepY, 320, 52)) return {ActionKind::sweep_dwell, 0};
+      if (hit(x, y, 40, kStepY, 128, 52)) return {ActionKind::tune_down, -1};
+      if (hit(x, y, 183, kStepY, 128, 52)) return {ActionKind::tune_up, 1};
+      for (int i = 0; i < kModeCount; ++i)
+        if (hit(x, y, kModeX0 + (i % 3) * kModeDx, kModeY0 + (i / 3) * kModeDy, kModeW, 52))
+          return {ActionKind::set_demod, i};
+    }
   }
   if (g_page == Page::events && g_events != nullptr) {
     if (hit(x, y, 818, 505, 420, 52)) {

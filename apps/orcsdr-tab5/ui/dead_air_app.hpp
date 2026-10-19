@@ -22,6 +22,7 @@ struct Hooks {
   uint32_t (*rf_sample_counter)() = nullptr; // monotonically increasing; advances when new IQ was measured
   bool (*rf_level_dbfs)(float* out) = nullptr;  // latest measured IQ power in dBFS; false when none
   void (*tune)(uint32_t hz) = nullptr;     // retune (the receiver settles on its own schedule)
+  bool (*hot_retune)(uint32_t hz) = nullptr;  // cheap retune within the current band; false if it was not accepted
   uint32_t (*step_frequency)(uint32_t hz, int direction) = nullptr;
   bool (*sound_enabled)() = nullptr;
   int (*battery_percent)() = nullptr;

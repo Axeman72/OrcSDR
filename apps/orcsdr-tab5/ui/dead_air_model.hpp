@@ -8,9 +8,9 @@ namespace orcsdr::dead_air {
 // readings are ever used by the live dashboard.
 enum class Page : uint8_t { overview, spectrum, audio, environment, events, review, count };
 enum class Sensitivity : uint8_t { quiet, standard, sensitive };
-enum class Source : uint8_t { rf, audio, environment, manual };
+enum class Source : uint8_t { rf, audio, environment, manual, sweep };  // sweep = generated tuning schedule, not a measurement
 enum class Kind : uint8_t { rf_rise, audio_burst, temperature_change, humidity_change,
-                            pressure_change, manual_marker };
+                            pressure_change, manual_marker, sweep_start, sweep_stop };
 enum class Status : uint8_t { unavailable, warming_up, current, stale };
 // Event-journal (SD) health as reported by the storage worker. "active" only while a file is open.
 enum class RecorderState : uint8_t { unavailable, starting, active, failed, stopped };
@@ -35,6 +35,9 @@ struct Event {
   float reference = 0.0f;
   float threshold = 0.0f;
   Sensitivity sensitivity = Sensitivity::standard;
+  // Sweep records only (Source::sweep); zero otherwise. frequency_hz is the sweep start (start) or the last hop (stop).
+  uint32_t sweep_end_hz = 0, sweep_step_hz = 0, sweep_dwell_ms = 0, sweep_settle_ms = 0;
+  uint32_t sweep_hops = 0, sweep_unobserved_ms = 0;
 };
 
 constexpr size_t kBins = 96;
@@ -72,6 +75,12 @@ struct Snapshot {
   uint32_t recorder_missing = 0;  // events lost before reaching the file
   uint32_t recorder_dropped = 0;  // queue-full drops counted at the producer
   bool receiver_settled = false;  // false while a retune or gain change settles
+  // Generated sweep profile (a tuning schedule on one tuner; never simultaneous coverage).
+  bool sweeping = false;
+  uint8_t sweep_preset = 0;
+  uint16_t sweep_dwell_ms = 0;
+  uint32_t sweep_hops = 0;
+  uint32_t sweep_unobserved_ms = 0;  // summed time between each retune command and the receiver being settled
 };
 
 struct RfObservation {
@@ -96,6 +105,8 @@ class EventModel {
   // Never use this for interpreted labels or unsupported environmental sensors.
   bool append_measured(const Event& event);
   void mark_manual(uint32_t monotonic_ms, uint32_t unix_time, uint32_t tuned_hz);
+  // Records the start or end of a generated sweep. Rejects anything that is not a sweep_start/sweep_stop record.
+  bool mark_sweep(const Event& event);
   size_t count() const { return count_; }
   uint32_t total() const { return total_; }
   const Event* newest(size_t index) const;

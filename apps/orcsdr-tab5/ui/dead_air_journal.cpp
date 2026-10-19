@@ -64,6 +64,22 @@ size_t encode_event_jsonl(const Event& event, char* output, size_t capacity) {
   }
   const char* source = source_name(event.source);
   const char* kind = kind_name(event.kind);
+  if (event.source == Source::sweep) {
+    // A generated tuning schedule, recorded so a reviewer can tell stepped listening from a fixed channel. The
+    // settle value is the assumed (not measured) wait before a hop counts as observed.
+    const int m = std::snprintf(output, capacity,
+        "{\"v\":1,\"type\":\"event\",\"seq\":%lu,\"mono_ms\":%lu,\"unix_time\":%s,"
+        "\"source\":\"%s\",\"kind\":\"%s\",\"frequency_hz\":%lu,"
+        "\"sweep\":{\"end_hz\":%lu,\"step_hz\":%lu,\"dwell_ms\":%lu,\"settle_ms_assumed\":%lu,"
+        "\"hops\":%lu,\"unobserved_ms\":%lu}}\n",
+        static_cast<unsigned long>(event.sequence),
+        static_cast<unsigned long>(event.monotonic_ms), time_field, source, kind,
+        static_cast<unsigned long>(event.frequency_hz),
+        static_cast<unsigned long>(event.sweep_end_hz), static_cast<unsigned long>(event.sweep_step_hz),
+        static_cast<unsigned long>(event.sweep_dwell_ms), static_cast<unsigned long>(event.sweep_settle_ms),
+        static_cast<unsigned long>(event.sweep_hops), static_cast<unsigned long>(event.sweep_unobserved_ms));
+    return complete(m, capacity) ? static_cast<size_t>(m) : 0;
+  }
   const int n = event.source == Source::manual && event.kind == Kind::manual_marker
       ? std::snprintf(output, capacity,
           "{\"v\":1,\"type\":\"event\",\"seq\":%lu,\"mono_ms\":%lu,\"unix_time\":%s,"

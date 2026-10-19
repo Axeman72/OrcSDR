@@ -16,6 +16,7 @@
 #include "dead_air_journal.hpp"
 #include "dead_air_model.hpp"
 #include "dead_air_sd_journal.hpp"
+#include "dead_air_sweep.hpp"
 #include "orcsdr_storage.hpp"
 #include "screen_controller.hpp"
 
@@ -60,11 +61,16 @@ struct State {
   float last_level = 0.0f;
   bool last_level_valid = false;
   uint32_t last_total = 0;
+  Sweep sweep;
+  uint8_t sweep_preset = 0;
+  uint16_t sweep_dwell_ms = 500;
 };
 
 Hooks g_hooks;
 State* g_state = nullptr;
 bool g_open = false;
+uint8_t g_last_action = 0;     // diagnostic: last touch action kind seen by the app
+uint32_t g_touches = 0;
 
 bool ready_hooks() {
   return g_hooks.receiver_ready && g_hooks.frequency_hz && g_hooks.demod && g_hooks.sample_rate &&
@@ -119,6 +125,43 @@ void worker_main(void* arg) {
   w.alive.store(false, std::memory_order_release);
   w.task = nullptr;
   vTaskDeleteWithCaps(nullptr);
+}
+
+void log_sweep(State& s, Kind kind, uint32_t now) {
+  Event e{};
+  e.monotonic_ms = now;
+  e.unix_time = g_hooks.utc_epoch ? g_hooks.utc_epoch() : 0;
+  e.source = Source::sweep;
+  e.kind = kind;
+  const SweepConfig& c = s.sweep.config();
+  e.frequency_hz = kind == Kind::sweep_start ? c.start_hz : s.sweep.current_hz();
+  e.sweep_end_hz = c.end_hz;
+  e.sweep_step_hz = c.step_hz;
+  e.sweep_dwell_ms = c.dwell_ms;
+  e.sweep_settle_ms = kSweepSettleMs;
+  e.sweep_hops = s.sweep.hops();
+  e.sweep_unobserved_ms = s.sweep.unobserved_ms();
+  s.model.mark_sweep(e);
+}
+
+void stop_sweep(State& s, uint32_t now) {
+  if (!s.sweep.running()) return;
+  s.sweep.stop();
+  log_sweep(s, Kind::sweep_stop, now);
+  // Leave the receiver where it was before the sweep started.
+  if (s.sweep.resume_hz()) {
+    if (!(g_hooks.hot_retune && g_hooks.hot_retune(s.sweep.resume_hz())) && g_hooks.tune) g_hooks.tune(s.sweep.resume_hz());
+  }
+  s.settle_until_ms = now + kSettleMs;
+}
+
+bool start_sweep(State& s, uint32_t now) {
+  if (s.sweep.running() || !g_hooks.receiver_ready()) return false;
+  SweepConfig c = sweep_preset(s.sweep_preset).config;
+  c.dwell_ms = s.sweep_dwell_ms;
+  if (!s.sweep.start(c, g_hooks.frequency_hz(), now)) return false;
+  log_sweep(s, Kind::sweep_start, now);
+  return true;
 }
 
 bool ensure_state() {
@@ -184,6 +227,11 @@ void build_snapshot(uint32_t now) {
   const bool spectrum_ok = ready && n.receiver_settled && s.spectrum_have && now - s.spectrum_ms < kSpectrumFreshMs;
   n.spectrum_valid = spectrum_ok;
   if (spectrum_ok) std::memcpy(n.spectrum_dbfs, s.spectrum, sizeof(n.spectrum_dbfs));
+  n.sweeping = s.sweep.running();
+  n.sweep_preset = s.sweep_preset;
+  n.sweep_dwell_ms = s.sweep_dwell_ms;
+  n.sweep_hops = s.sweep.hops();
+  n.sweep_unobserved_ms = s.sweep.unobserved_ms();
   n.recorder_state = static_cast<RecorderState>(s.worker.state.load(std::memory_order_acquire));
   n.recorder_session = s.worker.session.load(std::memory_order_relaxed);
   n.recorder_saved = s.worker.saved.load(std::memory_order_relaxed);
@@ -202,6 +250,8 @@ bool visibly_changed(const Snapshot& a, const Snapshot& b) {
          a.recorder_session != b.recorder_session || a.rf_level_dbfs.valid != b.rf_level_dbfs.valid ||
          q(a.rf_level_dbfs.value) != q(b.rf_level_dbfs.value) ||
          a.rf_level_dbfs.baseline_valid != b.rf_level_dbfs.baseline_valid ||
+         a.sweeping != b.sweeping || a.sweep_hops != b.sweep_hops || a.sweep_preset != b.sweep_preset ||
+         a.sweep_dwell_ms != b.sweep_dwell_ms ||
          a.spectrum_valid != b.spectrum_valid || std::strcmp(a.demod, b.demod) != 0;
 }
 
@@ -238,6 +288,7 @@ void open() {
 void close() {
   if (!g_open || !g_state) return;
   g_open = false;
+  stop_sweep(*g_state, millis());  // logs the stop and puts the receiver back before the journal closes
   dead_air::leave();
   g_state->model.set_listener(nullptr, nullptr);
   if (g_hooks.release_demod) g_hooks.release_demod();
@@ -254,11 +305,23 @@ void tick() {
     // A retune, gain/rate change or receiver (re)start invalidates the baseline and the settling window.
     if (!s.have_signature || signature != s.last_signature || s.last_level_valid) {
       ++s.config_revision;
-      s.settle_until_ms = now + kSettleMs;
+      s.settle_until_ms = now + (s.sweep.running() ? kSweepSettleMs : kSettleMs);
     }
     s.last_signature = signature;
     s.have_signature = true;
     s.last_level_valid = false;
+  }
+  if (s.sweep.running()) {
+    // A hop only counts as settled once the receiver reports the commanded channel and the assumed settle has passed.
+    const bool settled = ready && g_hooks.frequency_hz() == s.sweep.current_hz() &&
+                         static_cast<int32_t>(now - s.settle_until_ms) >= 0;
+    uint32_t hz = 0;
+    if (s.sweep.tick(now, ready, settled, &hz)) {
+      // A refused hop is abandoned by the sweep's own stall timer and counted there.
+      if (g_hooks.hot_retune) (void)g_hooks.hot_retune(hz);
+      else if (g_hooks.tune) g_hooks.tune(hz);
+      s.settle_until_ms = now + kSweepSettleMs;
+    }
   }
   if (now - s.last_observe_ms >= kObserveIntervalMs) {
     RfObservation obs{};
@@ -266,7 +329,8 @@ void tick() {
     obs.unix_time = g_hooks.utc_epoch ? g_hooks.utc_epoch() : 0;
     obs.frequency_hz = ready ? g_hooks.frequency_hz() : 0;
     obs.configuration_revision = s.config_revision;
-    obs.settled = ready && static_cast<int32_t>(now - s.settle_until_ms) >= 0;
+    // While a sweep runs the detector is suspended: every hop is a new channel, so there is no stable baseline.
+    obs.settled = ready && !s.sweep.running() && static_cast<int32_t>(now - s.settle_until_ms) >= 0;
     const uint32_t counter = g_hooks.rf_sample_counter();
     float level = 0.0f;
     const bool fresh = counter != s.last_counter;
@@ -311,11 +375,26 @@ void draw(bool static_panel) {
 void touch(int32_t x, int32_t y) {
   if (!g_open || !g_state) return;
   const Action action = dead_air::handle_touch(x, y, millis());
+  ++g_touches;
+  if (action.kind != ActionKind::none) g_last_action = static_cast<uint8_t>(action.kind);
   switch (action.kind) {
     case ActionKind::close: if (g_hooks.go_home) g_hooks.go_home(); break;
     case ActionKind::toggle_mute: if (g_hooks.toggle_mute) g_hooks.toggle_mute(); break;
     case ActionKind::open_settings: if (g_hooks.open_settings) g_hooks.open_settings(); break;
+    case ActionKind::start_scan: start_sweep(*g_state, millis()); break;
+    case ActionKind::stop_scan: stop_sweep(*g_state, millis()); break;
+    case ActionKind::sweep_preset:
+      if (!g_state->sweep.running()) g_state->sweep_preset = (g_state->sweep_preset + 1) % kSweepPresetCount;
+      break;
+    case ActionKind::sweep_dwell:
+      if (!g_state->sweep.running()) {
+        uint8_t i = 0;
+        while (i < kSweepDwellCount && kSweepDwellChoicesMs[i] != g_state->sweep_dwell_ms) ++i;
+        g_state->sweep_dwell_ms = kSweepDwellChoicesMs[(i + 1) % kSweepDwellCount];
+      }
+      break;
     case ActionKind::set_demod:
+      if (g_state->sweep.running()) break;  // the schedule owns tuning while it runs
       if (g_hooks.set_demod && g_hooks.receiver_ready() && action.value >= 0 && action.value < kModeCount) {
         g_hooks.set_demod(static_cast<uint8_t>(action.value));
         if (g_hooks.tune) g_hooks.tune(g_hooks.frequency_hz());  // restart the stream cleanly in the new mode
@@ -323,11 +402,12 @@ void touch(int32_t x, int32_t y) {
       break;
     case ActionKind::tune_up:
     case ActionKind::tune_down:
+      if (g_state->sweep.running()) break;
       if (g_hooks.tune && g_hooks.step_frequency && g_hooks.receiver_ready()) {
         g_hooks.tune(g_hooks.step_frequency(g_hooks.frequency_hz(), action.value > 0 ? 1 : -1));
       }
       break;
-    default: break;  // start_scan, recording, clip actions are not implemented and have no buttons
+    default: break;  // recording and clip actions are not implemented and have no buttons
   }
 }
 
@@ -355,14 +435,17 @@ void describe(char* out, size_t size) {
   if (!g_state) { std::snprintf(out, size, "DEAD_AIR open=0"); return; }
   const Worker& w = g_state->worker;
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
                 g_state->model.baseline_ready() ? 1 : 0, g_state->last_level_valid ? static_cast<double>(g_state->last_level) : -999.0,
                 (g_state->model.baseline_ready() ? static_cast<double>(g_state->model.rf_baseline_dbfs()) : -999.0), static_cast<double>(rf_rise_threshold_db(g_state->model.sensitivity())),
                 static_cast<unsigned long>(g_hooks.frequency_hz ? g_hooks.frequency_hz() : 0),
-                g_hooks.demod && g_hooks.receiver_ready && g_hooks.receiver_ready() ? g_hooks.demod() : "--");
+                g_hooks.demod && g_hooks.receiver_ready && g_hooks.receiver_ready() ? g_hooks.demod() : "--",
+                g_state->sweep.running() ? 1 : 0, static_cast<unsigned long>(g_state->sweep.hops()),
+                static_cast<unsigned long>(g_state->sweep.stalls()), static_cast<unsigned long>(g_state->sweep.unobserved_ms()),
+                static_cast<unsigned long>(g_touches), static_cast<unsigned>(g_last_action), static_cast<unsigned long>(g_state->sweep.resume_hz()));
 }
 
 }  // namespace orcsdr::dead_air_app

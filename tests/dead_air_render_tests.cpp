@@ -77,6 +77,23 @@ int main() {
   assert(mode.kind == da::ActionKind::set_demod && mode.value == 1);
   assert(da::handle_touch(200, 470, 2340).kind == da::ActionKind::tune_up);
   assert(da::handle_touch(60, 470, 2350).kind == da::ActionKind::tune_down);
+  // Sweep controls: start/stop, preset and dwell are real actions; tuning and mode buttons yield while it runs.
+  assert(da::handle_touch(366 + 20, 530 + 20, 2360).kind == da::ActionKind::start_scan);
+  assert(da::handle_touch(606 + 20, 530 + 20, 2361).kind == da::ActionKind::sweep_preset);
+  assert(da::handle_touch(916 + 20, 530 + 20, 2362).kind == da::ActionKind::sweep_dwell);
+  snap.sweeping = true;
+  snap.sweep_hops = 3;
+  snap.sweep_dwell_ms = 500;
+  snap.revision = 6;
+  da::update(snap);
+  assert(displayed("STOP SWEEP") && displayed("RF DETECTOR OFF") && displayed("HOP 3"));
+  assert(da::handle_touch(366 + 20, 530 + 20, 2370).kind == da::ActionKind::stop_scan);
+  assert(da::handle_touch(200, 470, 2371).kind == da::ActionKind::none);
+  assert(da::handle_touch(145, 370, 2372).kind == da::ActionKind::none);
+  assert(da::handle_touch(606 + 20, 530 + 20, 2373).kind == da::ActionKind::none);
+  snap.sweeping = false;
+  snap.revision = 7;
+  da::update(snap);
   validate_bounds();
   // Once another screen takes the framebuffer, Dead Air must be silent.
   screen::begin_transition(screen::Id::home, 3000);

@@ -14133,6 +14133,7 @@ orcsdr::dead_air_app::Hooks dead_air_app_hooks() {
     return true;
   };
   hooks.tune = [](uint32_t hz) { (void)queue_local_rtl_listen(RtlBand::browse, hz, false); };
+  hooks.hot_retune = [](uint32_t hz) { return request_hot_retune(rtl_clamp_frequency(RtlBand::browse, hz)); };
   hooks.step_frequency = [](uint32_t hz, int direction) { return rtl_step_frequency(RtlBand::browse, hz, direction); };
   hooks.sound_enabled = [] { return rtl_audio_user_enabled.load(std::memory_order_relaxed); };
   hooks.battery_percent = [] { return static_cast<int>(M5.Power.getBatteryLevel()); };
@@ -19346,7 +19347,7 @@ void process_command(char* command) {
     return;
   }
   if (strcmp(command, "RTL_DEAD_AIR STATUS") == 0) {
-    char line[200];
+    char line[320];
     orcsdr::dead_air_app::describe(line, sizeof(line));
     Serial.println(line);
     return;

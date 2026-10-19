@@ -175,6 +175,7 @@ idf_component_register(
         "../ui/dead_air_sd_journal.cpp"
         "../ui/dead_air_dashboard.cpp"
         "../ui/dead_air_app.cpp"
+        "../ui/dead_air_sweep.cpp"
         "../ui/rf24_dashboard.cpp"
         "../ui/wifi_service.cpp"
     INCLUDE_DIRS "." "../ui" "../dsp"

@@ -24,6 +24,7 @@ const char* source_name(Source source) {
     case Source::audio: return "AUDIO";
     case Source::environment: return "ENV";
     case Source::manual: return "MANUAL";
+    case Source::sweep: return "GENERATED";
   }
   return "UNKNOWN";
 }
@@ -35,6 +36,8 @@ const char* kind_name(Kind kind) {
     case Kind::humidity_change: return "HUMIDITY CHANGE";
     case Kind::pressure_change: return "PRESSURE CHANGE";
     case Kind::manual_marker: return "INVESTIGATOR MARK";
+    case Kind::sweep_start: return "SWEEP START";
+    case Kind::sweep_stop: return "SWEEP STOP";
   }
   return "OBSERVATION";
 }
@@ -99,6 +102,13 @@ void EventModel::mark_manual(uint32_t ms, uint32_t unix_time, uint32_t tuned_hz)
   entry.kind = Kind::manual_marker;
   entry.sensitivity = sensitivity_;
   push(entry);
+}
+bool EventModel::mark_sweep(const Event& event) {
+  if (event.source != Source::sweep || (event.kind != Kind::sweep_start && event.kind != Kind::sweep_stop)) return false;
+  Event copy = event;
+  copy.sensitivity = sensitivity_;
+  push(copy);
+  return true;
 }
 const Event* EventModel::newest(size_t index) const {
   if (index >= count_) return nullptr;
