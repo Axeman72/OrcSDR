@@ -1,5 +1,6 @@
 #include "map_service.hpp"
 #include "map_timing.hpp"
+#include "map_preview.hpp"
 #include "map_inventory.hpp"
 #include "offline_map.hpp"
 #include "memory_reclaim.hpp"
@@ -8,6 +9,7 @@
 #include "orcmap/esp_idf/partition_byte_source.hpp"
 #include "orcmap/m5gfx/display_target.hpp"
 #include "orcmap/m5gfx/label_target.hpp"
+#include "orcmap/frame_transform.hpp"
 #include <M5Unified.h>
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
@@ -29,9 +31,10 @@ namespace orcsdr::maps {
 namespace {
 constexpr char kDirectory[] = "/sd/orcmaps";
 constexpr char kWorld[] = "orcmaps_world";
-struct Request { orcmap::Viewport view; char preferred[256]{}; uint32_t serial = 0; };
+struct Request { orcmap::Viewport view; char preferred[256]{}; uint32_t serial = 0,lifetime = 0; };
 QueueHandle_t g_queue = nullptr;
 SemaphoreHandle_t g_lock = nullptr;
+SemaphoreHandle_t g_preview_lock = nullptr;
 TaskHandle_t g_task = nullptr;
 EXT_RAM_BSS_ATTR MapSnapshot g_snapshot;
 EXT_RAM_BSS_ATTR FrameInfo g_frame;
@@ -41,6 +44,11 @@ EXT_RAM_BSS_ATTR Inventory g_inventory;
 // Keep them out of the on-chip heap boundary: ESP-IDF reserves the existing
 // 40 KiB DMA pool before app_main, before this service can handle failures.
 EXT_RAM_BSS_ATTR M5Canvas g_canvas(&M5.Display);
+EXT_RAM_BSS_ATTR M5Canvas g_preview(&M5.Display);
+EXT_RAM_BSS_ATTR Request g_preview_request;
+bool g_preview_valid=false;
+std::atomic<uint32_t> g_preview_lifetime{0};
+std::atomic<size_t> g_preview_bytes{0};
 EXT_RAM_BSS_ATTR orcmap::LabelLayout g_labels;
 EXT_RAM_BSS_ATTR UpdateTiming g_update_timing;
 std::unique_ptr<orcmap::ByteSource> g_source;
@@ -66,6 +74,48 @@ bool same(const Request& a,const Request& b) {
       a.view.zoom==b.view.zoom && a.view.tile_size_px==b.view.tile_size_px &&
       a.view.width_px==b.view.width_px && a.view.height_px==b.view.height_px &&
       std::strcmp(a.preferred,b.preferred)==0;
+}
+// Worker holds g_lock; the UI only takes this separate publication lock.
+void publish_preview(const Request& request) {
+  if(!g_preview_lock)return;
+  xSemaphoreTake(g_preview_lock,portMAX_DELAY);
+  g_preview_valid=false;
+  if(g_preview.width()!=request.view.width_px||g_preview.height()!=request.view.height_px) {
+    g_preview.deleteSprite();g_preview_bytes.store(0);
+    const size_t bytes=static_cast<size_t>(request.view.width_px)*request.view.height_px*2;
+    if(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=bytes+128*1024) {
+      g_preview.setPsram(true);g_preview.setColorDepth(16);
+      if(g_preview.createSprite(request.view.width_px,request.view.height_px))g_preview_bytes.store(bytes);
+    }
+  }
+  if(g_preview_bytes.load()) {
+    g_canvas.pushSprite(&g_preview,0,0);
+    g_preview_request=request;g_preview_valid=true;
+  }
+  xSemaphoreGive(g_preview_lock);
+}
+void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y) {
+  if(!g_preview_lock||xSemaphoreTake(g_preview_lock,0)!=pdTRUE)return;
+  orcmap::FrameTransform transform;
+  const auto& source=g_preview_request;
+  if(prepare_preview(source.view,request.view,source.preferred,request.preferred,
+      source.lifetime,g_preview_lifetime.load(),g_preview_valid,&transform)) {
+    int32_t cx,cy,cw,ch;target.getClipRect(&cx,&cy,&cw,&ch);
+    const int left=std::max(x,static_cast<int>(cx)),top=std::max(y,static_cast<int>(cy));
+    const int right=std::min(x+request.view.width_px,static_cast<int>(cx+cw));
+    const int bottom=std::min(y+request.view.height_px,static_cast<int>(cy+ch));
+    if(right>left&&bottom>top) {
+      target.setClipRect(left,top,right-left,bottom-top);
+      target.fillRect(x,y,request.view.width_px,request.view.height_px,0x0841);
+      if(transform.scale==1)g_preview.pushSprite(&target,x+std::lround(transform.dx),y+std::lround(transform.dy));
+      else {
+        g_preview.setPivot(0,0);
+        g_preview.pushRotateZoom(&target,x+transform.dx,y+transform.dy,0,transform.scale,transform.scale);
+      }
+      target.setClipRect(cx,cy,cw,ch);
+    }
+  }
+  xSemaphoreGive(g_preview_lock);
 }
 uint64_t clock_us() { return static_cast<uint64_t>(esp_timer_get_time()); }
 bool service(void* context) {
@@ -238,6 +288,7 @@ void worker(void*) {
       g_canvas.deleteSprite();g_canvas_bytes.store(0);
     }
     if(request.serial==g_serial.load()) {
+      if(ok)publish_preview(request);
       g_frame.state=ok ? Frame::ready : Frame::unavailable;
       text(g_frame.status,ok ? "LOCAL MAP" : g_frame.stats.out_of_memory ? "MAP UNAVAILABLE: LOW MEMORY" : "MAP UNAVAILABLE / NO MEMORY");
       if(ok && g_frame.stats.labels.unsupported_glyphs)
@@ -259,10 +310,13 @@ void worker(void*) {
     }
   }
 }
-size_t held() { return g_canvas_bytes.load(); }
+size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load(); }
 size_t release() {
   if(!g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return 0;
-  const size_t bytes=g_canvas_bytes.exchange(0);g_canvas.deleteSprite();g_cached=false;
+  if(g_preview_lock&&xSemaphoreTake(g_preview_lock,0)!=pdTRUE){xSemaphoreGive(g_lock);return 0;}
+  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0);
+  g_canvas.deleteSprite();g_preview.deleteSprite();g_preview_valid=false;g_preview_lifetime.fetch_add(1);g_cached=false;
+  if(g_preview_lock)xSemaphoreGive(g_preview_lock);
   g_serial.fetch_add(1); // the same camera must request a new frame after reclaim
   g_pipeline.reset();g_source.reset();g_archive[0]=0;xSemaphoreGive(g_lock);return bytes;
 }
@@ -272,13 +326,17 @@ bool begin(storage::FileSystem* sd) {
   if(g_task)return true;
   g_sd=sd!=nullptr;
   g_lock=xSemaphoreCreateMutex();
+  g_preview_lock=xSemaphoreCreateMutex();
   g_queue=xQueueCreateWithCaps(1,sizeof(Request),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-  if(!g_lock || !g_queue) {
+  if(!g_lock || !g_preview_lock || !g_queue) {
     if(g_lock)vSemaphoreDelete(g_lock);
     if(g_queue)vQueueDeleteWithCaps(g_queue);
+    if(g_preview_lock)vSemaphoreDelete(g_preview_lock);
+    g_preview_lock=nullptr;
     g_lock=nullptr;g_queue=nullptr;return false;
   }
   if(xTaskCreatePinnedToCore(worker,"orcsdr_maps",8192,nullptr,1,&g_task,1)!=pdPASS) {
+    vSemaphoreDelete(g_preview_lock);g_preview_lock=nullptr;
     vSemaphoreDelete(g_lock);vQueueDeleteWithCaps(g_queue);
     g_lock=nullptr;g_queue=nullptr;g_task=nullptr;return false;
   }
@@ -291,7 +349,7 @@ bool snapshot(MapSnapshot* out) {
   *out=g_snapshot;xSemaphoreGive(g_lock);return true;
 }
 void rescan() {g_scan.store(true);cancel();}
-void cancel() {g_serial.fetch_add(1);}
+void cancel() {g_preview_lifetime.fetch_add(1);g_serial.fetch_add(1);}
 uint32_t revision() {return g_revision.load();}
 bool installed() {return g_installed.load();}
 bool frame_info(FrameInfo* out) {
@@ -336,7 +394,7 @@ void report(void (*write)(const char*)) {
 }
 Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,FrameInfo* info,const char* preferred) {
   if(!g_task || !g_queue || !g_lock)return Frame::unavailable;
-  Request request{};request.view=view;
+  Request request{};request.view=view;request.lifetime=g_preview_lifetime.load();
   if(preferred && std::strlen(preferred)>=sizeof(request.preferred))return Frame::unavailable;
   text(request.preferred,preferred);
   // Only the UI writes g_requested. Queue/cancel before taking the frame lock
@@ -345,7 +403,7 @@ Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,
     request.serial=g_serial.fetch_add(1)+1;g_requested=request;
     xQueueOverwrite(g_queue,&request);
   }
-  if(xSemaphoreTake(g_lock,0)!=pdTRUE)return Frame::pending;
+  if(xSemaphoreTake(g_lock,0)!=pdTRUE){draw_preview(request,target,x,y);return Frame::pending;}
   if(g_cached && g_ready.serial==g_serial.load() && same(request,g_ready)) {
     if(g_frame.state==Frame::ready) {
       const uint64_t started=clock_us();g_canvas.pushSprite(&target,x,y);
@@ -355,6 +413,6 @@ Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,
     if(info)*info=g_frame;
     const Frame result=g_frame.state;xSemaphoreGive(g_lock);return result;
   }
-  xSemaphoreGive(g_lock);return Frame::pending;
+  xSemaphoreGive(g_lock);draw_preview(request,target,x,y);return Frame::pending;
 }
 } // namespace orcsdr::maps
