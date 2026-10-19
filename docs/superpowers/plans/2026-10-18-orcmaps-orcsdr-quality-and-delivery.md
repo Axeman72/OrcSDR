@@ -16,7 +16,7 @@ not the current state.
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
 | 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes the approved configured host regression (7/7); reference renders and device acceptance remain open. Contrast and international coverage remain open. |
 | 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Latest native-order preview measurements show pan paint p50/p95 61/83 ms and zoom233 ms (three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
-| 4 — catalog/delivery | Candidate size/provenance and preliminary delivery model recorded. Trusted catalog, resumable installation and publication remain incomplete. |
+| 4 — catalog/delivery | Global candidate archive/manifest/checksum prepared; local hash matches and both engine/consumer discovery accept it. Host provisioning now preserves existing names and publishes verified packs manifest-last (24 focused tests pass). No global-pack device installation, trusted catalog, resumable downloader or publication yet. |
 | 5 — setup | Wizard-owned UI is committed at210002f4 and device-tested in bounded scopes. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
@@ -27,7 +27,7 @@ firmware. The bounded actual-M5GFX pixel test, native build/app-only flash,
 startup/map/nav/radio and retained-map SD readback pass. Current pan paint
 p50/p95 61.397/83.178 ms; zoom233 ms (three samples). **33 ms remains unmet.**
 Both preview and target now report format272, rotation3 unchanged. No added
-preview memory. Physical color/controls acceptance for this candidate is pending.
+preview memory. The user accepted physical colors and controls for this candidate on October 19.
 Prior save-feedback and strip candidates have user acceptance. Preserve all
 artifacts/recovery. Session-wide routine build/COM17 approval remains in effect.
 
@@ -163,7 +163,7 @@ map-data publication or device erase is authorized by this checkpoint.
   Actual-M5GFX host pixel regression1/1, P4 syntax, native build/app-only flash,
   startup, map/navigation/radio and retained-map SD readback pass onCOM17.
   Pan61/83ms p50/p95, zoom233ms(three samples);33ms unmet. No orientation or
-  allocation change. Physical color check pending; global goal remains open.
+  allocation change. Physical colors and controls accepted by the user; global goal remains open.
 
 - October 19: location-feedback native build/app-only flash/save/return/reboot
   passed on COM17; user physically accepted Saving and saved label. Original
@@ -346,6 +346,24 @@ Primary files: reviewed OrcMaps camera/cache APIs and OrcSDR ui/map_pipeline.cpp
 ## Phase 4 — Own the pack catalog and delivery pipeline
 
 Primary files: existing OrcMaps pack builders/verification, a small catalog schema/publisher, and a shared OrcSDR map acquisition adapter with focused storage/download tests.
+
+October 19 continuation: the existing 543,380,195-byte z0–8 candidate now has
+immutable pack metadata/checksum. Its full local hash matches the recorded
+extract; both the current OrcMaps host tool and OrcSDR's exact pinned component
+accept one pack, rejecting zero. See OrcMaps
+`docs/evidence/2026-10-19-global-candidate-pack-preflight.md`; consumer logs are
+`global-pack-consumer-{configure,build,verify}-20261019.log` in this worktree
+root. The verifier's "installed" count is host discovery, not a device install.
+The upstream full-source hash remains unverified, explicitly recorded in
+provenance. No new download, SD write, flash or publication occurred.
+
+The existing OrcMaps host provisioner at `862a1ad` was hardened against overwriting packs,
+missing manifests, corrupt copied bytes and partial activation. Its focused
+Python suite passes 24 tests; evidence is
+`docs/evidence/2026-10-19-provision-staging-safety.md` in OrcMaps. This is not the
+device resumable installer: power-loss durability, orphan recovery and actual
+SD-card testing remain open. The older signed data catalog and 64 MiB serial
+uploader remain separate; neither is being relabeled as PMTiles delivery.
 
 - [ ] Define pack entries: stable ID/name, bounds/coverage, detail/zoom, schema compatibility, source/build date, download bytes, SHA-256, attribution/license, immutable URL and mirrors.
 - [ ] Sign trusted catalog metadata using a reviewed approach consistent with existing project trust practices, without confusing the historical data catalog and map manifests.

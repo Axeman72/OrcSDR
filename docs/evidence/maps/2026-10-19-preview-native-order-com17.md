@@ -81,7 +81,9 @@ preview-format-retained-read-20261019.log (and corresponding *-run logs).
 ## Remaining validation
 
 Native actual-library format test proves pixel-copy equivalence, including
-sampling traversals; physical colors/controls are pending user acceptance.
+sampling traversals. On October 19, the user confirmed the physical COM17
+drag/zoom check: "Colors and controls look correct." This closes that visual
+check; continuous-motion timing and worldwide map acceptance remain open.
 Navigation plan also PASS:
 
     python .local/maps/com17_label_bench.py preview-format-navigation-plan-20261019.json preview-format-navigation-20261019.log
