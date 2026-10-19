@@ -170,6 +170,8 @@ idf_component_register(
         "../ui/ui_capture.cpp"
         "../ui/web_console.cpp"
         "../ui/web_audio_transport.cpp"
+        "../ui/dead_air_model.cpp"
+        "../ui/dead_air_dashboard.cpp"
         "../ui/rf24_dashboard.cpp"
         "../ui/wifi_service.cpp"
     INCLUDE_DIRS "." "../ui" "../dsp"
