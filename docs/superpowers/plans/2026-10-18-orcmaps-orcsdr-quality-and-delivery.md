@@ -25,6 +25,29 @@ not the current state.
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
 Checked items below close only their stated behavior/test scope, not an entire phase.
+
+### October 19 goal continuation and clarified scope
+
+- Activation/recovery source committed as `119baadb`. Focused transfer/activation
+  CTest passes 1/1, shared SD DMA check passes 1/1, and four actual P4 source
+  syntax checks pass. Recovery precedes inventory discovery and preserves old
+  archives. No native link/flash or physical SD interruption test in this step.
+  [Commands, logs and unclosed gates](../../evidence/maps/2026-10-19-map-activation-recovery.md).
+- The user clarified the target: worldwide **regional** geography, cities/towns,
+  supported administrative boundaries, major roads and water. Street names and
+  street-by-street coverage are not required. Assess the existing 543 MB global
+  candidate before introducing additional detailed packs.
+- Add a visible geographic Labels On/Off control per map, with independent
+  persistent dashboard choices. Keep radio overlays and map geometry visible;
+  retain zoom-dependent label thresholds. This is approved scope, not deployed.
+- Dashboard source inventory: LoRa and ADS-B use `maps::draw_region`; FT8 still
+  uses `draw_world_compat` with static world-outline data. FT8 migration and final
+  dashboard-specific interaction/overlay tests remain required. Picker acceptance
+  does not establish dashboard-wide or full-global-pack acceptance.
+- Next delivery milestone: persist trusted catalog revision/hash and managed
+  product ownership/selection; connect staging/activation/finalization to the
+  serialized worker and self-contained wizard, then validate on COM17.
+
 Current deployed source: `aca08b75` (native RGB565 preview), following committed
 wizard checkpoint `210002f4`. Host test registration `344765d1` changes no
 firmware. The bounded actual-M5GFX pixel test, native build/app-only flash,
