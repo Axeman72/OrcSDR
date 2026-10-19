@@ -33,7 +33,7 @@ void render_gap_row(uint16_t* row, int width);
 // it never shows a level that was not measured.
 class Trail {
  public:
-  static constexpr size_t kMax = 128;
+  static constexpr size_t kMax = 256;
   void reset() { have_ = false; }
   void update(const float* bins, size_t count, float decay_db);
   bool valid() const { return have_; }

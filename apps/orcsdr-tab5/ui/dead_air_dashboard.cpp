@@ -99,151 +99,76 @@ void box(int x, int y, int w, int h, uint16_t border = kEdge) {
 }
 void heading(const char* text, int x, int y) { label(text, x, y, kCyan, 2); }
 void divider(int x, int y, int width) { g.drawFastHLine(x, y, width, kEdge); }
+uint32_t now_us() {
+#if defined(ESP_PLATFORM)
+  return static_cast<uint32_t>(esp_timer_get_time());
+#else
+  return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                   std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+}
 // ---- Ectoplasm spectrum and waterfall --------------------------------------------------------------------------
-// Colour is only a map over measured data (see dead_air_palette.hpp). The waterfall is a wrapping buffer: each new
-// spectrum frame overwrites the oldest row and a bright head line marks the write position, so only one row changes
-// per frame. That keeps the push small on the rotated panel, where scrolling a whole image would be too slow.
+// Live data is drawn straight onto the panel, the way the Home, LoRa and Shortwave dashboards do it: the trace erases
+// its previous polyline and draws the new one, and the waterfall scrolls with the panel's own scroll plus one new row.
+// The off-screen page holds only the static frame (boxes, grid, legend), which does not change between spectrum
+// frames, so the tile diff never repaints this area. Colour is only a map over measured data (dead_air_palette.hpp).
 constexpr int kPlotX = 373, kPlotY = 166, kPlotW = 862, kPlotH = 130;
 constexpr int kWfX = 373, kWfY = 306, kWfW = 862, kWfH = 150;
 constexpr int kLegendY = 464;
-constexpr float kTrailDecayDb = 1.5f;  // per spectrum frame
-struct Viz {
+constexpr float kTrailDecayDbPerS = 12.0f;
+constexpr uint32_t kWaterfallRowMs = 100;  // about 10 waterfall rows per second, whatever the trace rate
+struct Scope {
   uint16_t lut[viz::kLutSize];
-  uint16_t* image = nullptr;  // kWfW x kWfH, byte-swapped RGB565 (the panel's pushImage order)
   viz::Trail trail;
-  int head = 0;
-  bool have_frame = false;
-  bool last_valid = false;
-  uint32_t last_seq = 0, last_freq = 0;
+  int16_t prev_x[kTracePoints], prev_y[kTracePoints], prev_trail_y[kTracePoints];
+  size_t prev_n = 0;
+  uint16_t row[kWfW];  // native RGB565, pushed as rgb565_t
+  uint32_t last_row_ms = 0, last_frame_ms = 0, last_epoch = 0;
+  bool have_epoch = false;
+  bool was_valid = false;
 };
-Viz* g_viz = nullptr;
-uint16_t swap16(uint16_t c) { return static_cast<uint16_t>((c >> 8) | (c << 8)); }
+Scope* g_scope = nullptr;
+PaintStats g_stats{};
 
-void viz_alloc() {
-  if (g_viz) return;
-  g_viz = new (std::nothrow) Viz();
-  if (!g_viz) return;
-  viz::build_lut(g_viz->lut);
-  g_viz->image = new (std::nothrow) uint16_t[static_cast<size_t>(kWfW) * kWfH];
-  if (g_viz->image) {
-    const uint16_t dark = swap16(g_viz->lut[0]);
-    for (size_t i = 0; i < static_cast<size_t>(kWfW) * kWfH; ++i) g_viz->image[i] = dark;
-  }
+uint16_t plot_bg() { return viz::rgb565(6, 3, 18); }
+uint16_t plot_grid() { return viz::rgb565(34, 18, 66); }
+
+void scope_alloc() {
+  if (g_scope) return;
+  g_scope = new (std::nothrow) Scope();
+  if (g_scope) viz::build_lut(g_scope->lut);
 }
-void viz_release() {
-  if (!g_viz) return;
-  delete[] g_viz->image;
-  delete g_viz;
-  g_viz = nullptr;
-}
-void viz_write_row(const float* bins) {
-  uint16_t* row = g_viz->image + static_cast<size_t>(g_viz->head) * kWfW;
-  if (bins) viz::render_row(bins, kBins, g_viz->lut, row, kWfW);
-  else viz::render_gap_row(row, kWfW);
-  for (int x = 0; x < kWfW; ++x) row[x] = swap16(row[x]);
-  g_viz->head = (g_viz->head + 1) % kWfH;
-}
-// Called once per snapshot. Rows are only written from a real, settled spectrum frame; a retune (including every sweep
-// hop) or a break in valid data leaves a marker row so the picture never implies continuity that did not exist.
-void viz_feed(const Snapshot& s) {
-  if (!g_viz || !g_viz->image) return;
-  const bool valid = s.receiver_ready && s.spectrum_valid;
-  if (!valid) { g_viz->last_valid = false; return; }
-  if (g_viz->have_frame && (!g_viz->last_valid || s.frequency_hz != g_viz->last_freq)) {
-    viz_write_row(nullptr);
-    g_viz->trail.reset();
-  }
-  g_viz->last_valid = true;
-  g_viz->last_freq = s.frequency_hz;
-  if (!g_viz->have_frame || s.spectrum_seq != g_viz->last_seq) {
-    viz_write_row(s.spectrum_dbfs);
-    g_viz->trail.update(s.spectrum_dbfs, kBins, kTrailDecayDb);
-    g_viz->last_seq = s.spectrum_seq;
-    g_viz->have_frame = true;
-  }
+void scope_release() {
+  delete g_scope;
+  g_scope = nullptr;
 }
 
 int level_y(float dbfs, int top, int height) {
   return top + height - 1 - static_cast<int>(viz::normalize(dbfs) * static_cast<float>(height - 2));
 }
+void draw_plot_grid(lgfx::LovyanGFX& d) {
+  const int x0 = kPlotX + 1, w = kPlotW - 2;
+  for (int db = -20; db >= -100; db -= 20) d.drawFastHLine(x0, level_y(static_cast<float>(db), kPlotY, kPlotH), w, plot_grid());
+}
+
+// Static page elements (drawn with the rest of the page, never per spectrum frame).
 void draw_trace() {
-  const uint16_t bg = viz::rgb565(6, 3, 18), grid = viz::rgb565(34, 18, 66);
-  g.fillRect(kPlotX, kPlotY, kPlotW, kPlotH, bg);
-  for (int db = -20; db >= -100; db -= 20) {
-    g.drawFastHLine(kPlotX, level_y(static_cast<float>(db), kPlotY, kPlotH), kPlotW, grid);
-  }
-  const bool live = g_snapshot->receiver_ready && g_snapshot->spectrum_valid;
-  if (live && g_viz) {
-    const uint16_t* lut = g_viz->lut;
-    // Every pixel's colour depends only on the level its own row stands for, never on the column's trace height, so
-    // between frames only the pixels near the moving edge change and the tile push stays small.
-    uint16_t body[kPlotH], edge[kPlotH], bright[kPlotH], halo[kPlotH];
-    for (int row = 0; row < kPlotH; ++row) {
-      const float t = std::clamp(static_cast<float>(kPlotH - 2 - row) / static_cast<float>(kPlotH - 2), 0.0f, 1.0f);
-      body[row] = lut[static_cast<int>(t * 70.0f)];
-      edge[row] = lut[static_cast<int>(t * 150.0f)];
-      bright[row] = lut[std::min(255, 190 + static_cast<int>(t * 65.0f))];
-      halo[row] = lut[static_cast<int>(t * 110.0f)];
-    }
-    static_assert(kPlotW <= 1024, "column scratch is sized for the plot width");
-    int top[kPlotW];
-    for (int x = 0; x < kPlotW; ++x) {
-      top[x] = level_y(viz::interpolate_bins(g_snapshot->spectrum_dbfs, kBins, x, kPlotW), kPlotY, kPlotH) - kPlotY;
-    }
-    if (g_viz->trail.valid()) {  // fading afterimage (peak hold), behind the live trace
-      float trail_bins[viz::Trail::kMax];
-      const size_t n = std::min<size_t>(g_viz->trail.count(), viz::Trail::kMax);
-      for (size_t i = 0; i < n; ++i) trail_bins[i] = g_viz->trail.at(i);
-      for (int x = 0; x < kPlotW; ++x) {
-        const float v = viz::interpolate_bins(trail_bins, n, x, kPlotW);
-        const int row = level_y(v, kPlotY, kPlotH) - kPlotY;
-        g.drawFastVLine(kPlotX + x, kPlotY + row, 1, viz::color_at(lut, v - 8.0f));
-      }
-    }
-    // Row by row: runs of columns in the same zone become one horizontal line.
-    for (int row = 0; row < kPlotH; ++row) {
-      int run_start = 0, run_zone = -1;
-      for (int x = 0; x <= kPlotW; ++x) {
-        int zone = -1;  // -1 above the trace, 0 halo, 1 bright edge, 2 glow, 3 body
-        if (x < kPlotW) {
-          const int d = row - top[x];
-          zone = d < -1 ? -1 : d == -1 ? 0 : d == 0 ? 1 : d < 4 ? 2 : 3;
-        }
-        if (zone != run_zone) {
-          if (run_zone >= 0 && x > run_start) {
-            const uint16_t c = run_zone == 0 ? halo[row] : run_zone == 1 ? bright[row] : run_zone == 2 ? edge[row] : body[row];
-            g.drawFastHLine(kPlotX + run_start, kPlotY + row, x - run_start, c);
-          }
-          run_start = x;
-          run_zone = zone;
-        }
-      }
-    }
-  } else {
-    label("NO LIVE SPECTRUM", kPlotX + 16, kPlotY + kPlotH / 2, kMuted, 2);
-  }
-  g.drawRoundRect(kPlotX, kPlotY, kPlotW, kPlotH, 0, grid);
+  g.fillRect(kPlotX, kPlotY, kPlotW, kPlotH, plot_bg());
+  for (int db = -20; db >= -100; db -= 20)
+    g.drawFastHLine(kPlotX, level_y(static_cast<float>(db), kPlotY, kPlotH), kPlotW, plot_grid());
+  g.drawRoundRect(kPlotX, kPlotY, kPlotW, kPlotH, 0, plot_grid());
   label("-20", kPlotX + 6, level_y(-20.0f, kPlotY, kPlotH) + 10, kMuted, 2);
   label("-60", kPlotX + 6, level_y(-60.0f, kPlotY, kPlotH) + 10, kMuted, 2);
   label("-100", kPlotX + 6, level_y(-100.0f, kPlotY, kPlotH) - 10, kMuted, 2);
 }
 void draw_waterfall() {
-  const uint16_t edge = viz::rgb565(34, 18, 66);
-  if (!g_viz || !g_viz->image) {
-    g.fillRect(kWfX, kWfY, kWfW, kWfH, viz::rgb565(6, 3, 18));
-    label("WATERFALL UNAVAILABLE (MEMORY)", kWfX + 16, kWfY + kWfH / 2, kYellow, 2);
-  } else {
-    g.pushImage(kWfX, kWfY, kWfW, kWfH, g_viz->image);
-    // Head line = next row to be overwritten; the rows just above it are the newest.
-    g.drawFastHLine(kWfX, kWfY + g_viz->head, kWfW, viz::rgb565(220, 235, 255));
-    if (!g_viz->have_frame) label("WAITING FOR A MEASURED SPECTRUM", kWfX + 16, kWfY + kWfH / 2, kMuted, 2);
-  }
-  g.drawRoundRect(kWfX, kWfY, kWfW, kWfH, 0, edge);
+  g.fillRect(kWfX, kWfY, kWfW, kWfH, plot_bg());
+  g.drawRoundRect(kWfX, kWfY, kWfW, kWfH, 0, plot_grid());
 }
 void draw_legend() {
-  if (g_viz) {
+  if (g_scope) {
     for (int x = 0; x < kWfW; ++x)
-      g.drawFastVLine(kWfX + x, kLegendY, 10, g_viz->lut[x * (viz::kLutSize - 1) / (kWfW - 1)]);
+      g.drawFastVLine(kWfX + x, kLegendY, 10, g_scope->lut[x * (viz::kLutSize - 1) / (kWfW - 1)]);
   }
   static const char* const kTicks[] = {"-110", "-85", "-60", "-35", "-10 dBFS"};
   for (int i = 0; i < 5; ++i) {
@@ -252,6 +177,23 @@ void draw_legend() {
     x = std::max(kWfX, std::min(x, kWfX + kWfW - len * 12));
     label(kTicks[i], x, 489, kMuted, 2);
   }
+}
+
+// Erases the live trace (not the waterfall history) and forgets it.
+void scope_erase_trace() {
+  if (!g_scope) return;
+  Scope& s = *g_scope;
+  M5.Display.startWrite();
+  M5.Display.fillRect(kPlotX + 1, kPlotY + 1, kPlotW - 2, kPlotH - 2, plot_bg());
+  draw_plot_grid(M5.Display);
+  M5.Display.endWrite();
+  s.prev_n = 0;
+  s.trail.reset();
+}
+
+void waterfall_push_row(Scope& s) {
+  M5.Display.scroll(0, -1);
+  M5.Display.pushImage(kWfX + 1, kWfY + kWfH - 3, kWfW - 2, 1, reinterpret_cast<const lgfx::rgb565_t*>(s.row));
 }
 
 void button(const char* text, int x, int y, int w, uint16_t accent, bool enabled) {
@@ -411,6 +353,8 @@ void spectrum() {
   box(346, 120, 914, 511);
   heading("RF SPECTRUM  /  dBFS", 366, 144);
   if (g_snapshot->receiver_ready) label(hz, 986, 144, kGreen, 2);
+  if (!(g_snapshot->receiver_ready && g_snapshot->spectrum_valid))
+    label(g_snapshot->receiver_ready ? "SETTLING" : "NO LIVE SPECTRUM", 640, 144, kYellow, 2);
   draw_trace();
   draw_waterfall();
   draw_legend();
@@ -533,18 +477,10 @@ void paint_direct() {
   g.oy = 0;
   M5.Display.fillRect(0, kBodyY, 1280, kBodyBottom - kBodyY + 1, kBg);
   paint_page();
+  if (g_page == Page::spectrum)  // the waterfall scrolls inside this rectangle, like the LoRa dashboard
+    M5.Display.setScrollRect(kWfX + 1, kWfY + 1, kWfW - 2, kWfH - 2, plot_bg());
 }
 // page_change: another screen is replacing this one, so most pixels differ and tile pushes would not help.
-uint32_t now_us() {
-#if defined(ESP_PLATFORM)
-  return static_cast<uint32_t>(esp_timer_get_time());
-#else
-  return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-                                   std::chrono::steady_clock::now().time_since_epoch()).count());
-#endif
-}
-PaintStats g_stats{};
-
 void draw_body(bool page_change = false) {
   M5Canvas* canvas = body_canvas();
   if (!canvas) { paint_direct(); return; }
@@ -596,6 +532,72 @@ void draw_body(bool page_change = false) {
 }
 } // namespace
 
+bool draw_spectrum_frame(const float* dbfs, size_t count, uint32_t epoch, uint32_t now_ms) {
+  if (!g_active || !g_scope || !g_snapshot || !dbfs || count < 2) return false;
+  if (!screens::owns(screens::Id::dead_air) || g_page != Page::spectrum) return false;
+  const uint32_t t0 = now_us();
+  Scope& s = *g_scope;
+  const size_t n = std::min(count, kTracePoints);
+  const uint16_t bg = plot_bg();
+  const int x0 = kPlotX + 1, w = kPlotW - 2, bottom = kPlotY + kPlotH - 2;
+  const bool new_epoch = !s.have_epoch || epoch != s.last_epoch;
+  if (new_epoch) s.trail.reset();  // a retune or setting change breaks the peak hold
+  const float dt = s.last_frame_ms && now_ms > s.last_frame_ms ? static_cast<float>(now_ms - s.last_frame_ms) / 1000.0f : 0.0f;
+  s.trail.update(dbfs, n, kTrailDecayDbPerS * dt);
+  int16_t xs[kTracePoints], ys[kTracePoints], ts[kTracePoints];
+  for (size_t i = 0; i < n; ++i) {
+    xs[i] = static_cast<int16_t>(x0 + static_cast<int>(i) * (w - 1) / static_cast<int>(n - 1));
+    ys[i] = static_cast<int16_t>(level_y(dbfs[i], kPlotY, kPlotH));
+    ts[i] = static_cast<int16_t>(level_y(s.trail.at(i), kPlotY, kPlotH));
+  }
+  M5.Display.startWrite();
+  if (s.prev_n == n) {  // erase last frame's drawing, as the LoRa and Home scopes do
+    for (size_t i = 0; i < n; ++i)
+      if (bottom > s.prev_y[i] + 2) M5.Display.drawFastVLine(s.prev_x[i], s.prev_y[i] + 2, bottom - s.prev_y[i] - 1, bg);
+    for (size_t i = 1; i < n; ++i) {
+      for (int dy = -1; dy <= 1; ++dy) M5.Display.drawLine(s.prev_x[i - 1], s.prev_y[i - 1] + dy, s.prev_x[i], s.prev_y[i] + dy, bg);
+      M5.Display.drawLine(s.prev_x[i - 1], s.prev_trail_y[i - 1], s.prev_x[i], s.prev_trail_y[i], bg);
+    }
+  } else {
+    M5.Display.fillRect(x0, kPlotY + 1, w, kPlotH - 2, bg);
+  }
+  draw_plot_grid(M5.Display);
+  const uint16_t curtain = viz::rgb565(26, 10, 60);
+  for (size_t i = 1; i < n; ++i)  // fading afterimage (peak hold), behind the live trace
+    M5.Display.drawLine(xs[i - 1], ts[i - 1], xs[i], ts[i], viz::color_at(s.lut, s.trail.at(i) - 10.0f));
+  for (size_t i = 0; i < n; ++i)
+    if (bottom > ys[i] + 2) M5.Display.drawFastVLine(xs[i], ys[i] + 2, bottom - ys[i] - 1, curtain);
+  for (size_t i = 1; i < n; ++i) {
+    const float t = viz::normalize(dbfs[i]);
+    const uint16_t halo = s.lut[static_cast<int>(t * 110.0f)];
+    const uint16_t core = s.lut[std::min(255, 190 + static_cast<int>(t * 65.0f))];
+    M5.Display.drawLine(xs[i - 1], ys[i - 1] - 1, xs[i], ys[i] - 1, halo);
+    M5.Display.drawLine(xs[i - 1], ys[i - 1] + 1, xs[i], ys[i] + 1, halo);
+    M5.Display.drawLine(xs[i - 1], ys[i - 1], xs[i], ys[i], core);
+  }
+  for (size_t i = 0; i < n; ++i) { s.prev_x[i] = xs[i]; s.prev_y[i] = ys[i]; s.prev_trail_y[i] = ts[i]; }
+  s.prev_n = n;
+  // Waterfall: a marker row at every retune/setting change so continuity is never implied, then one measured row.
+  if (now_ms - s.last_row_ms >= kWaterfallRowMs || new_epoch) {
+    if (s.have_epoch && new_epoch) {
+      viz::render_gap_row(s.row, kWfW - 2);
+      waterfall_push_row(s);
+    }
+    viz::render_row(dbfs, n, s.lut, s.row, kWfW - 2);
+    waterfall_push_row(s);
+    s.last_row_ms = now_ms;
+  }
+  M5.Display.endWrite();
+  s.last_epoch = epoch;
+  s.have_epoch = true;
+  s.last_frame_ms = now_ms;
+  const uint32_t us = now_us() - t0;
+  g_stats.frame_us = us;
+  g_stats.frame_us_max = std::max(g_stats.frame_us_max, us);
+  ++g_stats.frames;
+  return true;
+}
+
 void attach_events(EventModel* events) { g_events = events; }
 void enter(const Snapshot& snapshot) {
   if (!screens::is_active(screens::Id::dead_air)) return;
@@ -605,8 +607,7 @@ void enter(const Snapshot& snapshot) {
   sanitize_snapshot();
   g_page = Page::overview;
   g_active = true;
-  viz_alloc();
-  viz_feed(*g_snapshot);
+  scope_alloc();
   chrome();
   draw_body(true);
 }
@@ -617,7 +618,11 @@ void update(const Snapshot& snapshot) {
   const bool sound = g_snapshot->sound_enabled;
   *g_snapshot = snapshot;
   sanitize_snapshot();
-  viz_feed(*g_snapshot);
+  if (g_scope) {  // a lost or settling stream erases the trace; the waterfall history stays
+    const bool live = g_snapshot->receiver_ready && g_snapshot->spectrum_valid;
+    if (!live && g_scope->was_valid && g_page == Page::spectrum) scope_erase_trace();
+    g_scope->was_valid = live;
+  }
   if (sound != snapshot.sound_enabled) audio_header::draw_mute_button(snapshot.sound_enabled);
   if (battery != snapshot.battery_percent) audio_header::draw_battery(snapshot.battery_percent);
   draw_body();
@@ -625,7 +630,7 @@ void update(const Snapshot& snapshot) {
 void leave() {
   g_active = false;
   release_canvas();
-  viz_release();
+  scope_release();
 }
 bool active() { return g_active; }
 PaintStats paint_stats() { return g_stats; }

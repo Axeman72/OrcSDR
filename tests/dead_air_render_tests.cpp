@@ -96,11 +96,23 @@ int main() {
   snap.revision = 22;
   host_display::reset();
   da::update(snap);
-  assert(displayed("NO LIVE SPECTRUM"));
+  assert(displayed("SETTLING"));
   validate_bounds();
   snap.spectrum_valid = true;
   snap.revision = 23;
   da::update(snap);
+  // Live frames are drawn straight onto the panel on the Spectrum tab only, and stay inside the screen.
+  float pts[da::kTracePoints];
+  for (size_t i = 0; i < da::kTracePoints; ++i) pts[i] = -95.0f + static_cast<float>(i % 60);
+  host_display::reset();
+  assert(da::draw_spectrum_frame(pts, da::kTracePoints, 1, 5000));
+  assert(!host_display::prims.empty());
+  validate_bounds();
+  assert(da::draw_spectrum_frame(pts, da::kTracePoints, 1, 5033));
+  assert(da::draw_spectrum_frame(pts, da::kTracePoints, 2, 5200));  // retune: marker row, still bounded
+  validate_bounds();
+  assert(!da::draw_spectrum_frame(nullptr, 0, 1, 5300));
+  assert(da::paint_stats().frames == 3);
   // Sweep controls: start/stop, preset and dwell are real actions; tuning and mode buttons yield while it runs.
   assert(da::handle_touch(366 + 20, 530 + 20, 2360).kind == da::ActionKind::start_scan);
   assert(da::handle_touch(606 + 20, 530 + 20, 2361).kind == da::ActionKind::sweep_preset);

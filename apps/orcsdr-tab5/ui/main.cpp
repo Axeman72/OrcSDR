@@ -7515,7 +7515,6 @@ void draw_spectrum(const uint8_t* iq, size_t bytes) {
   // LoRa and the Airband scope want a livelier trace than the 100 ms default.
   const uint32_t spectrum_interval =
       orcsdr::home::active() ? orcsdr::plot::kSpectrumIntervalMs :
-      orcsdr::dead_air_app::wants_spectrum() ? 120u :  // the Spectrum tab shows about 8 frames per second
       rtl_ui_band == RtlBand::lora || sstv_tune_spectrum_wanted() ||
               (rtl_ui_band == RtlBand::airband && orcsdr::airband::spectrum_active()) ||
               (rtl_ui_band == RtlBand::fm && orcsdr::fm::spectrum_active()) ||
@@ -14137,6 +14136,7 @@ orcsdr::dead_air_app::Hooks dead_air_app_hooks() {
   hooks.hot_retune = [](uint32_t hz) { return request_hot_retune(rtl_clamp_frequency(RtlBand::browse, hz)); };
   hooks.step_frequency = [](uint32_t hz, int direction) { return rtl_step_frequency(RtlBand::browse, hz, direction); };
   hooks.sound_enabled = [] { return rtl_audio_user_enabled.load(std::memory_order_relaxed); };
+  hooks.overlay_open = [] { return rtl_header_audio_control.expanded; };
   hooks.battery_percent = [] { return static_cast<int>(M5.Power.getBatteryLevel()); };
   hooks.utc_epoch = [] {
     const auto clock = orcsdr::time_service::now();
@@ -19348,7 +19348,7 @@ void process_command(char* command) {
     return;
   }
   if (strcmp(command, "RTL_DEAD_AIR STATUS") == 0) {
-    char line[320];
+    char line[512];
     orcsdr::dead_air_app::describe(line, sizeof(line));
     Serial.println(line);
     return;

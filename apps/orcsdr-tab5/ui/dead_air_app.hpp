@@ -25,6 +25,7 @@ struct Hooks {
   bool (*hot_retune)(uint32_t hz) = nullptr;  // cheap retune within the current band; false if it was not accepted
   uint32_t (*step_frequency)(uint32_t hz, int direction) = nullptr;
   bool (*sound_enabled)() = nullptr;
+  bool (*overlay_open)() = nullptr;        // the shared volume tray is open over the content
   int (*battery_percent)() = nullptr;
   uint32_t (*utc_epoch)() = nullptr;       // 0 when the wall clock is not verified
   bool (*sd_ready)() = nullptr;            // mounts on demand; true when the card is usable

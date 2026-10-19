@@ -27,7 +27,6 @@ using namespace orcsdr::dead_air;
 constexpr uint32_t kObserveIntervalMs = 50;     // detector cadence: persistence is 200 ms
 constexpr uint32_t kSettleMs = 800;             // after a retune/gain/rate change or receiver (re)start
 constexpr uint32_t kSnapshotIntervalMs = 250;   // slowest visible refresh when nothing else changed
-constexpr uint32_t kSpectrumSnapshotIntervalMs = 125;  // Spectrum tab: about 8 frames per second
 constexpr uint32_t kSpectrumFreshMs = 1000;
 constexpr uint32_t kWorkerStopWaitMs = 1500;
 // Full scale matches the receiver's IQ meter (rtl_signal_dbfs): a CU8 complex sample with both axes
@@ -56,6 +55,7 @@ struct State {
   uint32_t spectrum_ms = 0;
   bool spectrum_have = false;
   uint32_t spectrum_seq = 0;
+  bool rx_settled = false;  // receiver ready and past its settling window (refreshed every tick)
   uint32_t opened_ms = 0;
   uint32_t last_observe_ms = 0, last_snapshot_ms = 0, settle_until_ms = 0;
   uint32_t last_signature = 0, config_revision = 0, last_counter = 0;
@@ -247,7 +247,7 @@ bool visibly_changed(const Snapshot& a, const Snapshot& b) {
   const auto q = [](float v) { return static_cast<int>(std::lround(v * 2.0f)); };
   return a.receiver_ready != b.receiver_ready || a.receiver_settled != b.receiver_settled ||
          a.frequency_hz != b.frequency_hz || a.sound_enabled != b.sound_enabled ||
-         a.battery_percent != b.battery_percent || a.session_elapsed_s != b.session_elapsed_s ||
+         a.battery_percent != b.battery_percent || (a.session_elapsed_s != b.session_elapsed_s && dead_air::page() == Page::overview) ||
          a.recorder_state != b.recorder_state || a.recorder_saved != b.recorder_saved ||
          a.recorder_missing != b.recorder_missing || a.recorder_dropped != b.recorder_dropped ||
          a.recorder_session != b.recorder_session || a.rf_level_dbfs.valid != b.rf_level_dbfs.valid ||
@@ -304,6 +304,7 @@ void tick() {
   const uint32_t now = millis();
   const bool ready = g_hooks.receiver_ready();
   const uint32_t signature = g_hooks.config_signature();
+  s.rx_settled = ready && static_cast<int32_t>(now - s.settle_until_ms) >= 0;
   if (!s.have_signature || signature != s.last_signature || !ready) {
     // A retune, gain/rate change or receiver (re)start invalidates the baseline and the settling window.
     if (!s.have_signature || signature != s.last_signature || s.last_level_valid) {
@@ -353,8 +354,7 @@ void tick() {
   build_snapshot(now);
   const bool events_changed = s.model.total() != s.last_total;
   const bool changed = visibly_changed(s.snapshot, next) || events_changed;
-  const bool spectrum_tab = dead_air::page() == Page::spectrum && s.snapshot.spectrum_valid;
-  if (changed || (spectrum_tab && now - s.last_snapshot_ms >= kSpectrumSnapshotIntervalMs)) {
+  if (changed) {
     s.last_total = s.model.total();
     s.snapshot.revision = revision + 1;
     s.last_snapshot_ms = now;
@@ -423,15 +423,26 @@ void feed_spectrum(const float* levels, size_t bins, uint32_t sample_rate_sps) {
   if (!g_open || !g_state || !levels || bins < kBins) return;
   const float offset_db = 20.0f * std::log10(kFullScaleAmplitude * (static_cast<float>(bins) - 1.0f) * 0.5f);
   State& s = *g_state;
-  for (size_t i = 0; i < kBins; ++i) {
-    const size_t a = i * bins / kBins, b = std::max(a + 1, (i + 1) * bins / kBins);
+  // Max-pool the receiver's FFT to the trace resolution, then derive the coarse bins from those points.
+  float points[kTracePoints];
+  for (size_t i = 0; i < kTracePoints; ++i) {
+    const size_t a = i * bins / kTracePoints, b = std::max(a + 1, (i + 1) * bins / kTracePoints);
     float peak = -200.0f;
     for (size_t k = a; k < b && k < bins; ++k) peak = std::max(peak, levels[k]);
-    s.spectrum[i] = peak - offset_db;  // max-pooled per-bin power, relative dBFS
+    points[i] = peak - offset_db;  // per-bin power, relative dBFS
+  }
+  for (size_t i = 0; i < kBins; ++i) {
+    const size_t a = i * kTracePoints / kBins, b = std::max(a + 1, (i + 1) * kTracePoints / kBins);
+    float peak = -200.0f;
+    for (size_t k = a; k < b && k < kTracePoints; ++k) peak = std::max(peak, points[k]);
+    s.spectrum[i] = peak;
   }
   s.spectrum_ms = millis();
   s.spectrum_have = true;
   ++s.spectrum_seq;
+  // Only a settled receiver is drawn, and never under the volume tray.
+  if (s.rx_settled && !(g_hooks.overlay_open && g_hooks.overlay_open()))
+    (void)dead_air::draw_spectrum_frame(points, kTracePoints, s.config_revision, s.spectrum_ms);
 }
 
 void describe(char* out, size_t size) {
@@ -440,7 +451,7 @@ void describe(char* out, size_t size) {
   const Worker& w = g_state->worker;
   const PaintStats ps = dead_air::paint_stats();
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
@@ -455,7 +466,9 @@ void describe(char* out, size_t size) {
                 static_cast<unsigned long>(ps.compose_us), static_cast<unsigned long>(ps.diff_us),
                 static_cast<unsigned long>(ps.push_us), static_cast<unsigned long>(ps.push_us_max),
                 static_cast<unsigned long>(ps.pixels), static_cast<unsigned long>(ps.rects),
-                static_cast<unsigned long>(ps.whole_pushes), static_cast<unsigned long>(ps.partial_pushes));
+                static_cast<unsigned long>(ps.whole_pushes), static_cast<unsigned long>(ps.partial_pushes),
+                static_cast<unsigned long>(ps.frame_us), static_cast<unsigned long>(ps.frame_us_max),
+                static_cast<unsigned long>(ps.frames));
 }
 
 }  // namespace orcsdr::dead_air_app
