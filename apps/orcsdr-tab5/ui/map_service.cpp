@@ -100,7 +100,9 @@ void publish_preview(const Request& request) {
     g_preview.deleteSprite();g_preview_bytes.store(0);
     const size_t bytes=static_cast<size_t>(request.view.width_px)*request.view.height_px*2;
     if(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=bytes+128*1024) {
-      g_preview.setPsram(true);g_preview.setColorDepth(16);
+      g_preview.setPsram(true);
+      // Convert once while publishing; Tab5 scanout uses native-order RGB565.
+      g_preview.setColorDepth(lgfx::rgb565_nonswapped);
       if(g_preview.createSprite(request.view.width_px,request.view.height_px))g_preview_bytes.store(bytes);
     }
   }
