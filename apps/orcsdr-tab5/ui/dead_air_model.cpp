@@ -65,7 +65,15 @@ void EventModel::push(Event event) {
   ++total_;
 }
 bool EventModel::append_measured(const Event& event) {
-  if (event.source == Source::manual || event.kind == Kind::manual_marker ||
+  const bool valid_kind =
+      (event.source == Source::rf && event.kind == Kind::rf_rise &&
+       event.frequency_hz != 0) ||
+      (event.source == Source::audio && event.kind == Kind::audio_burst) ||
+      (event.source == Source::environment &&
+       (event.kind == Kind::temperature_change ||
+        event.kind == Kind::humidity_change ||
+        event.kind == Kind::pressure_change));
+  if (!valid_kind || event.threshold <= 0.0f ||
       !std::isfinite(event.value) || !std::isfinite(event.reference) ||
       !std::isfinite(event.threshold)) return false;
   Event copy = event;
