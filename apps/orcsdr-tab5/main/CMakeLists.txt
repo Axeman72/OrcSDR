@@ -101,6 +101,7 @@ idf_component_register(
         "../ui/airband_dashboard.cpp"
         "../ui/airband_runtime.cpp"
         "../ui/catalog_sync.cpp"
+        "../ui/map_catalog.cpp"
         "../ui/cb_dashboard.cpp"
         "../ui/cb_scanner.cpp"
         "../ui/dashboard_audio_control.cpp"
