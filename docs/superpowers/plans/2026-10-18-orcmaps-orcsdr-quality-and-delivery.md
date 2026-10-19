@@ -317,6 +317,10 @@ Primary files: existing OrcMaps pack builders/verification, a small catalog sche
   Production build cost, optional-pack sizing, provider selection and endpoint
   validation remain open; no hosting or publication has been performed.
 - [ ] Implement asynchronous resumable install with explicit size/free-space checks, bounded buffers, verified TLS/hash, staging and atomic activation preserving previous packs. Resume must validate object identity, not append unrelated versions.
+  [Portable response/resume guard](../../evidence/maps/2026-10-19-map-download-response-guard.md)
+  now passes focused host checks (1/1) and standalone P4 compiler syntax. It has
+  no production call sites yet. Trusted metadata, HTTP/SD adapter, body/hash
+  verification, persistence and activation remain open; downloads are not enabled.
 - [ ] Test short/corrupt/wrong-schema downloads, cancellation, network/power interruption, full/removed SD, version replacement and hash mismatch.
 - [ ] Keep manual import of compatible packs available without our hosting service. Preserve explicit legacy support/migration.
 
