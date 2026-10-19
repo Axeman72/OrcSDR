@@ -365,6 +365,21 @@ device resumable installer: power-loss durability, orphan recovery and actual
 SD-card testing remain open. The older signed data catalog and 64 MiB serial
 uploader remain separate; neither is being relabeled as PMTiles delivery.
 
+OrcMaps `83695cd` now provides the host-side owned catalog builder and
+`tools/pack-builder/MAP_CATALOG.md` contract: full engine manifests,
+content-addressed HTTPS mirrors, size/hash, bounded revision/UTC metadata,
+canonical payload and verified detached P-256 signature. Nine focused catalog
+tests pass. A temporary-key smoke run used the actual global archive and
+reserved `example.test` URLs; it is explicitly not a production catalog.
+The builder's dependency on strict archive preflight also exposed and fixed
+the host verifier returning success after an invalid-header warning; two
+actual CLI tests now pass for valid and rejected header/coverage/zoom cases.
+See OrcMaps `docs/evidence/2026-10-19-map-catalog-builder.md` for commands/logs.
+No production key, endpoint, publication, firmware pin or device state changed.
+Next delivery step: implement the bounded authenticated catalog consumer,
+freshness/rollback policy and shared asynchronous HTTP/SD resume worker, then
+wire it to wizard-owned downloads. These device gates remain open.
+
 - [ ] Define pack entries: stable ID/name, bounds/coverage, detail/zoom, schema compatibility, source/build date, download bytes, SHA-256, attribution/license, immutable URL and mirrors.
 - [ ] Sign trusted catalog metadata using a reviewed approach consistent with existing project trust practices, without confusing the historical data catalog and map manifests.
 - [ ] Build one logical global regional-detail base and optional local-detail packs. Reuse identical versioned artifacts across users, validate them, and publish only after approval. Recommend local packs by location without generating a unique pack for every user by default.

@@ -63,6 +63,11 @@ Work through these remaining milestones:
 3. Implement the owned catalog and trusted resumable installation: immutable
    identities, size/free-space checks, TLS/hash verification, staging, atomic
    activation and recovery. Preserve manual imports and prior working packs.
+   Continue from OrcMaps83695cd's signed catalog builder/contract and strict
+   preflight; do not rebuild a second host schema. Its9catalog tests,2actual
+   CLI tests and temporary-key real-global smoke pass. Device authentication,
+   freshness/rollback, HTTP/SD worker and setup wiring are still unimplemented;
+   example.test smoke URLs and its test key are never production defaults.
    Use the recorded preliminary 20,000-user cost model before selecting hosting;
    verify assumptions when making the decision.
    Get my decision when a hosting/publication choice is actually required.
