@@ -65,8 +65,12 @@ Work through these remaining milestones:
    activation and recovery. Preserve manual imports and prior working packs.
    Continue from OrcMaps83695cd's signed catalog builder/contract and strict
    preflight; do not rebuild a second host schema. Its9catalog tests,2actual
-   CLI tests and temporary-key real-global smoke pass. Device authentication,
-   freshness/rollback, HTTP/SD worker and setup wiring are still unimplemented;
+   CLI tests and temporary-key real-global smoke pass. Follow-on OrcMaps182c56d
+   aligns URL/date/structure limits (10builder tests). OrcSDR06c7a4fb implements
+   the bounded signed consumer with29signed host cases, actual producer-file
+   interoperability and P4syntax passing. Native linking, device caller,
+   persistent revision/hash and clock-policy wiring, HTTP/SD worker and setup
+   wiring remain open;
    example.test smoke URLs and its test key are never production defaults.
    Use the recorded preliminary 20,000-user cost model before selecting hosting;
    verify assumptions when making the decision.

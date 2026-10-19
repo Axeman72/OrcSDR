@@ -380,6 +380,20 @@ Next delivery step: implement the bounded authenticated catalog consumer,
 freshness/rollback policy and shared asynchronous HTTP/SD resume worker, then
 wire it to wizard-owned downloads. These device gates remain open.
 
+Subsequent source checkpoint `06c7a4fb` implements that bounded catalog consumer
+and checks signatures before JSON interpretation. It validates the actual
+engine manifest, entries/URLs, expiry and the caller's accepted revision/hash,
+leaving previous output unchanged on rejection. Twenty-nine signed host cases,
+actual OrcMaps producer-payload interoperability and P4 syntax pass. No complete
+native link, device test or HTTP/SD/NVS caller is present yet. The consumer
+requires a caller-supplied approved public key and trusted UTC; unavailable UTC
+disables new downloads, not already-installed offline maps. OrcMaps `182c56d`
+aligns producer URL/date/structure limits; its ten focused builder tests pass.
+Commands and log paths: [signed consumer evidence](../../evidence/maps/2026-10-19-signed-map-catalog-consumer.md).
+Next: implement bounded catalog fetching, persistent accepted revision/hash and
+the shared archive resume/activation worker, then wizard download controls.
+Production key/endpoint, memory budgets and hardware recovery remain open.
+
 - [ ] Define pack entries: stable ID/name, bounds/coverage, detail/zoom, schema compatibility, source/build date, download bytes, SHA-256, attribution/license, immutable URL and mirrors.
 - [ ] Sign trusted catalog metadata using a reviewed approach consistent with existing project trust practices, without confusing the historical data catalog and map manifests.
 - [ ] Build one logical global regional-detail base and optional local-detail packs. Reuse identical versioned artifacts across users, validate them, and publish only after approval. Recommend local packs by location without generating a unique pack for every user by default.
