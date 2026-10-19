@@ -20,21 +20,58 @@ Snapshot* g_snapshot = nullptr;  // heap, not static: internal .data/.bss below 
 Page g_page = Page::overview;
 bool g_active = false;
 
+// Body panels are drawn into an off-screen canvas and pushed once per update, so a refresh never shows a
+// cleared frame (that was the flicker). Drawing code keeps absolute screen coordinates; `oy` shifts them
+// into the canvas. If the canvas cannot be allocated, drawing falls back to the display directly.
+struct Gfx {
+  lgfx::LovyanGFX* t = nullptr;
+  int oy = 0;
+  lgfx::LovyanGFX& d() const { return t ? *t : static_cast<lgfx::LovyanGFX&>(M5.Display); }
+  template <class D> void setTextDatum(D v) { d().setTextDatum(v); }
+  void setTextSize(uint8_t s) { d().setTextSize(s); }
+  void setTextColor(uint16_t c) { d().setTextColor(c); }
+  void drawString(const char* s, int x, int y) { d().drawString(s, x, y - oy); }
+  void fillRoundRect(int x, int y, int w, int h, int r, uint16_t c) { d().fillRoundRect(x, y - oy, w, h, r, c); }
+  void drawRoundRect(int x, int y, int w, int h, int r, uint16_t c) { d().drawRoundRect(x, y - oy, w, h, r, c); }
+  void drawFastHLine(int x, int y, int w, uint16_t c) { d().drawFastHLine(x, y - oy, w, c); }
+  void drawLine(int x0, int y0, int x1, int y1, uint16_t c) { d().drawLine(x0, y0 - oy, x1, y1 - oy, c); }
+};
+Gfx g;
+M5Canvas* g_canvas = nullptr;
+constexpr int kBodyHeight = 522;  // kBodyBottom - kBodyY + 1
+
+M5Canvas* body_canvas() {
+  if (g_canvas) return g_canvas;
+  M5Canvas* c = new (std::nothrow) M5Canvas(&M5.Display);
+  if (!c) return nullptr;
+  c->setColorDepth(16);
+  c->setPsram(true);
+  if (!c->createSprite(1280, kBodyHeight)) { delete c; return nullptr; }
+  g_canvas = c;
+  return g_canvas;
+}
+void release_canvas() {
+  if (!g_canvas) return;
+  g_canvas->deleteSprite();
+  delete g_canvas;
+  g_canvas = nullptr;
+}
+
 bool hit(int x, int y, int rx, int ry, int rw, int rh) {
   return x >= rx && y >= ry && x < rx + rw && y < ry + rh;
 }
 void label(const char* value, int x, int y, uint16_t color = TFT_WHITE, uint8_t scale = 2) {
-  M5.Display.setTextDatum(middle_left);
-  M5.Display.setTextSize(scale);
-  M5.Display.setTextColor(color);
-  M5.Display.drawString(value, x, y);
+  g.setTextDatum(middle_left);
+  g.setTextSize(scale);
+  g.setTextColor(color);
+  g.drawString(value, x, y);
 }
 void box(int x, int y, int w, int h, uint16_t border = kEdge) {
-  M5.Display.fillRoundRect(x, y, w, h, 8, kPanel);
-  M5.Display.drawRoundRect(x, y, w, h, 8, border);
+  g.fillRoundRect(x, y, w, h, 8, kPanel);
+  g.drawRoundRect(x, y, w, h, 8, border);
 }
 void heading(const char* text, int x, int y) { label(text, x, y, kCyan, 2); }
-void divider(int x, int y, int width) { M5.Display.drawFastHLine(x, y, width, kEdge); }
+void divider(int x, int y, int width) { g.drawFastHLine(x, y, width, kEdge); }
 void button(const char* text, int x, int y, int w, uint16_t accent, bool enabled) {
   box(x, y, w, 52, enabled ? accent : kEdge);
   label(text, x + 16, y + 26, enabled ? TFT_WHITE : kMuted);
@@ -45,13 +82,13 @@ void reading(const char* name, const Reading& value, int x, int y, const char* f
   if (state == Status::current) snprintf(output, sizeof(output), format, static_cast<double>(value.value));
   label(name, x, y, kMuted);
   label(output, x + 230, y, state == Status::current ? TFT_WHITE : kMuted, 2);
-  if (state == Status::stale) label("STALE", x + 400, y, kYellow, 1);
+  if (state == Status::stale) label("STALE", x + 400, y, kYellow, 2);
 }
 void plot(const float* data, size_t count, bool valid, int x, int y, int w, int h,
           float minimum, float maximum, uint16_t color) {
-  M5.Display.drawRoundRect(x, y, w, h, 0, kEdge);
+  g.drawRoundRect(x, y, w, h, 0, kEdge);
   for (int t = 1; t < 4; ++t)
-    M5.Display.drawFastHLine(x + 1, y + h * t / 4, w - 2, kEdge);
+    g.drawFastHLine(x + 1, y + h * t / 4, w - 2, kEdge);
   if (!valid || count < 2 || !(maximum > minimum)) {
     label("NO LIVE PLOT DATA", x + 16, y + h / 2, kMuted, 2);
     return;
@@ -64,7 +101,7 @@ void plot(const float* data, size_t count, bool valid, int x, int y, int w, int 
   for (size_t i = 1; i < count; ++i) {
     const int xa = x + 1 + static_cast<int>((i - 1) * (w - 3) / (count - 1));
     const int xb = x + 1 + static_cast<int>(i * (w - 3) / (count - 1));
-    M5.Display.drawLine(xa, py(data[i - 1]), xb, py(data[i]), color);
+    g.drawLine(xa, py(data[i - 1]), xb, py(data[i]), color);
   }
 }
 const char* recorder_text(RecorderState state) {
@@ -157,7 +194,7 @@ void overview() {
     char row[86];
     snprintf(row, sizeof(row), "#%lu  %s: %s", static_cast<unsigned long>(e->sequence),
              source_name(e->source), kind_name(e->kind));
-    label(row, 40, 462 + i * 38, i == 0 ? kGreen : TFT_WHITE, 1);
+    label(row, 40, 462 + i * 38, i == 0 ? kGreen : TFT_WHITE, 2);
   }
   box(646, 390, 614, 241);
   heading("ENV III / OPTIONAL", 668, 413);
@@ -182,7 +219,8 @@ void spectrum() {
   button("+ STEP", 183, 420, 128, kCyan, g_snapshot->receiver_ready);
   label(g_snapshot->receiver_settled ? "SETTLED" : "SETTLING...", 40, 510,
         g_snapshot->receiver_settled ? kGreen : kYellow, 2);
-  label("Single tuned channel, not a sweep", 40, 560, kMuted, 1);
+  label("Single channel,", 40, 545, kMuted, 2);
+  label("not a sweep", 40, 570, kMuted, 2);
   box(346, 120, 914, 511);
   heading("RF SPECTRUM  /  dBFS", 366, 144);
   if (g_snapshot->receiver_ready) label(hz, 986, 144, kGreen, 2);
@@ -204,7 +242,7 @@ void audio() {
   box(809, 388, 451, 243);
   heading("SOURCE", 829, 415);
   label(g_snapshot->receiver_ready ? g_snapshot->demod : "NO AUDIO SOURCE", 829, 482, TFT_WHITE, 2);
-  label("Clip replay requires recorder adapter", 829, 551, kMuted, 1);
+  label("Clip replay: not implemented", 829, 551, kMuted, 2);
 }
 void environment() {
   box(20, 120, 610, 511);
@@ -214,14 +252,14 @@ void environment() {
   reading("TEMPERATURE (C)", g_snapshot->temperature_c, 40, 280, "%.1f");
   reading("HUMIDITY (%)", g_snapshot->humidity_rh, 40, 355, "%.1f");
   reading("PRESSURE (hPa)", g_snapshot->pressure_hpa, 40, 430, "%.1f");
-  label("Core RF investigation works without ENV III.", 40, 548, kMuted, 1);
+  label("Core RF investigation works without ENV III.", 40, 548, kMuted, 2);
   box(644, 120, 616, 511);
   heading("SENSOR INTEGRITY", 666, 144);
-  label("No derived score without validated baselines", 666, 201, kMuted, 1);
+  label("No derived score without validated baselines", 666, 201, kMuted, 2);
   reading("DEVICE MOTION (g)", g_snapshot->motion_g, 666, 271, "%.3f");
-  label("This describes Tab5 motion, NOT room movement.", 666, 331, kMuted, 1);
+  label("This describes Tab5 motion, NOT room movement.", 666, 331, kMuted, 2);
   label("Temperature / humidity / pressure", 666, 426, kCyan, 2);
-  label("shown only from current valid sensor samples", 666, 476, kMuted, 1);
+  label("shown only from current valid sensor samples", 666, 476, kMuted, 2);
 }
 void events() {
   box(20, 120, 767, 511);
@@ -272,7 +310,7 @@ void review() {
            static_cast<unsigned long>(g_snapshot->recorder_dropped));
   label(line, 40, 390,
         g_snapshot->recorder_missing || g_snapshot->recorder_dropped ? kYellow : kMuted, 2);
-  label("Audio/IQ clips: not implemented", 40, 560, kMuted, 1);
+  label("Audio/IQ clips: not implemented", 40, 560, kMuted, 2);
   box(497, 120, 763, 511);
   heading("EVIDENCE REVIEW", 517, 144);
   plot(nullptr, 0, false, 519, 195, 718, 248, -1.0f, 1.0f, kGreen);
@@ -280,7 +318,16 @@ void review() {
   label("will appear after the storage adapter is wired.", 519, 550, kMuted);
 }
 void draw_body() {
-  M5.Display.fillRect(0, kBodyY, 1280, kBodyBottom - kBodyY + 1, kBg);
+  M5Canvas* canvas = body_canvas();
+  if (canvas) {
+    g.t = canvas;
+    g.oy = kBodyY;
+    canvas->fillSprite(kBg);
+  } else {
+    g.t = &M5.Display;
+    g.oy = 0;
+    M5.Display.fillRect(0, kBodyY, 1280, kBodyBottom - kBodyY + 1, kBg);
+  }
   switch (g_page) {
     case Page::overview: overview(); break;
     case Page::spectrum: spectrum(); break;
@@ -290,6 +337,9 @@ void draw_body() {
     case Page::review: review(); break;
     default: break;
   }
+  if (canvas) canvas->pushSprite(0, kBodyY);  // one transfer per refresh: no cleared frame is ever visible
+  g.t = &M5.Display;
+  g.oy = 0;
 }
 } // namespace
 
@@ -316,7 +366,10 @@ void update(const Snapshot& snapshot) {
   if (battery != snapshot.battery_percent) audio_header::draw_battery(snapshot.battery_percent);
   draw_body();
 }
-void leave() { g_active = false; }
+void leave() {
+  g_active = false;
+  release_canvas();
+}
 bool active() { return g_active; }
 Page page() { return g_page; }
 Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
