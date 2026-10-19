@@ -149,6 +149,36 @@ Error recover_job(storage::FileSystem& fs,Job& j) {
   }
   return rollback(fs,j);
 }
+Error prepare_reuse(storage::FileSystem& fs,const Job& j) {
+  // Only reached with no pending journal. A previously finalized artifact
+  // may be selected again after another version; its old marker is not a
+  // commit for the new transaction. Keep older backup bytes before reuse.
+  const auto done=fs.status(j.done.c_str());
+  if(done==storage::EntryStatus::file) {
+    std::string tag;
+    if(!read(fs,j.done,65,tag)||tag.size()!=65||tag.back()!='\n'||!hex(std::string_view(tag).substr(0,64)))
+      return Error::corrupt;
+  }else if(done!=storage::EntryStatus::missing)return Error::storage;
+  const auto backup=fs.status(j.backup.c_str());
+  if(backup==storage::EntryStatus::file) {
+    std::string raw;
+    if(!read(fs,j.backup,orcmap::kMaxPackManifestBytes,raw))return Error::storage;
+    const auto digest=hash(raw);if(!hex(digest))return Error::corrupt;
+    constexpr char history[]="/orcmaps/.recovery";
+    const auto root=fs.status(history);
+    if(root==storage::EntryStatus::missing) {if(!fs.mkdir(history))return Error::storage;}
+    else if(root!=storage::EntryStatus::directory)return Error::storage;
+    const auto path=std::string(history)+"/"+digest+".bak";
+    const auto destination=fs.status(path.c_str());
+    if(destination==storage::EntryStatus::missing) {
+      if(!fs.rename(j.backup.c_str(),path.c_str()))return Error::storage;
+    }else if(destination==storage::EntryStatus::file) {
+      if(!matches(fs,path,raw))return Error::conflict;
+      if(!fs.remove(j.backup.c_str()))return Error::storage;
+    }else return Error::storage;
+  }else if(backup!=storage::EntryStatus::missing)return Error::storage;
+  return done==storage::EntryStatus::missing||fs.remove(j.done.c_str())?Error::none:Error::storage;
+}
 Error apply(storage::FileSystem& fs,const catalog::Pack& pack,const std::string& previous,
             uint8_t* buffer,size_t size,const transfer::Hooks& hooks) {
   const auto p=transfer::paths(pack);
@@ -192,6 +222,7 @@ Error apply(storage::FileSystem& fs,const catalog::Pack& pack,const std::string&
   if(fs.exists(j.intent.c_str())) {
     if(!matches(fs,j.intent,pack.manifest_json))return Error::conflict;
   }else if(!write(fs,j.intent,pack.manifest_json))return Error::storage;
+  const auto reused=prepare_reuse(fs,j);if(reused!=Error::none)return reused;
   const auto bytes=record(j.old_name,j.old_hash);if(bytes.size()!=kRecord)return Error::corrupt;
   // Sync the final journal filename before the first visible metadata change.
   if(!write(fs,j.pending,bytes)||!load(fs,j))return Error::storage;

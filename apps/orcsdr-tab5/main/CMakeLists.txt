@@ -107,6 +107,8 @@ idf_component_register(
         "../ui/map_delivery_state.cpp"
         "../ui/map_delivery_nvs.cpp"
         "../ui/map_catalog_session.cpp"
+        "../ui/map_install.cpp"
+        "../ui/map_downloads.cpp"
         "../ui/map_http_stream.cpp"
         "../ui/cb_dashboard.cpp"
         "../ui/cb_scanner.cpp"

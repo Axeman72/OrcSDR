@@ -1,5 +1,6 @@
 #include "map_transfer.hpp"
 #include "map_activation.hpp"
+#include "map_install.hpp"
 #include "map_http_headers.hpp"
 #include "orcmap/pack_json.hpp"
 #include <cJSON.h>
@@ -123,6 +124,18 @@ struct Stream:t::Stream {
     return static_cast<int>(take);
   }
   void close()override{}
+};
+struct DeliveryStore:orcsdr::maps::delivery::Store {
+  std::string bytes;int writes=0,fail_at=0;bool persist_failure=false;
+  orcsdr::maps::delivery::Read read(std::string* out)override {
+    if(bytes.empty())return orcsdr::maps::delivery::Read::missing;
+    *out=bytes;return orcsdr::maps::delivery::Read::ok;
+  }
+  bool write(std::string_view value)override {
+    const bool fail=++writes==fail_at;
+    if(!fail||persist_failure)bytes=value;
+    return !fail;
+  }
 };
 int main(int argc,char** argv){
   if(argc!=4)return 2;
@@ -293,6 +306,133 @@ int main(int argc,char** argv){
           "first install interruption recovered");
     check(fs.exists(target.c_str())==(point==4),"only committed first install visible");
     check(load(testfs::root/"orcmaps/old.pmtiles")=="valuable map","unmanaged map preserved");
+  }
+  namespace install=orcsdr::maps::install;
+  namespace delivery=orcsdr::maps::delivery;
+  orcsdr::maps::catalog::Catalog accepted;accepted.revision=1;accepted.sha256=std::string(64,'a');
+  accepted.expires_at=200;
+  accepted.packs={p};accepted.packs[0].product_id="global-regional";
+  auto trusted=[&](DeliveryStore& store) {
+    delivery::State state;state.accepted_revision=1;state.catalog_sha256=accepted.sha256;
+    check(delivery::save(store,state)==delivery::Error::none,"installer prior catalog trust saved");
+  };
+  auto install_pack=[&](DeliveryStore& store,Stream& stream) {
+    return install::run(fs,store,accepted,0,0,stream,100000000,buffer.data(),buffer.size(),false,1,{});
+  };
+  reset();DeliveryStore normal;trusted(normal);Stream normal_stream;
+  check(install_pack(normal,normal_stream).error==install::Error::none,"installer completes entire transaction");
+  delivery::State state;
+  check(delivery::load(normal,&state)==delivery::Error::none&&state.pending.product.empty()&&
+        state.owned.size()==1&&state.owned[0].manifest==target&&
+        !fs.exists((paths.directory+"/activation.pending").c_str()),"ownership durable before journal finalized");
+  for(bool persisted:{false,true}) {
+    reset();DeliveryStore interrupted;trusted(interrupted);Stream stream;
+    interrupted.fail_at=3;interrupted.persist_failure=persisted;
+    check(install_pack(interrupted,stream).error==install::Error::state,"ownership commit failure reported");
+    check(fs.exists((paths.directory+"/activation.pending").c_str()),"failed commit retains recovery journal");
+    interrupted.fail_at=0;
+    check(install::resume(fs,interrupted,buffer.data(),buffer.size(),{}).error==install::Error::none,
+          "offline restart reconciles uncertain ownership commit");
+    check(delivery::load(interrupted,&state)==delivery::Error::none&&state.pending.product.empty()&&
+          state.owned.size()==1&&!fs.exists((paths.directory+"/activation.pending").c_str()),
+          "offline completion finalizes only after saved ownership");
+  }
+  reset();DeliveryStore plan_failure;trusted(plan_failure);Stream plan_stream;plan_failure.fail_at=2;
+  check(install_pack(plan_failure,plan_stream).error==install::Error::state&&!fs.exists(target.c_str()),
+        "failed intent commit prevents visible activation");
+  plan_failure.fail_at=0;Stream retry;
+  check(install_pack(plan_failure,retry).error==install::Error::none&&retry.opens==0,
+        "intent save retry reuses verified staging without network");
+  reset();DeliveryStore uncertain_plan;trusted(uncertain_plan);Stream uncertain_stream;
+  uncertain_plan.fail_at=2;uncertain_plan.persist_failure=true;
+  check(install_pack(uncertain_plan,uncertain_stream).error==install::Error::state,
+        "uncertain intent commit reported");
+  uncertain_plan.fail_at=0;
+  check(install::resume(fs,uncertain_plan,buffer.data(),buffer.size(),{}).error==install::Error::none&&
+        fs.exists(target.c_str()),"offline resume uses staging when activation never started");
+  for(int point=1;point<=4;++point) {
+    reset();DeliveryStore powered;trusted(powered);Stream prepared;
+    check(run(prepared)==t::Error::none,"installer power fixture staged");
+    testfs::power_after=point;bool cut=false;Stream no_network;
+    try{install_pack(powered,no_network);}catch(const testfs::PowerLoss&){cut=true;}
+    testfs::power_after=0;
+    check(cut&&no_network.opens==0&&install::resume(fs,powered,buffer.data(),buffer.size(),{}).error==install::Error::none,
+          "coordinated restart rolls forward after activation interruption");
+    check(delivery::load(powered,&state)==delivery::Error::none&&state.pending.product.empty()&&
+          state.owned.size()==1&&fs.exists(target.c_str()),"restarted filesystem and ownership agree");
+  }
+  reset();DeliveryStore untrusted;Stream untouched;
+  check(install_pack(untrusted,untouched).error==install::Error::input&&untouched.opens==0,
+        "installer refuses catalog not matching persisted trust");
+  reset();DeliveryStore expired;trusted(expired);Stream expired_stream;
+  check(install::run(fs,expired,accepted,0,0,expired_stream,100000000,buffer.data(),buffer.size(),false,200,{}).error==
+        install::Error::input&&expired_stream.opens==0,"expired catalog cannot start network install");
+  reset();DeliveryStore replaced;trusted(replaced);Stream old_stream;
+  accepted.packs[0]=previous;accepted.packs[0].product_id="global-regional";body=previous_body;
+  check(install_pack(replaced,old_stream).error==install::Error::none,"managed prior version installed");
+  const auto old_target=activation::target_manifest(previous);
+  accepted.packs[0]=p;accepted.packs[0].product_id="global-regional";body=current_body;
+  accepted.revision=2;accepted.sha256=std::string(64,'b');
+  check(delivery::load(replaced,&state)==delivery::Error::none,"prior ownership loaded for new catalog");
+  state.accepted_revision=2;state.catalog_sha256=accepted.sha256;
+  check(delivery::save(replaced,state)==delivery::Error::none,"new catalog trust saved preserving ownership");
+  Stream replacement;
+  check(install_pack(replaced,replacement).error==install::Error::none&&
+        !fs.exists(old_target.c_str())&&fs.exists(target.c_str()),"new product version replaces only its managed metadata");
+  const auto old_archive=old_target.substr(0,old_target.size()-14)+".pmtiles";
+  check(load(testfs::path(old_archive.c_str()))==std::string(previous_body.begin(),previous_body.end()),
+        "coordinated update preserves prior archive for recovery");
+  for(int revision=3;revision<=6;++revision) {
+    const bool old=(revision%2)!=0;
+    accepted.packs[0]=old?previous:p;accepted.packs[0].product_id="global-regional";
+    body=old?previous_body:current_body;
+    accepted.revision=revision;accepted.sha256=std::string(64,static_cast<char>('a'+revision%6));
+    check(delivery::load(replaced,&state)==delivery::Error::none,"artifact reuse loads managed ownership");
+    state.accepted_revision=revision;state.catalog_sha256=accepted.sha256;
+    check(delivery::save(replaced,state)==delivery::Error::none,"artifact reuse has a newer accepted catalog");
+    Stream reused;const auto result=install_pack(replaced,reused);
+    check(result.error==install::Error::none,"A-B-A artifact reuse completes safely");
+    if(result.error!=install::Error::none)break;
+    check(fs.exists((old?old_target:target).c_str())&&!fs.exists((old?target:old_target).c_str()),
+          "artifact reuse leaves one visible managed version");
+  }
+  for(const auto* version:{&previous,&p}) {
+    const auto& raw=version->manifest_json;
+    const auto saved="/orcmaps/.recovery/"+hash(std::vector<uint8_t>(raw.begin(),raw.end()))+".bak";
+    check(load(testfs::path(saved.c_str()))==raw,"artifact reuse preserves earlier metadata in hidden history");
+  }
+  const auto conflict_history="/orcmaps/.recovery/"+hash(std::vector<uint8_t>(p.manifest_json.begin(),p.manifest_json.end()))+".bak";
+  std::ofstream(testfs::path(conflict_history.c_str()),std::ios::binary)<<"foreign history";
+  accepted.revision=7;accepted.sha256=std::string(64,'b');accepted.packs[0]=previous;
+  accepted.packs[0].product_id="global-regional";body=previous_body;
+  check(delivery::load(replaced,&state)==delivery::Error::none,"history conflict prior state loaded");
+  state.accepted_revision=7;state.catalog_sha256=accepted.sha256;
+  check(delivery::save(replaced,state)==delivery::Error::none,"history conflict newer catalog trusted");
+  Stream conflicted;
+  const auto blocked=install_pack(replaced,conflicted);
+  check(blocked.error==install::Error::activation&&blocked.activation==activation::Error::conflict&&
+        fs.exists(target.c_str())&&!fs.exists(old_target.c_str())&&
+        load(testfs::path(conflict_history.c_str()))=="foreign history",
+        "backup collision leaves current map and conflicting bytes untouched");
+  for(int point=1;point<=5;++point) {
+    reset();DeliveryStore powered;accepted.revision=1;accepted.sha256=std::string(64,'a');
+    accepted.packs[0]=previous;accepted.packs[0].product_id="global-regional";body=previous_body;
+    trusted(powered);Stream old;
+    check(install_pack(powered,old).error==install::Error::none,"replacement interruption prior version ready");
+    accepted.revision=2;accepted.sha256=std::string(64,'b');accepted.packs[0]=p;
+    accepted.packs[0].product_id="global-regional";body=current_body;
+    check(delivery::load(powered,&state)==delivery::Error::none,"replacement trust state loaded");
+    state.accepted_revision=2;state.catalog_sha256=accepted.sha256;
+    check(delivery::save(powered,state)==delivery::Error::none,"replacement trust state saved");
+    Stream prepared;check(run(prepared)==t::Error::none,"replacement pre-staged before power boundary");
+    testfs::power_after=point;bool cut=false;Stream no_network;
+    try{install_pack(powered,no_network);}catch(const testfs::PowerLoss&){cut=true;}
+    testfs::power_after=0;
+    check(cut&&install::resume(fs,powered,buffer.data(),buffer.size(),{}).error==install::Error::none,
+          "coordinated replacement restart completes offline");
+    check(delivery::load(powered,&state)==delivery::Error::none&&state.pending.product.empty()&&
+          state.owned.size()==1&&state.owned[0].manifest==target&&fs.exists(target.c_str())&&
+          !fs.exists(old_target.c_str()),"replacement restart preserves consistent ownership and visible metadata");
   }
   std::printf("RESULT: transfer scenarios %s\n",failures?"FAIL":"PASS");return failures?1:0;
 }

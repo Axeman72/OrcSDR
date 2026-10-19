@@ -3,6 +3,7 @@
 #include "map_preview.hpp"
 #include "map_inventory.hpp"
 #include "map_activation.hpp"
+#include "map_downloads.hpp"
 #include "offline_map.hpp"
 #include "memory_reclaim.hpp"
 #include "orcmap/esp_idf/file_byte_source.hpp"
@@ -331,6 +332,7 @@ void worker(void*) {
   for(;;) {
     Request request;
     try {
+    if(downloads::service(g_storage))g_scan.store(true);
     if(g_scan.exchange(false))discover();
     if(xQueueReceive(g_queue,&request,pdMS_TO_TICKS(200))!=pdTRUE)continue;
     if(request.serial!=g_serial.load())continue;
@@ -411,6 +413,7 @@ bool begin(storage::FileSystem* sd) {
   if(g_task)return true;
   g_sd=sd!=nullptr;
   g_storage=sd;
+  downloads::begin();
   g_lock=xSemaphoreCreateMutex();
   g_preview_lock=xSemaphoreCreateMutex();
   g_queue=xQueueCreateWithCaps(1,sizeof(Request),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
@@ -434,7 +437,7 @@ bool snapshot(MapSnapshot* out) {
   if(!out || !g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return false;
   *out=g_snapshot;xSemaphoreGive(g_lock);return true;
 }
-void rescan() {g_scan.store(true);cancel();}
+void rescan() {g_scan.store(true);(void)downloads::retry();cancel();}
 void cancel() {g_preview_lifetime.fetch_add(1);g_serial.fetch_add(1);}
 uint32_t revision() {return g_revision.load();}
 bool installed() {return g_installed.load();}
@@ -445,6 +448,12 @@ bool frame_info(FrameInfo* out) {
 void report(void (*write)(const char*)) {
   if(!write)return;
   char line[512];
+  downloads::Snapshot install_status;
+  if(downloads::snapshot(&install_status)) {
+    std::snprintf(line,sizeof(line),"ORC_MAP_INSTALL phase=%u busy=%u pending=%u revision=%lu\n",
+        static_cast<unsigned>(install_status.phase),install_status.busy?1u:0u,install_status.pending?1u:0u,
+        static_cast<unsigned long>(install_status.revision));write(line);
+  }
   // Keep preview diagnostics observable even while decoding holds the worker lock.
   if(g_preview_lock&&xSemaphoreTake(g_preview_lock,0)==pdTRUE) {
     const auto pan_paint=g_preview_pan_timing.paint(),zoom_paint=g_preview_zoom_timing.paint();

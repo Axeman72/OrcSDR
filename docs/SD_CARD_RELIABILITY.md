@@ -118,6 +118,16 @@ make CSV appends transactional or qualify sudden power loss/card removal.
 
 ## Device acceptance before declaring reliability
 
+The October 19 coordinated install tests now join staging, durable intent,
+activation, ownership commit and journal finalization. They exercise uncertain
+commits and interrupted replacement, plus repeated A/B artifact reuse. That last
+case reproduced a stale completion marker; preparation now retains obsolete
+backup metadata in `/orcmaps/.recovery/<manifest-sha256>.bak` before reuse, with
+collision checks and no automatic history deletion. Existing map-worker recovery
+uses a 16 KiB PSRAM buffer and cooperative yields, without holding its render
+mutex. This is source/host/P4-syntax evidence, not physical SD/NVS durability.
+[Coordinator commands, logs and open gates](evidence/maps/2026-10-19-map-install-coordinator.md).
+
 October 19 map installation follow-up: hidden staging now has journaled
 activation/recovery source. Focused host tests cover interrupted first install
 and replacement, corrupted journals/bytes, status errors and external metadata

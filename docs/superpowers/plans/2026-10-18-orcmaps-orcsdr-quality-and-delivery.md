@@ -10,7 +10,8 @@ resumable staging source, with focused host/P4 syntax evidence. The next step
 is worker/setup integration, then hardware checks. Persistent catalog trust,
 managed ownership and pending-install state now have focused host/P4 checks;
 authenticated acceptance saves trust before exposing a catalog. These delivery
-APIs are not yet called by the device worker or setup UI.
+APIs now have a coordinated installer and recovery caller on the existing map
+worker. Ordinary network installs and catalog/download UI remain unwired.
 Journaled activation/recovery now passes focused host tests and P4 syntax checks;
 it is wired before discovery but has not been native-linked or device-tested.
 The 33 ms target, boundary hierarchy and worldwide font/quality acceptance
@@ -57,6 +58,14 @@ Checked items below close only their stated behavior/test scope, not an entire p
 - Next delivery milestone: connect trusted catalog fetch, pending intent,
   staging/activation/state commit/finalization and reboot reconciliation to the
   serialized worker and self-contained wizard, then validate on COM17.
+- Coordinated installation and offline restart recovery now pass the focused
+  state/NVS/transfer checks (3/3), with five P4 syntax checks passing. Recovery
+  runs on the existing worker and reports status in Local Maps. Review exposed
+  an A → B → A artifact-reuse bug; its regression was red, then passed after
+  stale-marker preparation preserved older metadata in hidden history. No
+  native link/flash or physical SD/NVS validation yet. Network catalog fetch
+  and normal download controls remain the next implementation step.
+  [Commands, logs and remaining gates](../../evidence/maps/2026-10-19-map-install-coordinator.md).
 
 Current deployed source: `aca08b75` (native RGB565 preview), following committed
 wizard checkpoint `210002f4`. Host test registration `344765d1` changes no

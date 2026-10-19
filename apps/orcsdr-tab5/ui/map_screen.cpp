@@ -1,5 +1,6 @@
 #include "map_screen.hpp"
 #include "map_service.hpp"
+#include "map_downloads.hpp"
 #include "receiver_location.hpp"
 #include "setup_flow.hpp"
 #include "setup_ui.hpp"
@@ -38,6 +39,7 @@ int g_last_x=0,g_last_y=0,g_edit=0,g_index=0,g_scroll=0;
 bool g_location_menu=true,g_details=false;
 bool g_map_touch=false,g_map_moved=false;
 bool g_map_visible=false,g_keep_map=false;
+EXT_RAM_BSS_ATTR maps::downloads::Snapshot g_downloads;
 int32_t g_lat=0,g_lon=0;
 char g_entry[16]{},g_message[96]{};
 orcmap::LocationPicker g_picker;
@@ -168,6 +170,10 @@ void draw_inventory() {
     wrapped(pack.identity,32,364,80,2);
     text("Metadata/size checked; archive hash not verified.",32,454,2);
   }
+  if(g_downloads.message[0]) {
+    char message[64];std::snprintf(message,sizeof(message),"%.63s",g_downloads.message);
+    text(message,32,582,3,g_downloads.phase==maps::downloads::Phase::failed?TFT_ORANGE:kInk);
+  }
 }
 void draw_edit() {
   M5.Display.fillRect(0,90,1280,540,kBg);
@@ -285,6 +291,8 @@ void tick() {
   if(maps_step()) {
     const auto previous=g_packs.revision;
     if(maps::snapshot(&g_packs)&&previous!=g_packs.revision)g_dirty=true;
+    const auto download_revision=g_downloads.revision;
+    if(maps::downloads::snapshot(&g_downloads)&&download_revision!=g_downloads.revision)g_dirty=true;
   }
 }
 void touch(int x,int y,bool pressed,bool new_press) {
