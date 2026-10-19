@@ -38,6 +38,22 @@ void inventory_tests(const char* path) {
   Inventory inventory;
   Files files;
   assert(!inventory.scan(files,"/maps",false) && !inventory.sd_mounted());
+  auto proto=base;proto.schema_version="protomaps-v4";proto.pack_id=orcmap::MakePackId(proto);
+  std::string proto_json=original;
+  replace(proto_json,base.pack_id,proto.pack_id);
+  replace(proto_json,"\"schema_version\": \""+base.schema_version+"\"","\"schema_version\": \"protomaps-v4\"");
+  files.manifests["proto.manifest.json"]=proto_json;
+  files.archives["/maps/proto.pmtiles"]=proto.size_bytes;
+  assert(inventory.scan(files,"/maps",true));
+  assert(inventory.find(proto.pack_id.c_str())!=nullptr);
+  assert(inventory.resolve(proto.bounds,proto.min_zoom,proto.pack_id.c_str())!=nullptr);
+  auto unknown=proto;unknown.schema_version="protomaps-v999";unknown.pack_id=orcmap::MakePackId(unknown);
+  replace(proto_json,proto.pack_id,unknown.pack_id);
+  replace(proto_json,"\"schema_version\": \"protomaps-v4\"","\"schema_version\": \"protomaps-v999\"");
+  files.manifests["proto.manifest.json"]=proto_json;
+  assert(!inventory.scan(files,"/maps",true));
+  assert(inventory.report().rejected.size()==1);
+  assert(inventory.report().rejected[0].validation_error==orcmap::PackValidationError::kCompatibility);
   for (size_t count:{0u,1u,5u,16u}) {
     files={};
     for(size_t i=0;i<count;++i) {
