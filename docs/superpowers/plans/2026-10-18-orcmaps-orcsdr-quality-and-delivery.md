@@ -21,21 +21,34 @@ not the current state.
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
 Checked items below close only their stated behavior/test scope, not an entire phase.
-Current deployed source checkpoint: `eb04ae2e` (implements `4eaf9fb5`) plus
-preserved dirty wizard edits, with OrcMaps merge pin
-`722d0d382f99b2887694af333f85b1ee048f4208`. Exposed-strip clearing and stage timing
-are now native-built and app-only deployed on COM17. Location-save feedback and
-the misleading optional profile-label fallback have a new source-only fix;
-2/2 focused host tests and three P4 syntax checks pass. It is not deployed.
-Preserve dirty/untracked wizard work and recovery.
+Current source checkpoint: `210002f4`, with `f38d1f78` panel diagnostics.
+The preserved wizard/location work is now committed; there is no dirty wizard
+implementation to reconstruct. The current native checkpoint build passes and
+COM17 app-only write/preservation pass; startup, external-editor, map/nav/radio and retained-map SD checks pass in
+  their bounded scopes. Retune harness failures are recorded separately.
+Location-feedback candidate `ea6a6b72` + prior dirty edits passed native save,
+return and reboot checks; user confirmed “Saving feedback and saved label look
+good”. Original receiver coordinates restored after testing. Panel runtime facts and editor-lifetime hardware behavior are now recorded
+in the checkpoint evidence.
+Preserve all evidence, artifacts and recovery.
 
 Continuation: [ready-to-use completion goal prompt](2026-10-19-orcmaps-completion-goal-prompt.md).
+
+### Current-session authorization — October 19
+
+The user explicitly requested fewer interruptions and granted full approval to
+continue routine builds, COM17 app-only flashes and regression tests for this
+session. Do not ask again for each such cycle. Preserve NVS, SD data, embedded
+world, C6 firmware and recovery; COM39 remains Claude's device. This temporary
+session authorization does not automatically carry into a new chat or authorize
+main merges, releases/publication, paid services or erasing user data. Historical
+approval requests below remain evidence of earlier boundaries.
 
 ### Hardware ownership — October 19
 
 - **COM17 remains the maps test device.** Confirm USB serial `30:ED:A0:E2:E6:95`
   before device work. Preserve recovery, NVS, SD packs, embedded world and C6 3.0.6.
-  Obtain the scoped approval required for the next native build/test cycle.
+  Current-session routine build/app-flash/test authority is recorded above.
 - **Claude owns COM39 for the Dead Air dashboard**, with user authorization to
   flash it. Maps work must not open its serial port, reset or flash it without
   coordinating a new handoff. Earlier COM39 app observations are historical;
@@ -44,67 +57,53 @@ Continuation: [ready-to-use completion goal prompt](2026-10-19-orcmaps-completio
 - Subagents are permitted when useful. Give them bounded scope and explicit
   file/device ownership; this does not waive expensive-work approval requirements.
 
-### Latest verified device state — October 19 strip-clearing checks
+### Latest verified device state — October 19 committed checkpoint
 
-- COM17 app-only native build/flash/startup passed, implementing `4eaf9fb5` at
-  source `eb04ae2e` plus preserved wizard edits. Build ID:
-  `maps preview strips dirty 2026-10-19`; app SHA-256
-  `5cad67104ca280d7848ce3965da7dfa933485c2db870696954ab283855a87f48`.
-  OrcMaps pin 722d0d3, driver 0.9.3, C6 unchanged at 3.0.6. COM39 untouched.
-- Sealed artifact `.local/maps/preview-strip-4eaf9fb5-20261019/`; previous app
-  `.local/maps/preview-timing-34d3366c-20261019/` verified and retained, along
-  with full recovery `.local/maps/com17-recovery/20261018-155834/`.
-  Fresh non-app backups and post-flash preservation checks pass.
-- Native pin/miniz/FT8 gates pass; DMA reserve remains 40,960 bytes. Label pool
-  15,416 bytes, update pool 2,072 bytes and preview pools 20,736 bytes all in
-  external BSS. Preview storage grew by 8,288 bytes including metadata.
-  App 5,062,864 bytes; app-partition headroom 1,228,592 bytes (about 20%).
-- Pan-button run: 24/24 commands acknowledged, 22 same-scale previews; paint
-  p50/p95/max 69.116/98.516/99.473 ms. Clear p50/p95 0.015/17.585 ms;
-  transfer p50/p95 57.272/98.493 ms. Zoom: 12/12 commands acknowledged, three
-  scaled samples; paint p50/p95 247.549/252.902 ms, transfer 214.611/220.312 ms.
-  **33 ms is not met; transfer/scaling is the dominant measured cost.**
-  Independent percentile values cannot be added as one sample. No controlled
-  percentage speedup, continuous FPS, physical-touch or scanout claim.
-  Later cumulative same-scale p50 changes with one zoom-return sample; do not
-  substitute it for this pan-only snapshot. Raw intervals contain dwell.
-- Retained-map SD and complete navigation scripts pass: unique 8 KiB scratch
-  write/readback hash matched with 2,835,456 map bytes retained. Reception
-  paused for bulk transfer, resumed; zero driver drops/overruns near 2.4 MSPS.
-  Home→RF Lab→Home and repeated Settings→Home returned with graphics enabled;
-  map reopened ready. This is state-routing evidence, not visual overlap proof.
-- The first readiness assertion ran while the driver was STARTING; ESP_OK
-  followed 315 ms later and a fresh readiness run passed. No rebuild/reset
-  needed. C6 transport initialization and Wi-Fi transient retries recovered.
-  Existing preserved coredump is not a new crash. No new panic/reset observed.
-- Device left receiving BROWSE 26,591,754 Hz on map picker; serial released.
-  Latest map-open DMA free/largest/minimum 10,227/9,728/7,435 bytes; internal
-  free/minimum 16,023/7,587; PSRAM free 19,133,584 bytes. Workload-specific
-  observations do not close overall pairing/memory headroom or RF decode quality.
-- User confirmed previous preview-timing candidate: “Looks correct; dragging
-  works”. Physical acceptance of this newer strip-clearing candidate is pending.
-  Separate source-only location fix shows SAVING... before storage and renders
-  LOCATION / SAVED LOCATION for unnamed saved coordinates, preserving actual
-  optional names and NVS semantics. Host 2/2 and P4 syntax 3/3 pass; native/device
-  acceptance requires the next scoped approval.
+- COM17 app `maps setup checkpoint 2026-10-19`, source210002f4 (parentf38d1f78
+  panel diagnostics). AppSHA256
+  `3b4aae6d556f09c6f46c3e57c73f0090c815a6eaabac1af2104860720a58c424`.
+  Native build/app-only flash/startup and partition preservation pass; engine
+  722d0d3, driver0.9.3, C6unchanged3.0.6. COM39 untouched.
+- Artifact `.local/maps/maps-checkpoint-210002f4-20261019/`; previous location
+  feedback app and full recovery retained. App5065024bytes, headroom1226432;
+  DMAreserve40960. Labels/update/preview/facts externalBSS; facts176bytes.
+- External wizard-input exit passes on hardware: editor1→0, setup receiverIDLE,
+  Home receiverSTREAMING and graphics1. Host real-editor tests also prove password
+  clearing and preserving a newer unrelated editor. Bounded Home/RFLab/Settings
+  navigation and map reopening pass. Full downloads/firstboot remain incomplete.
+- Pan24samples paintp50/p95 68.716/100.098ms; zoom only2samples
+  249.535/257.435ms. **33ms unmet.** Transfer dominates; no continuousFPS claim.
+  Runtime internalrotation3, sourceDepth16/targetDepth272; both RGB565 but
+  different byte-order flags. Direct rowmemcpy requires internalrotation0 in
+  checked M5GFX; do not change requested orientation or ownership as a shortcut.
+- Retained-map SD hashreadback passes with2835456mapbytes. Combined script later
+  failed a retuneACK expectation; a followup immediate state check caughtSTOPPING.
+  Settled Home status passes STREAMING~2.399MSPS, zero drops/overruns, graphics1;
+  no SD rewrite or reset needed. Logs preserve all failures.
+- LatestDMAfree/largest/minimum10155/9216/7439bytes; internalfree/minimum
+  15875/7563; PSRAMfree19131248. Not a closed general/pairing budget.
+  Device left Home receiving BROWSE26591754Hz; serial released.
+- Prior strip candidate physically accepted: “Dragging/zoom and controls look
+  good”. Locationfeedback physically accepted: “Saving feedback and saved label
+  look good”. Save/return/reboot persisted coordinates; original44.7145048,
+  -123.2137829 restored and fieldpixels matched before. No new location writes
+  during this checkpoint. No RF-decoding-quality or blanket phase completion.
 
-Evidence: [strip-clearing native/COM17 results and logs](../../evidence/maps/2026-10-19-preview-strip-com17.md),
-[prior candidate physical acceptance](../../evidence/maps/2026-10-19-preview-timing-com17.md),
-[location feedback source/tests](../../evidence/maps/2026-10-19-location-save-feedback-source.md).
+Evidence: [checkpoint commands/results/logs](../../evidence/maps/2026-10-19-maps-checkpoint-com17.md),
+[location save/reboot and physical acceptance](../../evidence/maps/2026-10-19-location-save-feedback-com17.md),
+[editor lifetime regression](../../evidence/maps/2026-10-19-setup-editor-lifetime-source.md).
 No new overnight soak required.
 
 ### Remaining work in execution order
 
-1. **Validate location feedback and reduce transfer cost.** The strip-clearing
-   candidate is deployed and bounded checks pass, but pan/zoom painting still
-   misses 33 ms. Transfer/scaling now dominates the measured split costs.
-   The new save-feedback/optional-label fix passes focused host and P4 syntax;
-   a scoped native build/COM17 request is pending. Test immediate feedback,
-   return/saved state and reboot persistence without losing the user's point.
-   Then investigate the measured transfer path while preserving screen ownership,
-   immutable snapshots and 180-degree orientation; no unsafe direct-DMA shortcut.
-   Continuous gesture/cancellation, all-orientation correctness and final memory
-   remain open. [Copy-path scout](../../evidence/maps/2026-10-19-preview-copy-scout.md).
+1. **Reduce transfer cost using measured facts.** Save feedback and saved-label
+   display pass native and physical acceptance. Owned editor teardown passes
+   host/device checks. Internalrotation3 and RGB565 byte-order difference are
+   observed; direct M5GFX rowcopy is unavailable at that rotation. Investigate
+   an ownership-safe transfer improvement without changing the user's default
+   orientation, arbitrary DMA calls or vendoring managed components. Pan/zoom
+   still miss33ms. Continuous gestures/cancellation/all-orientation/finalmemory
+   remain open. Keep global quality/delivery progress moving as separate gates.
 2. **Validate the real global pack on COM17.** Former protomaps-v4 manifest
    rejection was compatibility failure, not SD failure. OrcMaps PR #6 fixes it
    and is merged at 722d0d3; OrcSDR source/lock pin it at 04b118a4. Requested,
@@ -160,6 +159,14 @@ features follow the offline baseline. No new large download, hosting purchase,
 map-data publication or device erase is authorized by this checkpoint.
 
 ## Execution ledger — historical checkpoints
+
+- October 19: location-feedback native build/app-only flash/save/return/reboot
+  passed on COM17; user physically accepted Saving and saved label. Original
+  point restored and screenshot coordinate fields matched byte-for-byte.
+  Committed owned wizard/location work at210002f4 after bounded review; verified
+  abandoned-editor bug corrected with generation ownership and real-editor
+  focused tests2/2. Native checkpoint build and app-only preservation pass;
+  runtime/editor/SD/radio checks in progress. Session routine authority recorded.
 
 - October 19: exposed-strip native candidate 4eaf9fb5/eb04ae2e deployed on COM17;
   bounded timing/radio, retained-map SD and navigation checks pass. Pan-only paint

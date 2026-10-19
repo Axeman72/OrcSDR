@@ -137,7 +137,8 @@ serial port released. Latest health snapshot:
     RTL_HEALTH_STATUS uptime_ms=200717 free_heap=19139392 min_free_heap=18738784 dma_free=10151 dma_min=7435 dma_largest=9728 tasks=31 main_stack_hwm=3692 reset_reason=11 internal_free=15947 internal_min=7587 internal_largest=9728 psram_free=19133584 psram_largest=18874368
 
 Memory values are workload-specific, not a closed pairing/headroom gate.
-Physical acceptance of this new candidate is pending. Location-save feedback
+The user subsequently confirmed physical acceptance: “Dragging/zoom and
+controls look good”. Location-save feedback
 fix is source-only and requires a separately approved native cycle. Remaining
 map speed, global pack/quality, delivery/setup and final integration gates stay
 open; no new overnight soak requirement.

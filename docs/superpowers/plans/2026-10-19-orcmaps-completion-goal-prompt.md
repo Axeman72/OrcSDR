@@ -2,6 +2,8 @@
 
 Copy the prompt below into the continuation chat. It describes the remaining
 goal; it does not grant blanket approval for costly or destructive operations.
+The user temporarily waived per-build/COM17 app-flash/test requests in the
+October 19 session. That session-only approval does not transfer to a new chat.
 
 ---
 
@@ -17,21 +19,23 @@ commits and outstanding gates. Verify this handoff rather than assuming it is
 still current:
 
 - OrcSDR worktree: F:/AI/OrcSDR-TEMP/maps-integration-completion,
-  branch codex/maps-integration-completion. Deployed source eb04ae2e implements
-  4eaf9fb5 plus preserved wizard edits, engine 722d0d3. Native/COM17 boot,
-  bounded camera/radio/navigation and retained-map SD checks pass. Pan-only
-  paint p50/p95 69/99 ms; zoom 248/253 ms (three scaled samples). Transfer/scaling
-  dominates; 33 ms is not met. Raw intervals include dwell, not continuous FPS.
-  Save-feedback and optional-label presentation source fix passes focused host
-  2/2 and three P4 syntax checks; not native-built or deployed. A new scoped
-  native request is pending. Preserve dirty/untracked wizard work and recovery.
+  branch codex/maps-integration-completion, committed source210002f4, parent
+  f38d1f78. Owned wizard/location work now committed; no dirty implementation
+  to reconstruct. Native/app-onlyCOM17 boot/preservation/external-editor/nav/map/
+  radio and retained-mapSD checks pass in bounded scopes. Source engine722d0d3.
+  Panpaintp50/p95 69/100ms, zoom250/257ms (two samples);33ms unmet.
+  Runtime derivedinternalrotation3, sourceDepth16/targetDepth272 (RGB565 byte
+  order flags). Preserve orientation and display ownership. Save feedback/label
+  physically accepted; coordinate save/reboot tested and original restored.
+  Retune script timing failures preserved, followed by settled STREAMINGHome.
+  Evidence docs/evidence/maps/2026-10-19-maps-checkpoint-com17.md.
 - OrcMaps worktree: F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery. PR #6 is merged
   at 722d0d382f99b2887694af333f85b1ee048f4208 and deployed on COM17. Boundary
   candidate 3d9d01c passes approved configured host CTest 7/7, documented in
   73b0d94. Boundary work is not pushed, merged, consumer-pinned or deployed.
 - COM17 USB serial 30:ED:A0:E2:E6:95 is our maps device. Current app ID
-  maps preview strips dirty 2026-10-19, C6 3.0.6; artifact
-  .local/maps/preview-strip-4eaf9fb5-20261019/. Verify actual state/recovery
+  maps setup checkpoint 2026-10-19, C6 3.0.6; artifact
+  .local/maps/maps-checkpoint-210002f4-20261019/. Verify actual state/recovery
   before another update. New native cycles require scoped approval.
 - Claude owns COM39 for the Dead Air dashboard and may flash it. Do not use its
   serial port, reset it or flash it without a coordinated handoff. Preserve the
@@ -49,13 +53,10 @@ and explicit compatibility behavior.
 
 Work through these remaining milestones:
 
-1. Validate the prepared location save-feedback/reporting fix in a separately
-   approved native cycle; restore the original point after save/reboot tests.
-   Reduce measured transfer/scaling costs and measure continuous pan/zoom
-   feedback on COM17 under reception.
-   Record p50/p95/max, cancellation, render/transfer/SD costs, cache behavior,
-   PSRAM and free/largest internal DMA blocks. Aim for roughly 33 ms cached
-   motion; do not claim it from host tests or worker timings containing dwell.
+1. Reduce measured transfer/scaling costs using runtime panel facts and measure
+   continuous pan/zoom feedback under reception. Preserve default180orientation
+   and framebuffer ownership. Record p50/p95/max, cancellation, SD/cache costs,
+   PSRAM and free/largestDMA. Aim for33ms, never claim it from host or dwell.
 2. Reuse the existing 543,380,195-byte global candidate with verified metadata
    and hashes. Validate real device reference views, zoom-dependent labels,
    antimeridian behavior, boundary hierarchy, international fonts and warning
