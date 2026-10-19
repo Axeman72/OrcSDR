@@ -50,6 +50,17 @@ Exact commands, logs, hashes and recovery paths are recorded there.
 
 ### Next work
 
+Cached-motion update: published OrcMaps transform 63f0573 is pinned through a
+regenerated lock. COM17 now runs d30b5765 plus preserved wizard/gesture/blackout
+edits and the immutable PSRAM-preview adapter. User physically confirmed
+**"Moves with finger; noticeably better"**. Native build/placement, six loaded
+pan/zoom actions, low-memory snapshot fallback, release/recreate and retained
+two-buffer SD scratch read/write checks pass. Final RF drops/overruns zero.
+Evidence: `docs/evidence/maps/2026-10-18-preview-com17.md`. Continuous-motion
+latency/33 ms acceptance remains open; do not equate physical improvement with
+meeting that timing target. This supersedes earlier single-canvas/pending-push
+statements in the historical ledger and summary.
+
 Physical acceptance update: COM17 drag/tap behavior was confirmed by the user.
 The reported blackout during map replacement was reproduced, corrected and
 flashed in the approved build/test cycle. User confirmed **"Map stays visible"**.
