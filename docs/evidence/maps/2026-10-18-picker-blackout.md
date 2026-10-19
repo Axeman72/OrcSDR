@@ -26,6 +26,23 @@ Result **1/1 passed**. Logs: picker-blackout-red-build-20261018.log,
 picker-blackout-red-20261018.log, picker-blackout-green-build-20261018.log,
 picker-blackout-green-20261018.log.
 
-Source remains with preserved wizard edits. Native build/COM17 physical
-verification is pending. No device changed for this correction. Fluid cached
-motion, memory headroom and the remaining original plan gates stay open.
+## Approved native/COM17 validation
+
+User approved one build/app-only test. Built b9140473 plus blackout and preserved
+wizard edits successfully: `apps/orcsdr-tab5/blackout-native-build-20261018.log`.
+The native pin/miniz/FT8 gates passed. Verified COM17 identity and previous app,
+saved/verified current NVS, wrote only app, and verified protected flash regions.
+`blackout-flash-run-20261018.log` and individual operation logs report PASS.
+Artifacts/manifest: `.local/maps/blackout-b9140473-20261018/`. Immediate rollback
+is the saved gesture candidate. COM39 untouched; C6 remains 3.0.6.
+
+Boot passed with SD/Wi-Fi/RTL ready (`blackout-boot-20261018.log`). Ran the
+identity-checked bench with `gesture-test-plan-20261018.json` and output
+`blackout-test-20261018.log`: six pan/zoom actions all reached ready with zero
+missing/failed tiles; final RF remained STREAMING with drops=0 and overruns=0.
+Device left on map picker while receiving. Physical blackout confirmation
+requested and pending; serial completion alone cannot prove the panel never
+blanked between frames. Rendering speed is not claimed improved by this fix.
+
+Source remains alongside preserved wizard edits. Fluid cached motion, memory
+headroom and the remaining original plan gates stay open.
