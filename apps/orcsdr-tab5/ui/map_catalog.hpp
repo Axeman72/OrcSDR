@@ -14,6 +14,7 @@ struct Policy {
   bool clock_trusted=false;
 };
 struct Pack {
+  std::string product_id; // Stable catalog identity across artifact versions.
   orcmap::PackManifest manifest;
   std::string manifest_json;
   std::vector<std::string> urls;

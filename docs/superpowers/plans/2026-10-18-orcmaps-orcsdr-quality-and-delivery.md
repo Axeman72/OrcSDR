@@ -7,7 +7,10 @@
 **Active delivery work: Phase 4; Phases 2 and 3 remain open.** Labels and cached
 gestures run on COM17. Delivery now has a signed catalog consumer and hidden
 resumable staging source, with focused host/P4 syntax evidence. The next step
-is persistent catalog/ownership state and worker/setup integration, then hardware checks.
+is worker/setup integration, then hardware checks. Persistent catalog trust,
+managed ownership and pending-install state now have focused host/P4 checks;
+authenticated acceptance saves trust before exposing a catalog. These delivery
+APIs are not yet called by the device worker or setup UI.
 Journaled activation/recovery now passes focused host tests and P4 syntax checks;
 it is wired before discovery but has not been native-linked or device-tested.
 The 33 ms target, boundary hierarchy and worldwide font/quality acceptance
@@ -20,7 +23,7 @@ not the current state.
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
 | 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes the approved configured host regression (7/7); reference renders and device acceptance remain open. Contrast and international coverage remain open. |
 | 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Latest native-order preview measurements show pan paint p50/p95 61/83 ms and zoom233 ms (three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
-| 4 — catalog/delivery | Global candidate preflight passes. Signed catalog, hidden resumable staging and journaled activation/recovery have focused host/P4 syntax evidence. Recovery is wired before inventory discovery. Native HTTPS, physical activation/recovery, persistent trust/ownership state, scheduling and wizard downloads remain open. No global-pack device installation or publication yet. |
+| 4 — catalog/delivery | Global candidate preflight passes. Signed catalog, staging, activation/recovery, persistent trust/ownership and pending intent have focused host/P4 syntax evidence. Recovery precedes discovery; trust acceptance persists before exposing catalogs. Native HTTPS, physical NVS/activation recovery, worker scheduling and wizard downloads remain open. No global-pack device installation or publication yet. |
 | 5 — setup | Wizard-owned UI is committed at210002f4 and device-tested in bounded scopes. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
@@ -44,8 +47,15 @@ Checked items below close only their stated behavior/test scope, not an entire p
   uses `draw_world_compat` with static world-outline data. FT8 migration and final
   dashboard-specific interaction/overlay tests remain required. Picker acceptance
   does not establish dashboard-wide or full-global-pack acceptance.
-- Next delivery milestone: persist trusted catalog revision/hash and managed
-  product ownership/selection; connect staging/activation/finalization to the
+- Catalog trust, explicit managed ownership/selection and one pending install
+  now have a bounded NVS record and authenticated acceptance APIs. Focused state,
+  NVS-stub and transfer tests pass 3/3; 37 signed cases exercise direct/persistent
+  acceptance; P4 syntax passes 4/4. OrcMaps producer `e50c6bd` passes 11 focused
+  tests. Both sides require stable product IDs in the unpublished v1 contract.
+  No producer push, native build/flash, actual NVS write or network request.
+  [Exact commands, logs and limitations](../../evidence/maps/2026-10-19-map-delivery-state.md).
+- Next delivery milestone: connect trusted catalog fetch, pending intent,
+  staging/activation/state commit/finalization and reboot reconciliation to the
   serialized worker and self-contained wizard, then validate on COM17.
 
 Current deployed source: `aca08b75` (native RGB565 preview), following committed

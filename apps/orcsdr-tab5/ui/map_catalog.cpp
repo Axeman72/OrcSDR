@@ -1,4 +1,5 @@
 #include "map_catalog.hpp"
+#include "map_product.hpp"
 #include "map_download_response.hpp"
 #include "orcmap/pack_json.hpp"
 #include <cJSON.h>
@@ -143,13 +144,16 @@ Error parse(std::string_view payload,const Policy& policy,const uint8_t digest[3
   if(!cJSON_IsArray(packs)||size<1||size>32)return Error::schema;
   out.packs.reserve(size);
   for(const cJSON* entry=packs->child;entry;entry=entry->next) {
-    if(!shape(entry,{"manifest","archive"}))return Error::schema;
+    if(!shape(entry,{"product_id","manifest","archive"}))return Error::schema;
+    const char* product=text(get(entry,"product_id"));
+    if(!product||!valid_product_id(product))return Error::identity;
+    for(const auto& previous:out.packs)if(previous.product_id==product)return Error::identity;
     const auto* archive=get(entry,"archive");
     if(!shape(archive,{"urls","bytes","sha256"}))return Error::schema;
     const auto* manifest=get(entry,"manifest");if(!cJSON_IsObject(manifest))return Error::manifest;
     std::unique_ptr<char,decltype(&cJSON_free)> serialized(cJSON_PrintUnformatted(manifest),cJSON_free);
     if(!serialized)return Error::allocation;
-    Pack pack;pack.manifest_json=serialized.get();
+    Pack pack;pack.product_id=product;pack.manifest_json=serialized.get();
     if(orcmap::ParsePackManifestJson(pack.manifest_json,&pack.manifest)!=orcmap::PackJsonError::kNone||
         orcmap::ValidatePackManifest(pack.manifest)!=orcmap::PackValidationError::kNone||
         pack.manifest.pack_id.size()>255)return Error::manifest;

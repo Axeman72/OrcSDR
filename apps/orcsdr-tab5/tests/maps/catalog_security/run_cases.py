@@ -19,7 +19,7 @@ def main():
     manifest=json.loads(args.manifest.read_text(encoding='utf-8'))
     digest=manifest['output_sha256']
     body={'schema':'orcmaps-catalog-v1','revision':1,'generated_at':'2026-10-19T00:00:00Z',
-          'expires_at':'2026-11-19T00:00:00Z','packs':[{'manifest':manifest,'archive':{
+          'expires_at':'2026-11-19T00:00:00Z','packs':[{'product_id':'global-regional','manifest':manifest,'archive':{
               'bytes':manifest['size_bytes'],'sha256':digest,
               'urls':[f'https://maps.example.test/{digest}/world.pmtiles']}}]}
     now=int(datetime.datetime(2026,10,19,1,tzinfo=datetime.timezone.utc).timestamp())
@@ -48,6 +48,19 @@ def main():
                 raise RuntimeError(f'{name}: exit={result.returncode} {result.stdout} {result.stderr}')
             count+=1;print('PASS',name)
         run('valid','none')
+        run('missing-product','schema',lambda x:x['packs'][0].pop('product_id'))
+        for name,value in [('empty',''),('path','../manual'),('upper','UPPER'),('long','a'*64),('number',7)]:
+            run('product-'+name,'identity',lambda x,v=value:x['packs'][0].update(product_id=v))
+        def duplicate_product(value):
+            entry=copy.deepcopy(value['packs'][0]);source=entry['manifest']['source_snapshot']+'-next'
+            entry['manifest']['source_snapshot']=source
+            entry['manifest']['pack_id']=source.lower()+'__'+entry['manifest']['pack_id'].split('__',1)[1]
+            value['packs'].append(entry)
+        run('duplicate-product-distinct-artifacts','identity',duplicate_product)
+        def two_products(value):
+            duplicate_product(value)
+            value['packs'][1]['product_id']='another-region'
+        run('distinct-products-distinct-artifacts','none',two_products)
         run('json-allocation-failure','json',fail_json=True)
         run('signature-before-parsing','signature',raw=b'{broken',tamper=True)
         run('altered-payload','signature',tamper=True)

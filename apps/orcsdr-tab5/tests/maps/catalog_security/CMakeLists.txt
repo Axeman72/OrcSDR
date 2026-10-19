@@ -8,6 +8,7 @@ foreach(required ORCMAPS_ROOT MBEDTLS_ROOT MBEDCRYPTO_LIBRARY CJSON_ROOT)
 endforeach()
 set(ui "${CMAKE_CURRENT_SOURCE_DIR}/../../../ui")
 add_executable(map_catalog_security_test catalog_security_test.cpp
+  "${ui}/map_delivery_state.cpp" "${ui}/map_catalog_session.cpp"
   "${ui}/map_catalog.cpp" "${CJSON_ROOT}/cJSON.c"
   "${ORCMAPS_ROOT}/src/core/pack.cpp" "${ORCMAPS_ROOT}/src/core/pack_json.cpp"
   "${ORCMAPS_ROOT}/src/core/geo.cpp")
@@ -37,6 +38,20 @@ if(MSVC)
   target_compile_options(map_catalog_security_test PRIVATE /EHsc)
 endif()
 enable_testing()
+add_executable(map_delivery_state_test delivery_state_test.cpp "${ui}/map_delivery_state.cpp")
+target_include_directories(map_delivery_state_test PRIVATE "${ui}" "${MBEDTLS_ROOT}/include")
+target_link_libraries(map_delivery_state_test PRIVATE "${MBEDCRYPTO_LIBRARY}")
+if(WIN32)
+  target_link_libraries(map_delivery_state_test PRIVATE bcrypt)
+endif()
+add_test(NAME map_delivery_state COMMAND map_delivery_state_test)
+add_executable(map_delivery_nvs_test delivery_nvs_test.cpp "${ui}/map_delivery_state.cpp" "${ui}/map_delivery_nvs.cpp")
+target_include_directories(map_delivery_nvs_test PRIVATE "${ui}" "${MBEDTLS_ROOT}/include" "${CMAKE_CURRENT_SOURCE_DIR}/nvs_stub")
+target_link_libraries(map_delivery_nvs_test PRIVATE "${MBEDCRYPTO_LIBRARY}")
+if(WIN32)
+  target_link_libraries(map_delivery_nvs_test PRIVATE bcrypt)
+endif()
+add_test(NAME map_delivery_nvs COMMAND map_delivery_nvs_test)
 get_filename_component(workspace "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
 add_test(NAME map_transfer COMMAND map_transfer_test
   "${ORCMAPS_ROOT}/tests/fixtures/tiny-gzip.pmtiles"
