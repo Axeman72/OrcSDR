@@ -17,6 +17,8 @@ constexpr uint16_t kBg = TFT_BLACK, kPanel = 0x0841, kEdge = 0x2945,
   kMuted = 0x8c71, kYellow = 0xffe0, kRed = 0xf800;
 constexpr int kTabY = 649, kTabX = 20, kTabWidth = 198, kTabGap = 12, kTabHeight = 52;
 constexpr int kBodyY = 114, kBodyBottom = 635;
+constexpr int kModeX0 = 40, kModeY0 = 290, kModeDx = 95, kModeDy = 60, kModeW = 86;
+constexpr int kStepY = 452;
 EventModel* g_events = nullptr;
 Snapshot* g_snapshot = nullptr;  // heap, not static: internal .data/.bss below the DMA-pool margin aborts boot
 Page g_page = Page::overview;
@@ -227,15 +229,20 @@ void spectrum() {
   else snprintf(hz, sizeof(hz), "NO RECEIVER");
   label(hz, 40, 201, kGreen, 3);
   divider(40, 248, 271);
-  label("DEMODULATION", 40, 276, kMuted, 2);
-  label(g_snapshot->receiver_ready ? g_snapshot->demod : "--", 40, 325, TFT_WHITE, 3);
-  label("TUNE (BAND STEP)", 40, 395, kMuted, 2);
-  button("- STEP", 40, 420, 128, kCyan, g_snapshot->receiver_ready);
-  button("+ STEP", 183, 420, 128, kCyan, g_snapshot->receiver_ready);
-  label(g_snapshot->receiver_settled ? "SETTLED" : "SETTLING...", 40, 510,
+  label("MODE (RECEIVER DEMODULATOR)", 40, 270, kMuted, 2);
+  for (int i = 0; i < kModeCount; ++i) {
+    const bool selected = g_snapshot->receiver_ready && std::strcmp(g_snapshot->demod, kModeNames[i]) == 0;
+    const int x = kModeX0 + (i % 3) * kModeDx, y = kModeY0 + (i / 3) * kModeDy;
+    box(x, y, kModeW, 52, selected ? kGreen : g_snapshot->receiver_ready ? kCyan : kEdge);
+    label(kModeNames[i], x + 14, y + 26, selected ? kGreen : g_snapshot->receiver_ready ? TFT_WHITE : kMuted);
+  }
+  label("TUNE (BAND STEP)", 40, 432, kMuted, 2);
+  button("- STEP", 40, 452, 128, kCyan, g_snapshot->receiver_ready);
+  button("+ STEP", 183, 452, 128, kCyan, g_snapshot->receiver_ready);
+  label(g_snapshot->receiver_settled ? "SETTLED" : "SETTLING...", 40, 535,
         g_snapshot->receiver_settled ? kGreen : kYellow, 2);
-  label("Single channel,", 40, 545, kMuted, 2);
-  label("not a sweep", 40, 570, kMuted, 2);
+  label("Single channel,", 40, 580, kMuted, 2);
+  label("not a sweep", 40, 605, kMuted, 2);
   box(346, 120, 914, 511);
   heading("RF SPECTRUM  /  dBFS", 366, 144);
   if (g_snapshot->receiver_ready) label(hz, 986, 144, kGreen, 2);
@@ -434,8 +441,11 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
     }
   }
   if (g_page == Page::spectrum && g_snapshot->receiver_ready) {
-    if (hit(x, y, 40, 420, 128, 52)) return {ActionKind::tune_down, -1};
-    if (hit(x, y, 183, 420, 128, 52)) return {ActionKind::tune_up, 1};
+    if (hit(x, y, 40, kStepY, 128, 52)) return {ActionKind::tune_down, -1};
+    if (hit(x, y, 183, kStepY, 128, 52)) return {ActionKind::tune_up, 1};
+    for (int i = 0; i < kModeCount; ++i)
+      if (hit(x, y, kModeX0 + (i % 3) * kModeDx, kModeY0 + (i / 3) * kModeDy, kModeW, 52))
+        return {ActionKind::set_demod, i};
   }
   if (g_page == Page::events && g_events != nullptr) {
     if (hit(x, y, 818, 505, 420, 52)) {

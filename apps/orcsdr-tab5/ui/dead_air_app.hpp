@@ -15,6 +15,8 @@ struct Hooks {
   bool (*receiver_ready)() = nullptr;      // dongle open and stream running
   uint32_t (*frequency_hz)() = nullptr;    // tuned frequency
   const char* (*demod)() = nullptr;        // demodulator actually in use (e.g. "NFM")
+  void (*set_demod)(uint8_t index) = nullptr;  // index into kModeNames; the receiver's own demodulator
+  void (*release_demod)() = nullptr;       // give the demodulator choice back (screen left)
   uint32_t (*sample_rate)() = nullptr;     // IQ sample rate, S/s
   uint32_t (*config_signature)() = nullptr;  // changes whenever frequency, rate, gain or mode changes
   uint32_t (*rf_sample_counter)() = nullptr; // monotonically increasing; advances when new IQ was measured

@@ -61,6 +61,23 @@ int main() {
   da::handle_touch(900, 530, 2200);
   assert(model.count() == 1 && model.newest(0)->source == da::Source::manual);
   assert(displayed("INVESTIGATOR MARK"));
+  // Mode and step buttons act only while a receiver is actually present, and only on the Spectrum tab.
+  da::handle_touch(20 + 1 * 210 + 40, 673, 2300);
+  assert(da::page() == da::Page::spectrum);
+  assert(da::handle_touch(145, 370, 2310).kind == da::ActionKind::none);
+  snap.receiver_ready = true;
+  snap.receiver_settled = true;
+  snap.frequency_hz = 98700000;
+  std::snprintf(snap.demod, sizeof(snap.demod), "WFM");
+  snap.revision = 5;
+  da::update(snap);
+  auto mode = da::handle_touch(145, 370, 2320);
+  assert(mode.kind == da::ActionKind::set_demod && mode.value == 4 && std::string(da::kModeNames[4]) == "LSB");
+  mode = da::handle_touch(40 + 95 + 10, 290 + 20, 2330);
+  assert(mode.kind == da::ActionKind::set_demod && mode.value == 1);
+  assert(da::handle_touch(200, 470, 2340).kind == da::ActionKind::tune_up);
+  assert(da::handle_touch(60, 470, 2350).kind == da::ActionKind::tune_down);
+  validate_bounds();
   // Once another screen takes the framebuffer, Dead Air must be silent.
   screen::begin_transition(screen::Id::home, 3000);
   screen::finish_transition();

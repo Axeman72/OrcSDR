@@ -225,6 +225,7 @@ void open() {
   s.last_total = 0;
   s.snapshot = Snapshot();
   (void)start_worker();
+  if (g_hooks.set_demod) g_hooks.set_demod(0);  // NFM, the browse band's own demodulator
   build_snapshot(now);
   s.snapshot.revision = 1;
   screens::begin_transition(screens::Id::dead_air, now);
@@ -239,6 +240,7 @@ void close() {
   g_open = false;
   dead_air::leave();
   g_state->model.set_listener(nullptr, nullptr);
+  if (g_hooks.release_demod) g_hooks.release_demod();
   g_state->worker.stop.store(true, std::memory_order_release);  // worker flushes, syncs and closes the file
 }
 
@@ -313,6 +315,12 @@ void touch(int32_t x, int32_t y) {
     case ActionKind::close: if (g_hooks.go_home) g_hooks.go_home(); break;
     case ActionKind::toggle_mute: if (g_hooks.toggle_mute) g_hooks.toggle_mute(); break;
     case ActionKind::open_settings: if (g_hooks.open_settings) g_hooks.open_settings(); break;
+    case ActionKind::set_demod:
+      if (g_hooks.set_demod && g_hooks.receiver_ready() && action.value >= 0 && action.value < kModeCount) {
+        g_hooks.set_demod(static_cast<uint8_t>(action.value));
+        if (g_hooks.tune) g_hooks.tune(g_hooks.frequency_hz());  // restart the stream cleanly in the new mode
+      }
+      break;
     case ActionKind::tune_up:
     case ActionKind::tune_down:
       if (g_hooks.tune && g_hooks.step_frequency && g_hooks.receiver_ready()) {
@@ -347,13 +355,14 @@ void describe(char* out, size_t size) {
   if (!g_state) { std::snprintf(out, size, "DEAD_AIR open=0"); return; }
   const Worker& w = g_state->worker;
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
                 g_state->model.baseline_ready() ? 1 : 0, g_state->last_level_valid ? static_cast<double>(g_state->last_level) : -999.0,
-                static_cast<double>(g_state->model.rf_baseline_dbfs()), static_cast<double>(rf_rise_threshold_db(g_state->model.sensitivity())),
-                static_cast<unsigned long>(g_hooks.frequency_hz ? g_hooks.frequency_hz() : 0));
+                (g_state->model.baseline_ready() ? static_cast<double>(g_state->model.rf_baseline_dbfs()) : -999.0), static_cast<double>(rf_rise_threshold_db(g_state->model.sensitivity())),
+                static_cast<unsigned long>(g_hooks.frequency_hz ? g_hooks.frequency_hz() : 0),
+                g_hooks.demod && g_hooks.receiver_ready && g_hooks.receiver_ready() ? g_hooks.demod() : "--");
 }
 
 }  // namespace orcsdr::dead_air_app

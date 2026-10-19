@@ -3045,7 +3045,22 @@ static std::atomic<uint8_t> g_sstv_demod{0};
 // The TUNE tab's IF filter width ahead of the FM discriminator in Hz; 0 = the radio's own setting.
 static std::atomic<uint32_t> g_sstv_if_hz{0};
 
+// Dead Air's demodulator choice on the browse band: 0 = not set, 1..5 = NFM, WFM, AM, USB, LSB. Only the real
+// receiver demodulators are offered; sweep patterns and generated audio are not demodulators.
+static std::atomic<uint8_t> g_dead_air_demod{0};
+static uint32_t g_dead_air_saved_filter_hz = 0;  // IF width in force before Dead Air changed mode; UI task only
+
 HomeDemod effective_demod(RtlBand band) {
+  if (band == RtlBand::browse) {
+    switch (g_dead_air_demod.load(std::memory_order_relaxed)) {
+      case 1: return HomeDemod::nfm;
+      case 2: return HomeDemod::wfm;
+      case 3: return HomeDemod::am;
+      case 4: return HomeDemod::usb;
+      case 5: return HomeDemod::lsb;
+      default: break;
+    }
+  }
   // Receiver DSP never reads screen ownership or UI-only frequency state.
   if (orcsdr::sstv::active() &&
       (band == RtlBand::shortwave || band == RtlBand::browse)) {
@@ -14073,12 +14088,31 @@ orcsdr::dead_air_app::Hooks dead_air_app_hooks() {
     return rtl_device_ready() && rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running;
   };
   hooks.frequency_hz = [] { return rtl_ui_frequency_hz; };
-  hooks.demod = [] { return rtl_mode_name(rtl_ui_band); };
+  hooks.demod = [] { return orcsdr::home_vfo::demod_name(effective_demod(rtl_ui_band)); };
+  hooks.set_demod = [](uint8_t index) {
+    static const HomeDemod kModes[] = {HomeDemod::nfm, HomeDemod::wfm, HomeDemod::am, HomeDemod::usb, HomeDemod::lsb};
+    if (index >= std::size(kModes)) return;
+    if (g_dead_air_demod.load(std::memory_order_relaxed) == 0)
+      g_dead_air_saved_filter_hz = rtl_filter_bandwidth_hz.load(std::memory_order_relaxed);
+    g_dead_air_demod.store(static_cast<uint8_t>(index + 1), std::memory_order_relaxed);
+    // Same rule as Home: the mode's standard filter width replaces whatever the previous mode left behind.
+    const auto kind = orcsdr::home_vfo::filter_kind(kModes[index], rtl_ui_frequency_hz);
+    rtl_filter_bandwidth_hz.store(rtl_clamp_filter_hz(RtlBand::browse, orcsdr::filter_standards::standards(kind).standard_hz),
+                                  std::memory_order_relaxed);
+    rtl_audio_reset_demod_filters();
+  };
+  hooks.release_demod = [] {
+    if (g_dead_air_demod.exchange(0, std::memory_order_relaxed) != 0 && g_dead_air_saved_filter_hz != 0) {
+      rtl_filter_bandwidth_hz.store(g_dead_air_saved_filter_hz, std::memory_order_relaxed);
+      rtl_audio_reset_demod_filters();
+    }
+  };
   hooks.sample_rate = [] { return rtl_active_sample_rate_sps.load(std::memory_order_acquire); };
   hooks.config_signature = [] {
     uint32_t h = rtl_ui_frequency_hz * 2654435761u;
     h ^= rtl_active_sample_rate_sps.load(std::memory_order_acquire) + 0x9e3779b9u + (h << 6) + (h >> 2);
     h ^= static_cast<uint32_t>(rtl_ui_band) * 40503u + (h << 5);
+    h ^= (static_cast<uint32_t>(effective_demod(rtl_ui_band)) + 1u) * 668265263u;
 #if !RTL_USE_LEGACY_USB
     if (g_rtl != nullptr) {
       int gain = 0;
