@@ -1,13 +1,13 @@
 # OrcMaps / OrcSDR Map Quality and Delivery — Approved Execution Plan
 
-> **For agentic workers:** Continue the existing implementation under applicable repository instructions and available skills. The user approved execution on October 18, 2026 ("approved. please enable this."). Current work is Phase 2 map quality and Phase 3 Tab5 responsiveness; outstanding Phase 1 gates remain open. This approval does not authorize paid services, publication, destructive operations, or bypass the user's approval requirement for high-usage work.
+> **For agentic workers:** Continue the existing implementation under applicable repository instructions and available skills. The user approved execution on October 18, 2026 ("approved. please enable this."). Current delivery work is Phase 4; Phase 2 map quality, Phase 3 responsiveness and outstanding Phase 1 gates remain open. This approval does not authorize paid services, publication, destructive operations, or bypass the user's approval requirement for high-usage work.
 
 ## Current phase and handoff — October 19, 2026
 
 **Active delivery work: Phase 4; Phases 2 and 3 remain open.** Labels and cached
 gestures run on COM17. Delivery now has a signed catalog consumer and hidden
-resumable staging source, with focused host/P4 syntax evidence. The next step
-is worker/setup integration, then hardware checks. Persistent catalog trust,
+resumable staging, connected worker/setup UI and bounded COM17 evidence. The
+next delivery gate is actual signed HTTPS transfer and recovery. Persistent catalog trust,
 managed ownership and pending-install state now have focused host/P4 checks;
 authenticated acceptance saves trust before exposing a catalog. These delivery
 APIs now have a coordinated installer on the existing map worker. Catalog fetch,
