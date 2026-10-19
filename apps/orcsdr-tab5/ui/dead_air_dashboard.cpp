@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 namespace orcsdr::dead_air {
 namespace {
@@ -15,7 +16,7 @@ constexpr uint16_t kBg = TFT_BLACK, kPanel = 0x0841, kEdge = 0x2945,
 constexpr int kTabY = 649, kTabX = 20, kTabWidth = 198, kTabGap = 12, kTabHeight = 52;
 constexpr int kBodyY = 114, kBodyBottom = 635;
 EventModel* g_events = nullptr;
-Snapshot g_snapshot{};
+Snapshot* g_snapshot = nullptr;  // heap, not static: internal .data/.bss below the DMA-pool margin aborts boot
 Page g_page = Page::overview;
 bool g_active = false;
 
@@ -95,27 +96,27 @@ void nav() {
 }
 void sanitize_snapshot() {
   // A disconnected module may leave cached readings. Never render those live.
-  if (!g_snapshot.environment_sensor_attached) {
-    g_snapshot.temperature_c = {};
-    g_snapshot.humidity_rh = {};
-    g_snapshot.pressure_hpa = {};
+  if (!g_snapshot->environment_sensor_attached) {
+    g_snapshot->temperature_c = {};
+    g_snapshot->humidity_rh = {};
+    g_snapshot->pressure_hpa = {};
   }
-  if (!g_snapshot.receiver_ready) {
-    g_snapshot.rf_level_dbfs = {};
-    g_snapshot.spectrum_valid = false;
+  if (!g_snapshot->receiver_ready) {
+    g_snapshot->rf_level_dbfs = {};
+    g_snapshot->spectrum_valid = false;
   }
-  if (!g_snapshot.audio_available) {
-    g_snapshot.audio_level_dbfs = {};
-    g_snapshot.audio_envelope_valid = false;
+  if (!g_snapshot->audio_available) {
+    g_snapshot->audio_level_dbfs = {};
+    g_snapshot->audio_envelope_valid = false;
   }
 }
 void chrome() {
   M5.Display.setFont(nullptr);
   M5.Display.fillScreen(kBg);
   audio_header::draw_brand("DEAD AIR");
-  audio_header::draw_battery(g_snapshot.battery_percent);
+  audio_header::draw_battery(g_snapshot->battery_percent);
   audio_header::draw_home_button();
-  audio_header::draw_mute_button(g_snapshot.sound_enabled);
+  audio_header::draw_mute_button(g_snapshot->sound_enabled);
   audio_header::draw_visualizer_button(false);
   audio_header::draw_settings_button();
   nav();
@@ -123,26 +124,26 @@ void chrome() {
 void overview() {
   box(20, 120, 612, 252);
   heading("INVESTIGATION", 40, 143);
-  label(g_snapshot.recording ? "RECORDING" : "READY", 40, 190,
-        g_snapshot.recording ? kRed : kGreen, 3);
+  label(g_snapshot->recording ? "RECORDING" : "READY", 40, 190,
+        g_snapshot->recording ? kRed : kGreen, 3);
   char buffer[52];
   snprintf(buffer, sizeof(buffer), "ELAPSED %02lu:%02lu:%02lu",
-    static_cast<unsigned long>(g_snapshot.session_elapsed_s / 3600),
-    static_cast<unsigned long>(g_snapshot.session_elapsed_s / 60 % 60),
-    static_cast<unsigned long>(g_snapshot.session_elapsed_s % 60));
+    static_cast<unsigned long>(g_snapshot->session_elapsed_s / 3600),
+    static_cast<unsigned long>(g_snapshot->session_elapsed_s / 60 % 60),
+    static_cast<unsigned long>(g_snapshot->session_elapsed_s % 60));
   label(buffer, 40, 240, TFT_WHITE);
-  if (g_snapshot.receiver_ready) {
-    snprintf(buffer, sizeof(buffer), "%.3f MHz  %s", g_snapshot.frequency_hz / 1e6,
-             g_snapshot.demod);
+  if (g_snapshot->receiver_ready) {
+    snprintf(buffer, sizeof(buffer), "%.3f MHz  %s", g_snapshot->frequency_hz / 1e6,
+             g_snapshot->demod);
     label(buffer, 40, 291, kCyan, 3);
   } else label("RECEIVER UNAVAILABLE", 40, 291, kYellow, 2);
   char journal[64];
-  snprintf(journal, sizeof(journal), "EVENT LOG: %s", recorder_text(g_snapshot.recorder_state));
-  label(journal, 40, 343, recorder_color(g_snapshot.recorder_state), 2);
+  snprintf(journal, sizeof(journal), "EVENT LOG: %s", recorder_text(g_snapshot->recorder_state));
+  label(journal, 40, 343, recorder_color(g_snapshot->recorder_state), 2);
   box(646, 120, 614, 252);
   heading("LIVE OBSERVATIONS", 668, 143);
-  reading("RF (dBFS)", g_snapshot.rf_level_dbfs, 670, 192, "%.1f");
-  reading("AUDIO (dBFS)", g_snapshot.audio_level_dbfs, 670, 247, "%.1f");
+  reading("RF (dBFS)", g_snapshot->rf_level_dbfs, 670, 192, "%.1f");
+  reading("AUDIO (dBFS)", g_snapshot->audio_level_dbfs, 670, 247, "%.1f");
   divider(666, 283, 565);
   label("Sensitivity", 670, 321, kMuted);
   label(g_events && g_events->sensitivity() == Sensitivity::quiet ? "QUIET" :
@@ -160,33 +161,33 @@ void overview() {
   }
   box(646, 390, 614, 241);
   heading("ENV III / OPTIONAL", 668, 413);
-  label(g_snapshot.environment_sensor_attached ? "MODULE DETECTED" : "MODULE NOT CONNECTED",
-        668, 464, g_snapshot.environment_sensor_attached ? kGreen : kMuted, 2);
-  reading("TEMP (C)", g_snapshot.temperature_c, 668, 505, "%.1f");
-  reading("RH (%)", g_snapshot.humidity_rh, 668, 550, "%.1f");
-  reading("PRESSURE (hPa)", g_snapshot.pressure_hpa, 668, 594, "%.1f");
+  label(g_snapshot->environment_sensor_attached ? "MODULE DETECTED" : "MODULE NOT CONNECTED",
+        668, 464, g_snapshot->environment_sensor_attached ? kGreen : kMuted, 2);
+  reading("TEMP (C)", g_snapshot->temperature_c, 668, 505, "%.1f");
+  reading("RH (%)", g_snapshot->humidity_rh, 668, 550, "%.1f");
+  reading("PRESSURE (hPa)", g_snapshot->pressure_hpa, 668, 594, "%.1f");
 }
 void spectrum() {
   box(20, 120, 312, 511);
   heading("TUNING", 40, 144);
   char hz[48];
-  if (g_snapshot.receiver_ready) snprintf(hz, sizeof(hz), "%.3f MHz", g_snapshot.frequency_hz / 1e6);
+  if (g_snapshot->receiver_ready) snprintf(hz, sizeof(hz), "%.3f MHz", g_snapshot->frequency_hz / 1e6);
   else snprintf(hz, sizeof(hz), "NO RECEIVER");
   label(hz, 40, 201, kGreen, 3);
   divider(40, 248, 271);
   label("DEMODULATION", 40, 276, kMuted, 2);
-  label(g_snapshot.receiver_ready ? g_snapshot.demod : "--", 40, 325, TFT_WHITE, 3);
+  label(g_snapshot->receiver_ready ? g_snapshot->demod : "--", 40, 325, TFT_WHITE, 3);
   label("TUNE (BAND STEP)", 40, 395, kMuted, 2);
-  button("- STEP", 40, 420, 128, kCyan, g_snapshot.receiver_ready);
-  button("+ STEP", 183, 420, 128, kCyan, g_snapshot.receiver_ready);
-  label(g_snapshot.receiver_settled ? "SETTLED" : "SETTLING...", 40, 510,
-        g_snapshot.receiver_settled ? kGreen : kYellow, 2);
+  button("- STEP", 40, 420, 128, kCyan, g_snapshot->receiver_ready);
+  button("+ STEP", 183, 420, 128, kCyan, g_snapshot->receiver_ready);
+  label(g_snapshot->receiver_settled ? "SETTLED" : "SETTLING...", 40, 510,
+        g_snapshot->receiver_settled ? kGreen : kYellow, 2);
   label("Single tuned channel, not a sweep", 40, 560, kMuted, 1);
   box(346, 120, 914, 511);
   heading("RF SPECTRUM  /  dBFS", 366, 144);
-  if (g_snapshot.receiver_ready) label(hz, 986, 144, kGreen, 2);
-  plot(g_snapshot.spectrum_dbfs, kBins,
-       g_snapshot.receiver_ready && g_snapshot.spectrum_valid,
+  if (g_snapshot->receiver_ready) label(hz, 986, 144, kGreen, 2);
+  plot(g_snapshot->spectrum_dbfs, kBins,
+       g_snapshot->receiver_ready && g_snapshot->spectrum_valid,
        373, 177, 862, 292, -120.0f, 0.0f, kGreen);
   heading("WATERFALL", 366, 509);
   label("Awaiting real IQ history (no synthetic waterfall)", 377, 570, kMuted);
@@ -194,30 +195,30 @@ void spectrum() {
 void audio() {
   box(20, 120, 1240, 251);
   heading("DEMODULATED AUDIO  /  NORMALIZED ENVELOPE", 40, 143);
-  plot(g_snapshot.audio_envelope, kBins, g_snapshot.audio_available &&
-       g_snapshot.audio_envelope_valid, 42, 171, 1194, 180, -1.0f, 1.0f, kCyan);
+  plot(g_snapshot->audio_envelope, kBins, g_snapshot->audio_available &&
+       g_snapshot->audio_envelope_valid, 42, 171, 1194, 180, -1.0f, 1.0f, kCyan);
   box(20, 388, 773, 243);
   heading("AUDIO ANALYSIS", 40, 415);
-  reading("LEVEL (dBFS)", g_snapshot.audio_level_dbfs, 40, 485, "%.1f");
+  reading("LEVEL (dBFS)", g_snapshot->audio_level_dbfs, 40, 485, "%.1f");
   label("No automatic speech claims", 40, 560, kMuted);
   box(809, 388, 451, 243);
   heading("SOURCE", 829, 415);
-  label(g_snapshot.receiver_ready ? g_snapshot.demod : "NO AUDIO SOURCE", 829, 482, TFT_WHITE, 2);
+  label(g_snapshot->receiver_ready ? g_snapshot->demod : "NO AUDIO SOURCE", 829, 482, TFT_WHITE, 2);
   label("Clip replay requires recorder adapter", 829, 551, kMuted, 1);
 }
 void environment() {
   box(20, 120, 610, 511);
   heading("ENV III / OPTIONAL SENSOR", 40, 144);
-  label(g_snapshot.environment_sensor_attached ? "CONNECTED" : "UNAVAILABLE",
-        40, 208, g_snapshot.environment_sensor_attached ? kGreen : kMuted, 3);
-  reading("TEMPERATURE (C)", g_snapshot.temperature_c, 40, 280, "%.1f");
-  reading("HUMIDITY (%)", g_snapshot.humidity_rh, 40, 355, "%.1f");
-  reading("PRESSURE (hPa)", g_snapshot.pressure_hpa, 40, 430, "%.1f");
+  label(g_snapshot->environment_sensor_attached ? "CONNECTED" : "UNAVAILABLE",
+        40, 208, g_snapshot->environment_sensor_attached ? kGreen : kMuted, 3);
+  reading("TEMPERATURE (C)", g_snapshot->temperature_c, 40, 280, "%.1f");
+  reading("HUMIDITY (%)", g_snapshot->humidity_rh, 40, 355, "%.1f");
+  reading("PRESSURE (hPa)", g_snapshot->pressure_hpa, 40, 430, "%.1f");
   label("Core RF investigation works without ENV III.", 40, 548, kMuted, 1);
   box(644, 120, 616, 511);
   heading("SENSOR INTEGRITY", 666, 144);
   label("No derived score without validated baselines", 666, 201, kMuted, 1);
-  reading("DEVICE MOTION (g)", g_snapshot.motion_g, 666, 271, "%.3f");
+  reading("DEVICE MOTION (g)", g_snapshot->motion_g, 666, 271, "%.3f");
   label("This describes Tab5 motion, NOT room movement.", 666, 331, kMuted, 1);
   label("Temperature / humidity / pressure", 666, 426, kCyan, 2);
   label("shown only from current valid sensor samples", 666, 476, kMuted, 1);
@@ -257,20 +258,20 @@ void review() {
   box(20, 120, 460, 511);
   heading("SESSION ARCHIVE", 40, 144);
   label("EVENT LOG (JSONL)", 40, 200, kMuted, 2);
-  label(recorder_text(g_snapshot.recorder_state), 40, 245,
-        recorder_color(g_snapshot.recorder_state), 3);
+  label(recorder_text(g_snapshot->recorder_state), 40, 245,
+        recorder_color(g_snapshot->recorder_state), 3);
   char line[56];
-  if (g_snapshot.recorder_session) {
-    snprintf(line, sizeof(line), "Session %lu", static_cast<unsigned long>(g_snapshot.recorder_session));
+  if (g_snapshot->recorder_session) {
+    snprintf(line, sizeof(line), "Session %lu", static_cast<unsigned long>(g_snapshot->recorder_session));
     label(line, 40, 300, TFT_WHITE, 2);
   }
-  snprintf(line, sizeof(line), "Saved %lu", static_cast<unsigned long>(g_snapshot.recorder_saved));
+  snprintf(line, sizeof(line), "Saved %lu", static_cast<unsigned long>(g_snapshot->recorder_saved));
   label(line, 40, 345, TFT_WHITE, 2);
   snprintf(line, sizeof(line), "Lost %lu  Dropped %lu",
-           static_cast<unsigned long>(g_snapshot.recorder_missing),
-           static_cast<unsigned long>(g_snapshot.recorder_dropped));
+           static_cast<unsigned long>(g_snapshot->recorder_missing),
+           static_cast<unsigned long>(g_snapshot->recorder_dropped));
   label(line, 40, 390,
-        g_snapshot.recorder_missing || g_snapshot.recorder_dropped ? kYellow : kMuted, 2);
+        g_snapshot->recorder_missing || g_snapshot->recorder_dropped ? kYellow : kMuted, 2);
   label("Audio/IQ clips: not implemented", 40, 560, kMuted, 1);
   box(497, 120, 763, 511);
   heading("EVIDENCE REVIEW", 517, 144);
@@ -295,7 +296,9 @@ void draw_body() {
 void attach_events(EventModel* events) { g_events = events; }
 void enter(const Snapshot& snapshot) {
   if (!screens::is_active(screens::Id::dead_air)) return;
-  g_snapshot = snapshot;
+  if (!g_snapshot) g_snapshot = new (std::nothrow) Snapshot();
+  if (!g_snapshot) return;
+  *g_snapshot = snapshot;
   sanitize_snapshot();
   g_page = Page::overview;
   g_active = true;
@@ -304,10 +307,10 @@ void enter(const Snapshot& snapshot) {
 }
 void update(const Snapshot& snapshot) {
   if (!g_active || !screens::owns(screens::Id::dead_air) ||
-      snapshot.revision == g_snapshot.revision) return;
-  const int battery = g_snapshot.battery_percent;
-  const bool sound = g_snapshot.sound_enabled;
-  g_snapshot = snapshot;
+      snapshot.revision == g_snapshot->revision) return;
+  const int battery = g_snapshot->battery_percent;
+  const bool sound = g_snapshot->sound_enabled;
+  *g_snapshot = snapshot;
   sanitize_snapshot();
   if (sound != snapshot.sound_enabled) audio_header::draw_mute_button(snapshot.sound_enabled);
   if (battery != snapshot.battery_percent) audio_header::draw_battery(snapshot.battery_percent);
@@ -332,13 +335,13 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
       }
     }
   }
-  if (g_page == Page::spectrum && g_snapshot.receiver_ready) {
+  if (g_page == Page::spectrum && g_snapshot->receiver_ready) {
     if (hit(x, y, 40, 420, 128, 52)) return {ActionKind::tune_down, -1};
     if (hit(x, y, 183, 420, 128, 52)) return {ActionKind::tune_up, 1};
   }
   if (g_page == Page::events && g_events != nullptr) {
     if (hit(x, y, 818, 505, 420, 52)) {
-      g_events->mark_manual(now_ms, g_snapshot.unix_time, g_snapshot.frequency_hz);
+      g_events->mark_manual(now_ms, g_snapshot->unix_time, g_snapshot->frequency_hz);
       draw_body(); return {};
     }
     if (hit(x, y, 818, 382, 421, 52)) {

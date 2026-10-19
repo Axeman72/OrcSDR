@@ -18,7 +18,7 @@ Target hardware: M5Stack Tab5 (ESP32-P4, 1280 x 720, 5-inch touchscreen).
 - apps/orcsdr-tab5/ui/dead_air_dashboard.hpp and .cpp: six M5GFX-native panels, shared OrcSDR header and bottom tabs, normal receiver and sensor unavailable states, plots only when snapshot validity flags are asserted, Event Model threshold buttons and manual event marker action.
 - tests/dead_air_model_tests.cpp: host tests for reading freshness, sensitivity, event debounce, retune/sample-gap resets, bounded ring and manual markers.
 - ui/dead_air_journal.hpp/.cpp: fixed-capacity SPSC event queue, versioned JSONL journal, lost-sequence records, per-batch sync and explicit failed state. EventModel::set_listener(enqueue_event, &queue) feeds the queue without storage access.
-- ui/dead_air_sd_journal.hpp/.cpp: SD adapter using OrcSDR FileSystem with unique session paths beneath /dead_air, exact-write checks, sync, and partial-write poisoning.
+- ui/dead_air_sd_journal.hpp/.cpp: SD adapter using OrcSDR FileSystem with unique session paths beneath /orcsdr/dead_air, exact-write checks, sync, and partial-write poisoning.
 - tests/dead_air_journal_tests.cpp, tests/dead_air_sd_sink_tests.cpp, tests/dead_air_render_tests.cpp: independent additional host suites.
 - Existing dashboard registry / screen controller / native component CMake configuration updated to include Dead Air screen identity and compile the new sources.
 

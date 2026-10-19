@@ -29,7 +29,7 @@ File FileSystem::open(const char* path, const char* mode, bool) const {
   return File(std::move(state));
 }
 bool FileSystem::exists(const char* path) const { return disk.find(path) != disk.end(); }
-bool FileSystem::mkdir(const char* path) const { return std::strcmp(path, "/dead_air") == 0 && g_sd_mounted; }
+bool FileSystem::mkdir(const char* path) const { return (std::strcmp(path, "/orcsdr") == 0 || std::strcmp(path, "/orcsdr/dead_air") == 0) && g_sd_mounted; }
 bool mounted() { return ::g_sd_mounted; }
 }
 using namespace orcsdr::dead_air;
@@ -38,7 +38,7 @@ int main() {
   SdJournalSink sink;
   assert(sink.open(fs, 123));
   assert(sink.session_id() == 123);
-  assert(std::string(sink.path()) == "/dead_air/session_0000000123.jsonl");
+  assert(std::string(sink.path()) == "/orcsdr/dead_air/session_0000000123.jsonl");
   EventQueue queue;
   Event event{};
   event.sequence = 1;
@@ -50,7 +50,7 @@ int main() {
   assert(journal.start(sink, sink.session_id()));
   assert(journal.finish(queue, sink));
   assert(sink.close());
-  const auto& saved = disk.at("/dead_air/session_0000000123.jsonl");
+  const auto& saved = disk.at("/orcsdr/dead_air/session_0000000123.jsonl");
   assert(saved.find("\"type\":\"session_start\"") != std::string::npos);
   assert(saved.find("\"kind\":\"manual_marker\"") != std::string::npos);
   assert(saved.find("\"type\":\"session_end\"") != std::string::npos);

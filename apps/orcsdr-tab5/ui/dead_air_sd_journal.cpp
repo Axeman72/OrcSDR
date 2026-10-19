@@ -9,7 +9,7 @@ bool SdJournalSink::open(storage::FileSystem& fs, uint32_t suggested_id) {
   failed_ = false;
   session_id_ = 0;
   path_[0] = '\0';
-  if (!storage::mounted() || !fs.mkdir("/dead_air")) {
+  if (!storage::mounted() || !(fs.exists("/orcsdr") || fs.mkdir("/orcsdr")) || !fs.mkdir("/orcsdr/dead_air")) {
     failed_ = true;
     return false;
   }
@@ -18,7 +18,7 @@ bool SdJournalSink::open(storage::FileSystem& fs, uint32_t suggested_id) {
     if (id == 0) continue; // reject rollover as a valid id
     char candidate[sizeof(path_)];
     const int n = std::snprintf(candidate, sizeof(candidate),
-                                "/dead_air/session_%010lu.jsonl",
+                                "/orcsdr/dead_air/session_%010lu.jsonl",
                                 static_cast<unsigned long>(id));
     if (n <= 0 || static_cast<size_t>(n) >= sizeof(candidate)) {
       failed_ = true;
