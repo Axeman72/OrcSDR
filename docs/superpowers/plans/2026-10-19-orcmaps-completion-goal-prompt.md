@@ -17,16 +17,22 @@ commits and outstanding gates. Verify this handoff rather than assuming it is
 still current:
 
 - OrcSDR worktree: F:/AI/OrcSDR-TEMP/maps-integration-completion,
-  branch codex/maps-integration-completion, source checkpoint d87d1309;
-  parent 04b118a4 pins the merged engine. The bounded preview recorder passes
-  focused host checks but is not native-linked or installed on COM17.
-  Preserve dirty/untracked wizard/map edits, evidence, artifacts and recovery.
+  branch codex/maps-integration-completion. Deployed source checkpoint 34d3366c
+  plus preserved dirty wizard edits pins merged OrcMaps 722d0d3. Native/COM17
+  boot, bounded camera/radio/navigation and retained-map SD checks pass.
+  Measured pan paint p50/p95 116/122 ms; zoom 246/252 ms (three zoom samples).
+  33 ms is not met. Raw presentation intervals contain dwell, not continuous FPS.
+  Follow-up source patch 4eaf9fb5 (exposed-strip clearing/split timing) passes focused
+  host tests 2/2 and P4 syntax; not native-built or deployed. It adds about 8 KiB
+  PSRAM timing storage. Preserve wizard edits, evidence, artifacts and recovery.
 - OrcMaps worktree: F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery. PR #6 is merged
-  at 722d0d382f99b2887694af333f85b1ee048f4208, now pinned in OrcSDR source/lock.
-  This merged pin has focused consumer checks but no native/device acceptance.
-- COM17, USB serial 30:ED:A0:E2:E6:95, is our maps device. Last accepted app is
-  maps gfx-fix dirty 2026-10-18, using engine 63f0573 and C6 3.0.6. Verify its
-  actual state and recovery before any update.
+  at 722d0d382f99b2887694af333f85b1ee048f4208 and deployed on COM17. Boundary
+  candidate 3d9d01c passes approved configured host CTest 7/7, documented in
+  73b0d94. Boundary work is not pushed, merged, consumer-pinned or deployed.
+- COM17 USB serial 30:ED:A0:E2:E6:95 is our maps device. Current app ID
+  maps preview timing dirty 2026-10-19, C6 3.0.6; artifact
+  .local/maps/preview-timing-34d3366c-20261019/. Verify actual state/recovery
+  before another update. New native cycles require scoped approval.
 - Claude owns COM39 for the Dead Air dashboard and may flash it. Do not use its
   serial port, reset it or flash it without a coordinated handoff. Preserve the
   user's COM39 C6 1.4.1 requirement. Subagents are allowed for useful bounded
@@ -43,8 +49,8 @@ and explicit compatibility behavior.
 
 Work through these remaining milestones:
 
-1. Reconcile bounded preview timing, validate the merged engine natively, and
-   measure continuous cached pan/zoom feedback on COM17 under reception.
+1. Reduce the measured cached-preview paint cost, verify split clear/transfer
+   timing and measure continuous pan/zoom feedback on COM17 under reception.
    Record p50/p95/max, cancellation, render/transfer/SD costs, cache behavior,
    PSRAM and free/largest internal DMA blocks. Aim for roughly 33 ms cached
    motion; do not claim it from host tests or worker timings containing dwell.
@@ -55,7 +61,8 @@ Work through these remaining milestones:
 3. Implement the owned catalog and trusted resumable installation: immutable
    identities, size/free-space checks, TLS/hash verification, staging, atomic
    activation and recovery. Preserve manual imports and prior working packs.
-   Model storage/delivery cost for 20,000 users before selecting hosting.
+   Use the recorded preliminary 20,000-user cost model before selecting hosting;
+   verify assumptions when making the decision.
    Get my decision when a hosting/publication choice is actually required.
 4. Finish wizard-owned Welcome → Wi-Fi → Location → Maps → Download → Ready.
    Keep password/address/coordinate inputs inside setup. Support network,

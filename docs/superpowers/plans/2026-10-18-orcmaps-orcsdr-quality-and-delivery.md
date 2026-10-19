@@ -14,17 +14,18 @@ not the current state.
 | Phase | Current status |
 | --- | --- |
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
-| 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes focused profile/style checks but awaits broader regression, reference renders and device acceptance. Contrast and international coverage remain open. |
-| 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Continuous-motion timing and the 33 ms target remain unverified. |
+| 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes the approved configured host regression (7/7); reference renders and device acceptance remain open. Contrast and international coverage remain open. |
+| 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. New bounded measurements show same-scale paint p50/p95 116/122 ms and scaled paint 246/252 ms (only three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
 | 4 — catalog/delivery | Candidate size/provenance and preliminary delivery model recorded. Trusted catalog, resumable installation and publication remain incomplete. |
 | 5 — setup | Wizard-owned UI is prepared and included in the tested dirty build. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
-| 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; no OrcSDR main merge, release or device update of that pin yet. |
+| 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
 Checked items below close only their stated behavior/test scope, not an entire phase.
-Current OrcSDR source checkpoint: `d87d1309` (preview recorder); its parent
-`04b118a4` pins OrcMaps merge
-`722d0d382f99b2887694af333f85b1ee048f4208`. Preserved wizard/map edits remain
-dirty or untracked; reconcile them deliberately and never reset or clean them.
+Current deployed source checkpoint: `34d3366c` plus preserved dirty wizard edits,
+including the bounded preview recorder and OrcMaps merge pin
+`722d0d382f99b2887694af333f85b1ee048f4208`. The follow-up exposed-strip clearing
+and stage-timing patch `4eaf9fb5` passes 2/2 focused host checks and P4 syntax, but is not
+native-built or deployed. Preserve dirty/untracked wizard work and recovery.
 
 Continuation: [ready-to-use completion goal prompt](2026-10-19-orcmaps-completion-goal-prompt.md).
 
@@ -41,59 +42,62 @@ Continuation: [ready-to-use completion goal prompt](2026-10-19-orcmaps-completio
 - Subagents are permitted when useful. Give them bounded scope and explicit
   file/device ownership; this does not waive expensive-work approval requirements.
 
-### Latest verified device state — recorded acceptance, not a live probe
+### Latest verified device state — October 19 bounded checks
 
-- COM17: latest approved app built from `477f087a` plus the repeated-Settings
-  graphics correction, setup reception pause and the city-label zoom policy
-  and preserved wizard/gesture/blackout edits; new timing instrumentation excluded;
-  app-only flash and boot passed. Build ID: `maps gfx-fix dirty 2026-10-18`;
-  app SHA-256 `c2450314fe356a18c7053eda1fe0c8a2280c0318a37d56c30a6aba69159fb18b`.
-  OrcMaps device pin: `63f0573e98351ef50eb3debeca5ee07a0a9f2eeb`.
-  The merged source pin has not been native-built/flashed. Driver 0.9.3;
-  C6 unchanged at 3.0.6. This maps validation did not touch COM39.
-  Artifact: `.local/maps/navigation-graphics-477f087a-20261018/`;
-  full recovery: `.local/maps/com17-recovery/20261018-155834/`.
-- Receiver Location overflow corrected: long map identity is bounded with an
-  ellipsis; full stored identity retained. Host regression and captured COM17
-  return from Use Location pass. Physical-panel confirmation remains separate.
-- Full native build passes pin/miniz/FT8 gates. Label pool occupies 15,416 bytes
-  in PSRAM; configured internal DMA reserve remains 40,960 bytes. App size
-  5,060,384 bytes, approximately 20% app-partition space remaining.
-- Bounded navigation/map reception checks reported zero driver drops/overruns
-  around 2.4 MSPS. The latest two-frame holder retained 2,835,456 bytes during
-  unique 8 KiB SD scratch upload/readback with matching hashes. Low-memory
-  testing also passed with only the 1,417,728-byte worker frame, followed by
-  successful reclaim and recreation of both frames. Bulk transfer uses paused reception;
-  radio_busy during active reception is expected. No overnight soak required.
-- Measured uncached pan/zoom frames: 1.445–1.806 seconds; full-frame pushes:
-  76.5–78.4 ms. These are earlier baseline timings, not current continuous-drag
-  measurements. **33 ms cached motion remains unverified.** Earlier baseline minimum DMA
-  free fell to 3,663 bytes; the later graphics-regression run recorded 9,487 bytes
-  minimum DMA free (10,175 free and 9,216 largest block at its snapshot).
-  Different workloads prevent treating that as a measured improvement.
-  Memory headroom stays an open gate. These are bounded
-  observations, not proof of long-term stability or decoded-signal quality.
-- Captured labels are readable, but some names are unsupported by the selected
-  font. Diagnostics count them; picker presentation of that warning is unfinished.
+- COM17 app-only build/flash and startup passed, using source `34d3366c` plus
+  preserved wizard edits. Build ID: `maps preview timing dirty 2026-10-19`;
+  app SHA-256 `ae0d94b15eacefcce42afa165333490a09836d08d1c0d67bcca89194fcd23515`.
+  OrcMaps pin `722d0d3`, driver 0.9.3, C6 unchanged at 3.0.6. COM39 untouched.
+- Sealed artifact: `.local/maps/preview-timing-34d3366c-20261019/`;
+  prior app `.local/maps/navigation-graphics-477f087a-20261018/` and full recovery
+  `.local/maps/com17-recovery/20261018-155834/` retained. Boot/table and all
+  non-app partitions verified preserved; fresh partition backups saved.
+- Native pin/miniz/FT8 gates pass. Labels 15,416 bytes, update timing 2,072 bytes
+  and preview timing pools 12,448 bytes are in external BSS. DMA reserve remains
+  40,960 bytes. App 5,061,632 bytes; 1,229,824 bytes (20%) partition headroom.
+- Bounded camera and navigation tests ran under approximately 2.4 MSPS reception
+  with zero observed driver drops/overruns. Same-scale paint: 19 cumulative
+  samples, p50 116.189 ms, p95/max 121.629 ms; includes one zoom-return preview.
+  Scaled paint: only three samples, p50 246.232 ms, p95/max 251.991 ms.
+  Accepted-request feedback p50/p95: 116.434/121.881 ms and 252.251/272.561 ms.
+  **33 ms is not met.** Inter-run dwell contaminates rolling presentation
+  intervals; these are not continuous FPS or physical-touch/scanout measurements.
+  Completed canvas pushes alone measured approximately 78 ms.
+- Retained-map SD check passed: two frames retained 2,835,456 bytes during a
+  unique 8 KiB scratch write/readback with matching hashes. Reception paused for
+  bulk transfer and resumed. The combined script later expired its authentication
+  at Home; a freshly authenticated navigation run passed without another write.
+  Home→RF Lab→Home and repeated Settings→Home returned with graphics enabled;
+  map reopened ready. Physical acceptance of this candidate is pending.
+- Latest map-open snapshot: DMA free/largest/minimum 10,283/9,728/7,631 bytes;
+  internal free/minimum 15,983/7,751; PSRAM free 19,143,156 bytes. Workload-specific
+  observations do not establish a safe overall memory or pairing budget.
+- Device left receiving at BROWSE 26,591,754 Hz on map picker; serial released.
+  RF antenna suitability was not independently verified, so no decoding-quality
+  claim is made. No new reset/panic observed during bounded tests. Existing
+  preserved coredump data is not evidence of a new crash.
+- Previous physical cached-drag/city-policy acceptance remains historical.
+  International missing-glyph presentation and final low-memory/audio/hotplug
+  acceptance remain open. No overnight soak is required.
 
-Evidence: [accepted cached preview and COM17 checks](../../evidence/maps/2026-10-18-preview-com17.md),
-[COM17 label tests](../../evidence/maps/2026-10-18-label-com17-validation.md),
-[native build](../../evidence/maps/2026-10-18-label-native-build.md), and
-[Use Location correction](../../evidence/maps/2026-10-18-location-text-com17.md).
+Evidence: [native/COM17 timing, SD and navigation](../../evidence/maps/2026-10-19-preview-timing-com17.md),
+[copy-path scout](../../evidence/maps/2026-10-19-preview-copy-scout.md),
+[follow-up source checks](../../evidence/maps/2026-10-19-preview-exposed-strip-source.md).
 Exact commands, logs, hashes and recovery paths are recorded there.
 
 ### Remaining work in execution order
 
-1. **Measure continuous feedback and close the native engine gate.** Cached
-   dragging follows the finger and pending redraw no longer blanks the map;
-   user accepted both. The default view hides city names; user accepted that too.
-   None proves 33 ms. The bounded recorder is now implemented with focused host
-   checks (1/1) and a P4 syntax check; it is not linked/flashed. Earlier saved
-   files under .local/maps/preview-timing-prepared-20261018/ are historical.
-   Obtain the required scoped native build/test approval, and
-   measure bounded pan/zoom p50/p95/max, cancellation and memory under reception.
-   Worker timings containing user dwell are not touch-to-feedback latency.
-   [Recorder source/tests and metric limits](../../evidence/maps/2026-10-19-preview-timing-source.md).
+1. **Reduce measured preview cost.** The native engine/recorder gate passed;
+   current pan and zoom painting miss 33 ms. The next narrow source patch clears
+   only exposed strips for same-scale movement and separates clearing from
+   transfer timing, preserving framebuffer ownership and 180-degree default.
+   Focused preview/timing CTest passes 2/2 and P4 syntax passes. It adds about
+   8 KiB of bounded PSRAM timing storage; native placement and device benefit are
+   unverified. Obtain a new scoped native build/COM17 approval, measure split
+   costs and feedback under reception, and check navigation, memory and retained
+   SD. Avoid unsafe direct-DMA shortcuts. Full transfer already costs about
+   78 ms, so strip clearing alone cannot establish the target. Continuous gesture
+   timing and cancellation remain required.
 2. **Validate the real global pack on COM17.** Former protomaps-v4 manifest
    rejection was compatibility failure, not SD failure. OrcMaps PR #6 fixes it
    and is merged at 722d0d3; OrcSDR source/lock pin it at 04b118a4. Requested,
@@ -101,7 +105,8 @@ Exact commands, logs, hashes and recovery paths are recorded there.
    Configured engine host CTest passed 7/7 at dbb1b98, and all four premerge CI
    jobs passed. Consumer map/preview/timing checks passed 3/3 against
    code-equivalent c39f827; only STATUS.md differs from merged engine code.
-   Native/hardware acceptance of that merged pin remains open. Reuse the
+   Native linking and bounded COM17 boot/map/radio/SD checks of that pin now pass;
+   real-global-pack acceptance remains open. Reuse the
    existing 543,380,195-byte global candidate and recorded hash, prepare valid
    metadata, verify recovery, and install without overwriting existing packs.
    Check reference views, labels, retained-map SD and active-radio continuity.
@@ -114,8 +119,10 @@ Exact commands, logs, hashes and recovery paths are recorded there.
    OrcMaps local candidate `3d9d01c` now distinguishes country/region/local
    boundaries, preserves legacy classification and bumps style versions.
    Focused profile CTest passes 1/1; standalone RunStyleTests passes with zero
-   failures. New direct/cache pixel coverage is added but unrun. The requested
-   full configured host regression approval is pending. This candidate is not
+   failures. The approved configured host build and CTest pass 7/7, including new
+   direct/cache pixel parity and style coverage. Documentation commit 73b0d94
+   records the run; worldwide reference-view and device acceptance remain open.
+   This candidate is not
    pushed, merged, pinned in OrcSDR or deployed. Evidence/log commands:
    `F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery/docs/evidence/2026-10-19-boundary-hierarchy-source.md`.
 4. **Finish delivery and the self-contained wizard.** Choose and cost the
@@ -146,6 +153,13 @@ features follow the offline baseline. No new large download, hosting purchase,
 map-data publication or device erase is authorized by this checkpoint.
 
 ## Execution ledger — historical checkpoints
+
+- October 19: approved native build and COM17 app-only deployment completed from
+  34d3366c plus preserved wizard edits. Merged engine 722d0d3 boot/map checks,
+  bounded radio/navigation and retained-map SD pass. Measured paint costs miss
+  33 ms. The separate approved boundary regression passes 7/7 at 3d9d01c.
+  Exposed-strip clearing/stage timing is prepared with focused host/P4 checks,
+  not native-built or deployed. Physical confirmation remains pending.
 
 - October 18 latest checkpoint: cached movement physically accepted on COM17
   ("Moves with finger; noticeably better"); evidence recorded at `477f087a`.
