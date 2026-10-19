@@ -15,8 +15,8 @@ dependencies:
     version: 31a159df4f006a837d5041029bc6d1bc63520234
   orcmaps:
     git: https://github.com/hardcoreerik/OrcMaps.git
-    # Reviewed development pin: tile clipping, explicit profiles and bounded labels.
-    version: 5f3a1eb767b26aa7df00158308f40331b298d7ef
+    # Reviewed development pin: tile clipping, profiles, labels and cached-frame transform.
+    version: 63f0573e98351ef50eb3debeca5ee07a0a9f2eeb
   m5stack/m5unified:
     version: "0.2.20"
   m5stack/m5gfx:
