@@ -51,6 +51,7 @@ jobs:
             tests/dead_air_render_tests.cpp \
             tests/dead_air_ui_stubs/audio_header_stub.cpp \
             apps/orcsdr-tab5/ui/dead_air_dashboard.cpp \
+            apps/orcsdr-tab5/ui/acars_dirty_rects.cpp \
             apps/orcsdr-tab5/ui/dead_air_model.cpp \
             apps/orcsdr-tab5/ui/screen_controller.cpp \
             -o /tmp/dead-air-render-tests

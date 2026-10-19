@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <utility>
+#include "acars_dirty_rects.hpp"
 
 namespace orcsdr::dead_air {
 namespace {
@@ -37,24 +39,37 @@ struct Gfx {
   void drawLine(int x0, int y0, int x1, int y1, uint16_t c) { d().drawLine(x0, y0 - oy, x1, y1 - oy, c); }
 };
 Gfx g;
+// Two sprites, as in the ACARS dashboard: a frame is composed in g_canvas and compared with g_front (what the
+// panel shows). Only differing tiles are pushed, because a whole-frame push is a slow strided write on the rotated
+// panel and shows as a right-to-left sweep. A page change draws straight to the display with the native
+// primitives; the composed sprite then becomes the reference for later partial pushes.
 M5Canvas* g_canvas = nullptr;
+M5Canvas* g_front = nullptr;
+bool g_front_valid = false;
 constexpr int kBodyHeight = 522;  // kBodyBottom - kBodyY + 1
+constexpr size_t kMaxPushRects = 24;
+constexpr int kWholeFramePercent = 55;
 
-M5Canvas* body_canvas() {
-  if (g_canvas) return g_canvas;
+M5Canvas* make_canvas() {
   M5Canvas* c = new (std::nothrow) M5Canvas(&M5.Display);
   if (!c) return nullptr;
   c->setColorDepth(16);
   c->setPsram(true);
   if (!c->createSprite(1280, kBodyHeight)) { delete c; return nullptr; }
-  g_canvas = c;
+  return c;
+}
+M5Canvas* body_canvas() {
+  if (g_canvas) return g_canvas;
+  g_canvas = make_canvas();
+  if (g_canvas && !g_front) g_front = make_canvas();  // optional: without it every refresh draws directly
+  g_front_valid = false;
   return g_canvas;
 }
 void release_canvas() {
-  if (!g_canvas) return;
-  g_canvas->deleteSprite();
-  delete g_canvas;
-  g_canvas = nullptr;
+  for (M5Canvas** c : {&g_canvas, &g_front}) {
+    if (*c) { (*c)->deleteSprite(); delete *c; *c = nullptr; }
+  }
+  g_front_valid = false;
 }
 
 bool hit(int x, int y, int rx, int ry, int rw, int rh) {
@@ -317,17 +332,7 @@ void review() {
   label("WAV / IQ clip indexing and hashes", 519, 498, kMuted);
   label("will appear after the storage adapter is wired.", 519, 550, kMuted);
 }
-void draw_body() {
-  M5Canvas* canvas = body_canvas();
-  if (canvas) {
-    g.t = canvas;
-    g.oy = kBodyY;
-    canvas->fillSprite(kBg);
-  } else {
-    g.t = &M5.Display;
-    g.oy = 0;
-    M5.Display.fillRect(0, kBodyY, 1280, kBodyBottom - kBodyY + 1, kBg);
-  }
+void paint_page() {
   switch (g_page) {
     case Page::overview: overview(); break;
     case Page::spectrum: spectrum(); break;
@@ -337,9 +342,49 @@ void draw_body() {
     case Page::review: review(); break;
     default: break;
   }
-  if (canvas) canvas->pushSprite(0, kBodyY);  // one transfer per refresh: no cleared frame is ever visible
+}
+void paint_direct() {
   g.t = &M5.Display;
   g.oy = 0;
+  M5.Display.fillRect(0, kBodyY, 1280, kBodyBottom - kBodyY + 1, kBg);
+  paint_page();
+}
+// page_change: another screen is replacing this one, so most pixels differ and tile pushes would not help.
+void draw_body(bool page_change = false) {
+  M5Canvas* canvas = body_canvas();
+  if (!canvas) { paint_direct(); return; }
+  g.t = canvas;
+  g.oy = kBodyY;
+  canvas->fillSprite(kBg);
+  paint_page();
+  g.t = &M5.Display;
+  g.oy = 0;
+  acars_ui::DirtyRect rects[kMaxPushRects];
+  size_t count = 0;
+  bool whole = true;
+  if (!page_change && g_front && g_front_valid) {
+    const uint16_t* next = static_cast<const uint16_t*>(canvas->getBuffer());
+    const uint16_t* previous = static_cast<const uint16_t*>(g_front->getBuffer());
+    if (next && previous) {
+      bool overflow = false;
+      count = acars_ui::diff_rects(previous, next, 1280, kBodyHeight, rects, kMaxPushRects, &overflow);
+      const int64_t area = acars_ui::rect_area(rects, count);
+      whole = overflow || area * 100 > static_cast<int64_t>(1280) * kBodyHeight * kWholeFramePercent;
+    }
+  }
+  if (whole) {
+    paint_direct();  // native primitives straight to the panel, like the other dashboards
+  } else {
+    for (size_t i = 0; i < count; ++i) {
+      M5.Display.setClipRect(rects[i].x, kBodyY + rects[i].y, rects[i].w, rects[i].h);
+      canvas->pushSprite(0, kBodyY);
+    }
+    M5.Display.clearClipRect();
+  }
+  if (g_front) {
+    std::swap(g_canvas, g_front);  // the frame now on the panel becomes the reference
+    g_front_valid = true;
+  }
 }
 } // namespace
 
@@ -353,7 +398,7 @@ void enter(const Snapshot& snapshot) {
   g_page = Page::overview;
   g_active = true;
   chrome();
-  draw_body();
+  draw_body(true);
 }
 void update(const Snapshot& snapshot) {
   if (!g_active || !screens::owns(screens::Id::dead_air) ||
@@ -382,7 +427,7 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
       if (hit(x, y, kTabX + i * (kTabWidth + kTabGap), kTabY, kTabWidth, kTabHeight)) {
         if (g_page != static_cast<Page>(i)) {
           g_page = static_cast<Page>(i);
-          nav(); draw_body();
+          nav(); draw_body(true);
         }
         return {};
       }
