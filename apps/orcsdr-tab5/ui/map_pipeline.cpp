@@ -112,7 +112,9 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     const bool present = reader_.TileExists(tile.z, tile.x, tile.y);
     stats_.lookup_us += now() - lookup;
     if (!present) { ++stats_.missing; continue; }
-    Context context{*this, viewport, target, placements, tile, labels, {}};
+    // Keep the world overview clear; place names begin at regional zoom.
+    Context context{*this, viewport, target, placements, tile,
+                    viewport.zoom >= 6 ? labels : nullptr, {}};
     orcmap::MvtStreamOptions options;
     options.include_layer = [](const char* name,size_t size,void* opaque) {
       const auto& ctx=*static_cast<Context*>(opaque);

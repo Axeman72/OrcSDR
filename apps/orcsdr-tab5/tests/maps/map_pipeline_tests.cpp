@@ -49,6 +49,18 @@ void global_label_test(const char* archive) {
   orcmap::host::FramebufferTarget frame(1280,720);
   orcmap::LabelLayout labels;
   MeasuredText text;
+  for (int zoom : {3,5}) {
+    view.zoom=zoom;
+    assert(pipeline.render(view,frame,&labels,&text));
+    assert(pipeline.stats().labels.offered==0 && text.names.empty());
+  }
+  view.zoom=6;
+  assert(pipeline.render(view,frame,&labels,&text));
+  assert(pipeline.stats().labels.offered>0 && !text.names.empty());
+  text.names.clear();view.zoom=3;
+  assert(pipeline.render(view,frame,&labels,&text));
+  assert(pipeline.stats().labels.offered==0 && text.names.empty());
+  view.zoom=8;
   assert(pipeline.render(view,frame,&labels,&text));
   assert(pipeline.stats().tiles>0 && pipeline.stats().failed==0);
   assert(pipeline.stats().labels.offered>0 && pipeline.stats().labels.drawn>0);
