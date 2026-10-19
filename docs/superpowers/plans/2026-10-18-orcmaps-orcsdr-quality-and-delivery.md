@@ -50,11 +50,18 @@ Exact commands, logs, hashes and recovery paths are recorded there.
 
 ### Next work
 
-1. Validate the prepared drag-start correction on hardware. Focused red/green
+Physical acceptance update: COM17 drag/tap behavior was confirmed by the user.
+The reported blackout during map replacement was reproduced, corrected and
+flashed in the approved build/test cycle. User confirmed **"Map stays visible"**.
+Evidence: `docs/evidence/maps/2026-10-18-picker-blackout.md`. This closes the
+blackout defect, not Phase 3 fluidity: uncached frames still take 1.29–1.74 s.
+
+1. Drag-start correction is now hardware accepted. Focused red/green
    host checks now prove touch-down does not recenter, dragging does not jump,
    taps still recenter on release, small jitter is tolerated and outside release
-   cancels a tap. Source changes remain alongside preserved wizard edits; not
-   built/flashed. Evidence: `docs/evidence/maps/2026-10-18-picker-gesture.md`.
+   cancels a tap. Source changes remain alongside preserved wizard edits and
+   were included in the COM17 candidate. Evidence: `docs/evidence/maps/2026-10-18-picker-gesture.md`
+   and `docs/evidence/maps/2026-10-18-gesture-com17.md`.
 2. Profile and improve cached motion/display transfer and worker rendering,
    preserving one camera/generation for geography, labels and overlays. Measure
    p50/p95/max feedback intervals and cancellation, not just average frame cost.

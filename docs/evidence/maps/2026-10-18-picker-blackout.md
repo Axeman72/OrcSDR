@@ -40,9 +40,10 @@ Boot passed with SD/Wi-Fi/RTL ready (`blackout-boot-20261018.log`). Ran the
 identity-checked bench with `gesture-test-plan-20261018.json` and output
 `blackout-test-20261018.log`: six pan/zoom actions all reached ready with zero
 missing/failed tiles; final RF remained STREAMING with drops=0 and overruns=0.
-Device left on map picker while receiving. Physical blackout confirmation
-requested and pending; serial completion alone cannot prove the panel never
-blanked between frames. Rendering speed is not claimed improved by this fix.
+Device left on map picker while receiving. User then physically confirmed
+"Map stays visible" in response to the drag/tap/zoom blackout check. This closes
+that visual defect's acceptance gate on COM17; serial completion alone was not
+used to establish it. Rendering speed is not claimed improved by this fix.
 
 Source remains alongside preserved wizard edits. Fluid cached motion, memory
 headroom and the remaining original plan gates stay open.
