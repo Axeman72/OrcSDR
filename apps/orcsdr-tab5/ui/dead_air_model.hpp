@@ -42,12 +42,13 @@ struct Snapshot {
   bool recording = false;
   bool scanning = false;
   bool audio_available = false;
+  bool sound_enabled = true;
   uint32_t frequency_hz = 0;
   uint32_t sample_rate_sps = 0;
   uint32_t session_elapsed_s = 0;
   uint32_t unix_time = 0;
   int battery_percent = -1;
-  char demod[8] = "—";
+  char demod[8] = "--";
   Reading rf_level_dbfs{};    // relative dBFS, NEVER dBm
   Reading audio_level_dbfs{}; // relative dBFS
   Reading temperature_c{};

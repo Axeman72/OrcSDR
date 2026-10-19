@@ -76,13 +76,29 @@ void nav() {
           g_page == static_cast<Page>(i) ? kGreen : TFT_WHITE, 2);
   }
 }
+void sanitize_snapshot() {
+  // A disconnected module may leave cached readings. Never render those live.
+  if (!g_snapshot.environment_sensor_attached) {
+    g_snapshot.temperature_c = {};
+    g_snapshot.humidity_rh = {};
+    g_snapshot.pressure_hpa = {};
+  }
+  if (!g_snapshot.receiver_ready) {
+    g_snapshot.rf_level_dbfs = {};
+    g_snapshot.spectrum_valid = false;
+  }
+  if (!g_snapshot.audio_available) {
+    g_snapshot.audio_level_dbfs = {};
+    g_snapshot.audio_envelope_valid = false;
+  }
+}
 void chrome() {
   M5.Display.setFont(nullptr);
   M5.Display.fillScreen(kBg);
   audio_header::draw_brand("DEAD AIR");
   audio_header::draw_battery(g_snapshot.battery_percent);
   audio_header::draw_home_button();
-  audio_header::draw_mute_button(true);
+  audio_header::draw_mute_button(g_snapshot.sound_enabled);
   audio_header::draw_visualizer_button(false);
   audio_header::draw_settings_button();
   nav();
@@ -129,7 +145,7 @@ void overview() {
   label(g_snapshot.environment_sensor_attached ? "MODULE DETECTED" : "MODULE NOT CONNECTED",
         668, 464, g_snapshot.environment_sensor_attached ? kGreen : kMuted, 2);
   reading("TEMP (C)", g_snapshot.temperature_c, 668, 505, "%.1f");
-  reading("RH (%%)", g_snapshot.humidity_rh, 668, 550, "%.1f");
+  reading("RH (%)", g_snapshot.humidity_rh, 668, 550, "%.1f");
   reading("PRESSURE (hPa)", g_snapshot.pressure_hpa, 668, 594, "%.1f");
 }
 void spectrum() {
@@ -174,7 +190,7 @@ void environment() {
   label(g_snapshot.environment_sensor_attached ? "CONNECTED" : "UNAVAILABLE",
         40, 208, g_snapshot.environment_sensor_attached ? kGreen : kMuted, 3);
   reading("TEMPERATURE (C)", g_snapshot.temperature_c, 40, 280, "%.1f");
-  reading("HUMIDITY (%%)", g_snapshot.humidity_rh, 40, 355, "%.1f");
+  reading("HUMIDITY (%)", g_snapshot.humidity_rh, 40, 355, "%.1f");
   reading("PRESSURE (hPa)", g_snapshot.pressure_hpa, 40, 430, "%.1f");
   label("Core RF investigation works without ENV III.", 40, 548, kMuted, 1);
   box(644, 120, 616, 511);
@@ -244,6 +260,7 @@ void draw_body() {
 void attach_events(EventModel* events) { g_events = events; }
 void enter(const Snapshot& snapshot) {
   g_snapshot = snapshot;
+  sanitize_snapshot();
   g_page = Page::overview;
   g_active = true;
   chrome();
@@ -252,7 +269,10 @@ void enter(const Snapshot& snapshot) {
 void update(const Snapshot& snapshot) {
   if (!g_active || snapshot.revision == g_snapshot.revision) return;
   const int battery = g_snapshot.battery_percent;
+  const bool sound = g_snapshot.sound_enabled;
   g_snapshot = snapshot;
+  sanitize_snapshot();
+  if (sound != snapshot.sound_enabled) audio_header::draw_mute_button(snapshot.sound_enabled);
   if (battery != snapshot.battery_percent) audio_header::draw_battery(snapshot.battery_percent);
   draw_body();
 }

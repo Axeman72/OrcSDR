@@ -96,6 +96,7 @@ void EventModel::observe_rf(const RfObservation& s) {
   if (!s.valid || !s.settled || !std::isfinite(s.level_dbfs)) {
     pending_ = latched_ = false;
     baseline_count_ = 0;
+    baseline_ = 0.0f;
     return;
   }
   if (!baseline_ready()) {
