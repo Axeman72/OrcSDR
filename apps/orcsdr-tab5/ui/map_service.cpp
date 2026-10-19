@@ -437,7 +437,7 @@ bool snapshot(MapSnapshot* out) {
   if(!out || !g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return false;
   *out=g_snapshot;xSemaphoreGive(g_lock);return true;
 }
-void rescan() {g_scan.store(true);(void)downloads::retry();cancel();}
+void rescan() {g_scan.store(true);(void)downloads::retry_recovery();cancel();}
 void cancel() {g_preview_lifetime.fetch_add(1);g_serial.fetch_add(1);}
 uint32_t revision() {return g_revision.load();}
 bool installed() {return g_installed.load();}

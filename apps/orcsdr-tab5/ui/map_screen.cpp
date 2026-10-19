@@ -37,6 +37,8 @@ screens::Id g_return=screens::Id::home;
 settings::Section g_section=settings::Section::data_maps;
 int g_last_x=0,g_last_y=0,g_edit=0,g_index=0,g_scroll=0;
 bool g_location_menu=true,g_details=false;
+bool g_download_view=false;
+int g_download_index=0,g_download_scroll=0;
 bool g_map_touch=false,g_map_moved=false;
 bool g_map_visible=false,g_keep_map=false;
 EXT_RAM_BSS_ATTR maps::downloads::Snapshot g_downloads;
@@ -73,7 +75,7 @@ bool checkpoint() {
 }
 bool location_step() {return g_mode==Mode::picker||(g_mode==Mode::setup&&g_flow.step==setup::Step::location);}
 bool maps_step() {return g_mode==Mode::inventory||(g_mode==Mode::setup&&g_flow.step==setup::Step::maps);}
-void advance() {g_flow.next();(void)checkpoint();g_dirty=true;}
+void advance() {g_download_view=false;g_flow.next();(void)checkpoint();g_dirty=true;}
 void picker_at(int32_t latitude,int32_t longitude) {
   g_picker_ready=maps::begin_location_picker(g_picker,kMapW,kMapH,latitude,longitude);
 }
@@ -161,6 +163,7 @@ void draw_inventory() {
   }
   button("UP",1120,174,128,70);button("DOWN",1120,426,128,70);
   button("RESCAN",32,520,200,56);button("DETAILS",250,520,200,56);
+  button("GET MAPS",470,520,310,56,true);
   if(g_packs.count&&g_packs.packs[g_index].usable)button("USE THIS MAP",800,520,300,56,true);
   if(g_details&&g_packs.count) {
     const auto& pack=g_packs.packs[g_index];
@@ -173,6 +176,68 @@ void draw_inventory() {
   if(g_downloads.message[0]) {
     char message[64];std::snprintf(message,sizeof(message),"%.63s",g_downloads.message);
     text(message,32,582,3,g_downloads.phase==maps::downloads::Phase::failed?TFT_ORANGE:kInk);
+  }
+}
+bool download_busy() {return g_downloads.busy;}
+void download_size(uint64_t bytes,char* value,size_t capacity) {
+  if(bytes>=1024ULL*1024ULL*1024ULL)
+    std::snprintf(value,capacity,"%.1f GB",static_cast<double>(bytes)/(1024.0*1024.0*1024.0));
+  else std::snprintf(value,capacity,"%.1f MB",static_cast<double>(bytes)/(1024.0*1024.0));
+}
+void draw_downloads() {
+  (void)maps::downloads::snapshot(&g_downloads);
+  text("Get offline maps",32,92,3);
+  const char* hint=!g_downloads.configured?"Map source is not configured. Installed maps remain available.":
+      !g_downloads.connected?"Offline. Return to Network to connect; saved transfers can still be resumed.":
+      !g_downloads.sd_available?"Insert an SD card for downloads. The firmware world map remains available.":
+      !g_downloads.catalog_ready?"Check the catalog to see maps available from your configured source.":
+      "Select a map. Downloads can be resumed; use Installed to choose your map.";
+  text(hint,32,132,2);
+  const int count=static_cast<int>(g_downloads.count);
+  g_download_index=std::clamp(g_download_index,0,std::max(0,count-1));
+  g_download_scroll=std::clamp(g_download_scroll,0,std::max(0,count-4));
+  for(int row=0;row<4&&g_download_scroll+row<count;++row) {
+    const int index=g_download_scroll+row,y=174+row*84;
+    maps::downloads::Entry pack;if(!maps::downloads::entry(index,&pack))continue;
+    char title[64],size[24],detail[128];
+    std::snprintf(title,sizeof(title),"%.43s%s",pack.title,pack.installed?" [INSTALLED]":pack.recommended?" [RECOMMENDED]":"");
+    button(title,32,y,1070,76,index==g_download_index);
+    download_size(pack.bytes,size,sizeof(size));
+    std::snprintf(detail,sizeof(detail),"%.28s | %.22s | %s | zoom %u-%u",pack.region,pack.product,size,pack.min_zoom,pack.max_zoom);
+    text(detail,44,y+46,2);
+  }
+  if(g_downloads.phase==maps::downloads::Phase::checking)text("Checking catalog...",44,190,3);
+  else if(!count)text("No catalog maps to show yet.",44,190,3);
+  button("UP",1120,174,128,70);button("DOWN",1120,426,128,70);
+  button("INSTALLED",32,520,270,56);
+  if(maps::downloads::can_check(g_downloads))
+    button("CHECK CATALOG",320,520,310,56);
+  if(download_busy())button("STOP TRANSFER",930,520,320,56);
+  else if(maps::downloads::can_install(g_downloads,g_download_index)) {
+    maps::downloads::Entry pack;
+    if(maps::downloads::entry(g_download_index,&pack)&&!pack.installed)
+      button("DOWNLOAD/RESUME",650,520,370,56,true);
+  }
+  if(maps::downloads::can_retry(g_downloads))
+    button("RETRY LAST",1038,520,210,56);
+  const bool verifying=g_downloads.phase==maps::downloads::Phase::verifying;
+  char status[120]{};
+  if(verifying)std::snprintf(status,sizeof(status),"Verifying map integrity and installing... Please wait.");
+  else if(g_downloads.phase==maps::downloads::Phase::downloading) {
+    char received[24],total[24];download_size(g_downloads.completed_bytes,received,sizeof(received));
+    download_size(g_downloads.total_bytes,total,sizeof(total));
+    std::snprintf(status,sizeof(status),"Downloading: %s / %s",received,total);
+  } else if(g_downloads.phase==maps::downloads::Phase::complete)
+    std::snprintf(status,sizeof(status),"Installed. Open INSTALLED, select the map, then USE THIS MAP.");
+  else std::snprintf(status,sizeof(status),"%.95s",g_downloads.message);
+  text(status,32,584,2,g_downloads.phase==maps::downloads::Phase::failed?TFT_ORANGE:kInk);
+  if(verifying||g_downloads.phase==maps::downloads::Phase::downloading) {
+    M5.Display.drawRect(32,612,1216,10,kAccent);
+    if(verifying)M5.Display.fillRect(34+static_cast<int>((millis()/40)%1010),614,200,6,kAccent);
+    else if(g_downloads.total_bytes) {
+      const double fraction=std::min(1.0,static_cast<double>(g_downloads.completed_bytes)/g_downloads.total_bytes);
+      M5.Display.fillRect(34,614,static_cast<int>(1212*fraction),6,kGreen);
+    }
   }
 }
 void draw_edit() {
@@ -234,6 +299,7 @@ void open(Mode mode,bool automatic) {
   g_mode=mode;g_auto=automatic;g_flow=automatic?g_saved:setup::Flow{};
   g_flow.writable=g_saved.writable;g_saved.automatic=false;
   setup_ui::reset();g_edit=0;g_message[0]=0;g_dirty=true;g_index=0;g_scroll=0;g_drag=false;g_map_touch=false;g_map_moved=false;g_location_menu=true;g_details=false;
+  g_download_view=false;g_download_index=0;g_download_scroll=0;
   const auto location=receiver_location::snapshot();g_lat=location.latitude_e7;g_lon=location.longitude_e7;
   g_lat_set=g_lon_set=g_has_proposal=location.configured;
   picker_at(g_lat,g_lon);maps::cancel();draw();screens::finish_transition();
@@ -252,11 +318,11 @@ void draw() {
   if(g_mode==Mode::setup&&g_setup_paused)text("Reception paused during setup.",430,52,2);
   if(location_step()&&!(g_mode==Mode::setup&&g_location_menu))text(g_mode==Mode::setup?"SETUP: LOCATION":"LOCATION",16,24,2,kAccent);
   else if(g_mode!=Mode::setup||!g_hooks.brand)text(g_mode==Mode::setup?"ORCSDR SETUP":"LOCAL MAPS",32,28,3,kAccent);
-  if(g_mode==Mode::setup){const char* labels[]={"1 / 6 WELCOME","2 / 6 WI-FI","3 / 6 LOCATION","4 / 6 MAPS","6 / 6 READY"};text(labels[static_cast<int>(g_flow.step)],430,24,3,kAccent);}
+  if(g_mode==Mode::setup){const char* labels[]={"1 / 5 WELCOME","2 / 5 WI-FI","3 / 5 LOCATION","4 / 5 MAPS","5 / 5 READY"};text(labels[static_cast<int>(g_flow.step)],430,24,3,kAccent);}
   button("CANCEL",1050,20,195);
   if(location_step()&&g_mode==Mode::setup&&g_location_menu)setup_ui::draw(setup_ui::Page::location);
   else if(location_step())draw_picker();
-  else if(maps_step())draw_inventory();
+  else if(maps_step()) {if(g_download_view)draw_downloads();else draw_inventory();}
   else if(g_flow.step==setup::Step::welcome) {
     text("Welcome to OrcSDR",32,150,3);text("Connect to Wi-Fi, set your location,",32,220,3);
     text("then choose your offline maps.",32,260,3);
@@ -293,6 +359,7 @@ void tick() {
     if(maps::snapshot(&g_packs)&&previous!=g_packs.revision)g_dirty=true;
     const auto download_revision=g_downloads.revision;
     if(maps::downloads::snapshot(&g_downloads)&&download_revision!=g_downloads.revision)g_dirty=true;
+    if(g_download_view&&g_downloads.phase==maps::downloads::Phase::verifying)g_dirty=true;
   }
 }
 void touch(int x,int y,bool pressed,bool new_press) {
@@ -307,7 +374,9 @@ void touch(int x,int y,bool pressed,bool new_press) {
   if(maps_step()&&hit(x,y,32,174,1070,336)) {
     if(new_press) {g_drag=true;g_last_y=y;}
     else if(g_drag&&std::abs(y-g_last_y)>=60) {
-      g_scroll=std::clamp(g_scroll+(y<g_last_y?1:-1),0,std::max(0,static_cast<int>(g_packs.count)-4));
+      int& scroll=g_download_view?g_download_scroll:g_scroll;
+      const int count=g_download_view?g_downloads.count:g_packs.count;
+      scroll=std::clamp(scroll+(y<g_last_y?1:-1),0,std::max(0,count-4));
       g_last_y=y;g_details=false;g_dirty=true;return;
     }
   }
@@ -375,11 +444,35 @@ void touch(int x,int y,bool pressed,bool new_press) {
     if(g_flow.step==setup::Step::welcome&&hit(x,y,32,390,260,46)) {g_flow.quick_start();(void)checkpoint();g_dirty=true;return;}
   }
   if(maps_step()) {
+    if(g_download_view) {
+      if(hit(x,y,32,520,270,56)) {g_download_view=false;g_details=false;g_message[0]=0;g_dirty=true;return;}
+      if(hit(x,y,1120,174,128,70))g_download_scroll=std::max(0,g_download_scroll-1);
+      else if(hit(x,y,1120,426,128,70))g_download_scroll=std::min(std::max(0,static_cast<int>(g_downloads.count)-4),g_download_scroll+1);
+      else if(hit(x,y,32,174,1070,336)) {
+        const int row=(y-174)/84;
+        maps::downloads::Entry pack;
+        if((y-174)%84<76&&g_download_scroll+row<g_downloads.count&&
+            maps::downloads::entry(g_download_scroll+row,&pack))g_download_index=g_download_scroll+row;
+      } else if(download_busy()) {
+        if(hit(x,y,930,520,320,56))maps::downloads::cancel();
+      } else {
+        if(hit(x,y,320,520,310,56)&&maps::downloads::can_check(g_downloads))(void)maps::downloads::check_catalog();
+        else if(hit(x,y,1038,520,210,56)&&maps::downloads::can_retry(g_downloads))
+          (void)maps::downloads::retry();
+        else if(hit(x,y,650,520,370,56)&&maps::downloads::can_install(g_downloads,g_download_index)) {
+          maps::downloads::Entry pack;
+          if(maps::downloads::entry(g_download_index,&pack)&&!pack.installed)
+            (void)maps::downloads::request_install(g_download_index);
+        }
+      }
+      (void)maps::downloads::snapshot(&g_downloads);g_dirty=true;return;
+    }
     if(hit(x,y,32,174,1070,336)) {const int row=(y-174)/84;if(g_scroll+row<g_packs.count)g_index=g_scroll+row;g_details=false;g_dirty=true;}
     else if(hit(x,y,1120,174,128,70)) {g_scroll=std::max(0,g_scroll-1);g_dirty=true;}
     else if(hit(x,y,1120,426,128,70)) {g_scroll=std::min(std::max(0,static_cast<int>(g_packs.count)-4),g_scroll+1);g_dirty=true;}
     else if(hit(x,y,32,520,200,56)) {maps::rescan();g_packs.loaded=false;g_dirty=true;}
     else if(hit(x,y,250,520,200,56)) {g_details=!g_details;g_dirty=true;}
+    else if(hit(x,y,470,520,310,56)) {g_download_view=true;g_details=false;g_message[0]=0;g_dirty=true;}
     else if(hit(x,y,800,520,300,56)&&g_packs.count&&g_hooks.pack) {
       g_index=std::clamp(g_index,0,static_cast<int>(g_packs.count)-1);
       const auto& pack=g_packs.packs[g_index];

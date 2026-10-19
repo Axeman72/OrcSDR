@@ -39,6 +39,9 @@ if(MSVC)
   target_compile_options(map_catalog_security_test PRIVATE /EHsc)
 endif()
 enable_testing()
+add_executable(map_catalog_fetch_test catalog_fetch_test.cpp "${ui}/map_catalog_fetch.cpp")
+target_include_directories(map_catalog_fetch_test PRIVATE "${ui}" "${ORCMAPS_ROOT}/include")
+add_test(NAME map_catalog_fetch COMMAND map_catalog_fetch_test)
 add_executable(map_delivery_state_test delivery_state_test.cpp "${ui}/map_delivery_state.cpp")
 target_include_directories(map_delivery_state_test PRIVATE "${ui}" "${MBEDTLS_ROOT}/include")
 target_link_libraries(map_delivery_state_test PRIVATE "${MBEDCRYPTO_LIBRARY}")
@@ -59,3 +62,7 @@ add_test(NAME map_transfer COMMAND map_transfer_test
   "${ORCMAPS_ROOT}/examples/m5stack-tab5/test-pack/springfield-97477.manifest.json"
   "${workspace}/.local/maps/map-transfer-fixture-20261019")
 set_tests_properties(map_transfer PROPERTIES WORKING_DIRECTORY "${workspace}")
+
+add_executable(map_download_actions_test download_actions_test.cpp)
+target_include_directories(map_download_actions_test PRIVATE "${ui}")
+add_test(NAME map_download_actions COMMAND map_download_actions_test)

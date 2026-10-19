@@ -21,6 +21,7 @@ std::filesystem::path root;
 bool fail_manifest=false,corrupt_read=false,fail_write=false;
 bool fail_status=false;
 int power_after=0,mutations=0;
+std::string power_destination;
 void boundary(){if(power_after&&++mutations==power_after)throw PowerLoss{};}
 std::filesystem::path path(const char* p){return root/std::string(p).substr(1);}
 }
@@ -80,6 +81,7 @@ bool FileSystem::rename(const char* from,const char* to)const{
   if(exists(to))return false;
   std::error_code ec;std::filesystem::rename(testfs::path(from),testfs::path(to),ec);
   if(ec)std::printf("rename failure %s; destination bytes=%zu\n",ec.message().c_str(),testfs::path(to).string().size());
+  if(!ec&&testfs::power_destination==to)throw testfs::PowerLoss{};
   if(!ec){if(testfs::power_after)std::printf("rename mutation: %s -> %s\n",from,to);testfs::boundary();}return !ec;
 }
 }
@@ -325,6 +327,22 @@ int main(int argc,char** argv){
   check(delivery::load(normal,&state)==delivery::Error::none&&state.pending.product.empty()&&
         state.owned.size()==1&&state.owned[0].manifest==target&&
         !fs.exists((paths.directory+"/activation.pending").c_str()),"ownership durable before journal finalized");
+  Stream already_installed;
+  check(install_pack(normal,already_installed).error==install::Error::none&&already_installed.opens==0,
+        "retry already-owned archive does not download it again");
+  const auto installed_archive=target.substr(0,target.size()-14)+".pmtiles";
+  check(fs.remove(installed_archive.c_str()),"simulate missing owned archive without deleting metadata");
+  Stream repair_missing;
+  check(install_pack(normal,repair_missing).error==install::Error::none&&repair_missing.opens==1&&
+        fs.exists(installed_archive.c_str()),"missing owned archive can be downloaded and repaired");
+  check(fs.remove(installed_archive.c_str()),"simulate archive missing before interrupted repair");
+  testfs::power_destination=installed_archive;bool repair_cut=false;Stream repair_power;
+  try{install_pack(normal,repair_power);}catch(const testfs::PowerLoss&){repair_cut=true;}
+  testfs::power_destination.clear();
+  check(repair_cut,"power cut injected immediately after repaired archive publication");
+  check(install::resume(fs,normal,buffer.data(),buffer.size(),{}).error==install::Error::none&&
+        delivery::load(normal,&state)==delivery::Error::none&&state.pending.product.empty()&&
+        fs.exists(installed_archive.c_str()),"interrupted repair finishes offline from persisted intent");
   for(bool persisted:{false,true}) {
     reset();DeliveryStore interrupted;trusted(interrupted);Stream stream;
     interrupted.fail_at=3;interrupted.persist_failure=persisted;

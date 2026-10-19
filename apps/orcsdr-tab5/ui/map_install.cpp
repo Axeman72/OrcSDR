@@ -103,6 +103,22 @@ Result run(storage::FileSystem& fs,delivery::Store& store,const catalog::Catalog
     }
     const auto finalized=finalize_owned(fs,state);
     if(finalized.error!=Error::none)return finalized;
+    for(const auto& owned:state.owned)if(owned.product==pack.product_id&&owned.manifest==target) {
+      const auto status=fs.status(target.c_str());
+      if(status==storage::EntryStatus::error||status==storage::EntryStatus::directory)
+        return activation_error(activation::Error::storage);
+      const auto archive=target.substr(0,target.size()-14)+".pmtiles";
+      const auto archive_status=fs.status(archive.c_str());
+      if(archive_status==storage::EntryStatus::error||archive_status==storage::EntryStatus::directory)
+        return activation_error(activation::Error::storage);
+      if(status==storage::EntryStatus::file&&archive_status==storage::EntryStatus::file) {
+        const auto planned=delivery::plan_install(state,pack.product_id,target,select);
+        if(planned!=delivery::Error::none)return state_error(planned);
+        const auto saved=delivery::save(store,state);
+        if(saved!=delivery::Error::none)return state_error(saved);
+        return complete(fs,store,state,pack,buffer,size,hooks);
+      }
+    }
     const auto staged=transfer::stage(fs,pack,mirror,stream,free,buffer,size,hooks);
     if(staged!=transfer::Error::none)return {Error::transfer,delivery::Error::none,staged};
     const auto planned=delivery::plan_install(state,pack.product_id,target,select);

@@ -1,17 +1,41 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 namespace orcsdr::storage {class FileSystem;}
 namespace orcsdr::maps::downloads {
-enum class Phase:uint8_t {idle,verifying,complete,cancelled,failed};
+enum class Phase:uint8_t {idle,verifying,complete,cancelled,failed,checking,ready,downloading,unconfigured};
+struct Entry {
+  char title[64]{},region[80]{},product[64]{};
+  uint64_t bytes=0;
+  uint8_t min_zoom=0,max_zoom=0;
+  bool installed=false,recommended=false;
+};
 struct Snapshot {
   Phase phase=Phase::idle;
   bool busy=false,pending=false;
   uint32_t revision=0;
+  bool configured=false,connected=false,catalog_ready=false,sd_available=false;
+  uint8_t count=0;
+  uint64_t completed_bytes=0,total_bytes=0;
   char message[96]{};
 };
+// Shared by UI and worker so offline recovery cannot be hidden by UI gating.
+inline bool can_check(const Snapshot& s) {
+  return !s.busy&&!s.pending&&s.configured&&s.connected;
+}
+inline bool can_install(const Snapshot& s,size_t index) {
+  return !s.busy&&!s.pending&&s.catalog_ready&&s.sd_available&&index<s.count;
+}
+inline bool can_retry(const Snapshot& s) {
+  return !s.busy&&(s.phase==Phase::failed||s.phase==Phase::cancelled);
+}
 void begin();
 bool snapshot(Snapshot*);
+bool entry(size_t index,Entry*);
+bool check_catalog();
+bool request_install(size_t index);
 bool retry();
+bool retry_recovery();
 void cancel();
 // Called only by the existing map worker, without its rendering mutex held.
 // Returns true after a recovery attempt so its caller can refresh inventory.

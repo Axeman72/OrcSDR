@@ -1,3 +1,4 @@
+include("${CMAKE_CURRENT_LIST_DIR}/map_catalog_config.cmake")
 set(ORCSDR_EMBED_FILES
     "orc_badge_104.png"
     "orc_badge_104.rgb565"
@@ -109,6 +110,7 @@ idf_component_register(
         "../ui/map_catalog_session.cpp"
         "../ui/map_install.cpp"
         "../ui/map_downloads.cpp"
+        "../ui/map_catalog_fetch.cpp"
         "../ui/map_http_stream.cpp"
         "../ui/cb_dashboard.cpp"
         "../ui/cb_scanner.cpp"
@@ -188,7 +190,7 @@ idf_component_register(
         "../ui/web_audio_transport.cpp"
         "../ui/rf24_dashboard.cpp"
         "../ui/wifi_service.cpp"
-    INCLUDE_DIRS "." "../ui" "../dsp"
+    INCLUDE_DIRS "." "../ui" "../dsp" "${CMAKE_CURRENT_BINARY_DIR}"
     REQUIRES
         bootloader_support
         mbedtls

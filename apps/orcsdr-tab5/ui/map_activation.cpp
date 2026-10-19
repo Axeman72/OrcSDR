@@ -200,6 +200,15 @@ Error apply(storage::FileSystem& fs,const catalog::Pack& pack,const std::string&
   }
   if(fs.exists(j.manifest.c_str())) {
     if(previous!=j.manifest||!matches(fs,j.manifest,pack.manifest_json))return Error::conflict;
+    // Repair only a missing owned archive; never replace an existing file here.
+    if(fs.status(j.archive.c_str())==storage::EntryStatus::missing) {
+      const auto verified=transfer::verify_archive(fs,pack,p.archive,buffer,size,hooks);
+      if(verified==transfer::Error::cancelled)return Error::cancelled;
+      if(verified==transfer::Error::allocation)return Error::allocation;
+      if(verified!=transfer::Error::none)return Error::corrupt;
+      if(!fs.rename(p.archive.c_str(),j.archive.c_str()))return Error::storage;
+      return Error::none;
+    }
     return transfer::verify_archive(fs,pack,j.archive,buffer,size,hooks)==transfer::Error::none?Error::none:Error::corrupt;
   }
   if(!matches(fs,p.manifest,pack.manifest_json))return Error::corrupt;
