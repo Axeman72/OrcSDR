@@ -8,6 +8,10 @@
 #include <cstring>
 #include <new>
 #include <utility>
+#include <chrono>
+#if defined(ESP_PLATFORM)
+#include <esp_timer.h>
+#endif
 #include "acars_dirty_rects.hpp"
 #include "dead_air_sweep.hpp"
 #include "dead_air_palette.hpp"
@@ -55,7 +59,7 @@ M5Canvas* g_canvas = nullptr;
 M5Canvas* g_front = nullptr;
 bool g_front_valid = false;
 constexpr int kBodyHeight = 522;  // kBodyBottom - kBodyY + 1
-constexpr size_t kMaxPushRects = 24;
+constexpr size_t kMaxPushRects = 96;
 constexpr int kWholeFramePercent = 55;
 
 M5Canvas* make_canvas() {
@@ -171,25 +175,49 @@ void draw_trace() {
   const bool live = g_snapshot->receiver_ready && g_snapshot->spectrum_valid;
   if (live && g_viz) {
     const uint16_t* lut = g_viz->lut;
+    // Every pixel's colour depends only on the level its own row stands for, never on the column's trace height, so
+    // between frames only the pixels near the moving edge change and the tile push stays small.
+    uint16_t body[kPlotH], edge[kPlotH], bright[kPlotH], halo[kPlotH];
+    for (int row = 0; row < kPlotH; ++row) {
+      const float t = std::clamp(static_cast<float>(kPlotH - 2 - row) / static_cast<float>(kPlotH - 2), 0.0f, 1.0f);
+      body[row] = lut[static_cast<int>(t * 70.0f)];
+      edge[row] = lut[static_cast<int>(t * 150.0f)];
+      bright[row] = lut[std::min(255, 190 + static_cast<int>(t * 65.0f))];
+      halo[row] = lut[static_cast<int>(t * 110.0f)];
+    }
+    static_assert(kPlotW <= 1024, "column scratch is sized for the plot width");
+    int top[kPlotW];
+    for (int x = 0; x < kPlotW; ++x) {
+      top[x] = level_y(viz::interpolate_bins(g_snapshot->spectrum_dbfs, kBins, x, kPlotW), kPlotY, kPlotH) - kPlotY;
+    }
     if (g_viz->trail.valid()) {  // fading afterimage (peak hold), behind the live trace
       float trail_bins[viz::Trail::kMax];
       const size_t n = std::min<size_t>(g_viz->trail.count(), viz::Trail::kMax);
       for (size_t i = 0; i < n; ++i) trail_bins[i] = g_viz->trail.at(i);
       for (int x = 0; x < kPlotW; ++x) {
         const float v = viz::interpolate_bins(trail_bins, n, x, kPlotW);
-        g.drawFastVLine(kPlotX + x, level_y(v, kPlotY, kPlotH), 1, viz::color_at(lut, v - 8.0f));
+        const int row = level_y(v, kPlotY, kPlotH) - kPlotY;
+        g.drawFastVLine(kPlotX + x, kPlotY + row, 1, viz::color_at(lut, v - 8.0f));
       }
     }
-    for (int x = 0; x < kPlotW; ++x) {
-      const float v = viz::interpolate_bins(g_snapshot->spectrum_dbfs, kBins, x, kPlotW);
-      const float t = viz::normalize(v);
-      const int top = level_y(v, kPlotY, kPlotH), bottom = kPlotY + kPlotH - 1;
-      const int px = kPlotX + x;
-      // Body: darker toward the base, brighter with level (the same palette, so colour still means level).
-      if (bottom >= top + 4) g.drawFastVLine(px, top + 4, bottom - (top + 4) + 1, lut[static_cast<int>(t * 70.0f)]);
-      g.drawFastVLine(px, top + 1, 3, lut[static_cast<int>(t * 150.0f)]);
-      g.drawFastVLine(px, top, 1, lut[std::min(255, 190 + static_cast<int>(t * 65.0f))]);  // bright edge
-      if (top > kPlotY) g.drawFastVLine(px, top - 1, 1, lut[static_cast<int>(t * 110.0f)]);   // soft halo
+    // Row by row: runs of columns in the same zone become one horizontal line.
+    for (int row = 0; row < kPlotH; ++row) {
+      int run_start = 0, run_zone = -1;
+      for (int x = 0; x <= kPlotW; ++x) {
+        int zone = -1;  // -1 above the trace, 0 halo, 1 bright edge, 2 glow, 3 body
+        if (x < kPlotW) {
+          const int d = row - top[x];
+          zone = d < -1 ? -1 : d == -1 ? 0 : d == 0 ? 1 : d < 4 ? 2 : 3;
+        }
+        if (zone != run_zone) {
+          if (run_zone >= 0 && x > run_start) {
+            const uint16_t c = run_zone == 0 ? halo[row] : run_zone == 1 ? bright[row] : run_zone == 2 ? edge[row] : body[row];
+            g.drawFastHLine(kPlotX + run_start, kPlotY + row, x - run_start, c);
+          }
+          run_start = x;
+          run_zone = zone;
+        }
+      }
     }
   } else {
     label("NO LIVE SPECTRUM", kPlotX + 16, kPlotY + kPlotH / 2, kMuted, 2);
@@ -507,15 +535,27 @@ void paint_direct() {
   paint_page();
 }
 // page_change: another screen is replacing this one, so most pixels differ and tile pushes would not help.
+uint32_t now_us() {
+#if defined(ESP_PLATFORM)
+  return static_cast<uint32_t>(esp_timer_get_time());
+#else
+  return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                   std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+}
+PaintStats g_stats{};
+
 void draw_body(bool page_change = false) {
   M5Canvas* canvas = body_canvas();
   if (!canvas) { paint_direct(); return; }
+  const uint32_t t0 = now_us();
   g.t = canvas;
   g.oy = kBodyY;
   canvas->fillSprite(kBg);
   paint_page();
   g.t = &M5.Display;
   g.oy = 0;
+  const uint32_t t1 = now_us();
   acars_ui::DirtyRect rects[kMaxPushRects];
   size_t count = 0;
   bool whole = true;
@@ -527,17 +567,28 @@ void draw_body(bool page_change = false) {
       count = acars_ui::diff_rects(previous, next, 1280, kBodyHeight, rects, kMaxPushRects, &overflow);
       const int64_t area = acars_ui::rect_area(rects, count);
       whole = overflow || area * 100 > static_cast<int64_t>(1280) * kBodyHeight * kWholeFramePercent;
+      g_stats.pixels = static_cast<uint32_t>(area);
     }
   }
+  const uint32_t t2 = now_us();
   if (whole) {
     paint_direct();  // native primitives straight to the panel, like the other dashboards
+    ++g_stats.whole_pushes;
+    g_stats.pixels = 1280u * kBodyHeight;
   } else {
     for (size_t i = 0; i < count; ++i) {
       M5.Display.setClipRect(rects[i].x, kBodyY + rects[i].y, rects[i].w, rects[i].h);
       canvas->pushSprite(0, kBodyY);
     }
     M5.Display.clearClipRect();
+    ++g_stats.partial_pushes;
   }
+  const uint32_t t3 = now_us();
+  g_stats.compose_us = t1 - t0;
+  g_stats.diff_us = t2 - t1;
+  g_stats.push_us = t3 - t2;
+  g_stats.rects = whole ? 1u : static_cast<uint32_t>(count);
+  g_stats.push_us_max = std::max(g_stats.push_us_max, g_stats.push_us);
   if (g_front) {
     std::swap(g_canvas, g_front);  // the frame now on the panel becomes the reference
     g_front_valid = true;
@@ -577,6 +628,7 @@ void leave() {
   viz_release();
 }
 bool active() { return g_active; }
+PaintStats paint_stats() { return g_stats; }
 Page page() { return g_page; }
 Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
   if (!g_active || !screens::owns(screens::Id::dead_air)) return {};

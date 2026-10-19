@@ -23,6 +23,11 @@ void enter(const Snapshot& snapshot);
 void update(const Snapshot& snapshot);
 void leave();
 bool active();
+struct PaintStats {
+  uint32_t compose_us = 0, diff_us = 0, push_us = 0, push_us_max = 0;  // last body refresh
+  uint32_t pixels = 0, rects = 0, whole_pushes = 0, partial_pushes = 0;
+};
+PaintStats paint_stats();
 Page page();
 Action handle_touch(int32_t x, int32_t y, uint32_t now_ms);
 bool self_check();

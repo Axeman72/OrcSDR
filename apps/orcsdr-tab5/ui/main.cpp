@@ -7515,6 +7515,7 @@ void draw_spectrum(const uint8_t* iq, size_t bytes) {
   // LoRa and the Airband scope want a livelier trace than the 100 ms default.
   const uint32_t spectrum_interval =
       orcsdr::home::active() ? orcsdr::plot::kSpectrumIntervalMs :
+      orcsdr::dead_air_app::wants_spectrum() ? 120u :  // the Spectrum tab shows about 8 frames per second
       rtl_ui_band == RtlBand::lora || sstv_tune_spectrum_wanted() ||
               (rtl_ui_band == RtlBand::airband && orcsdr::airband::spectrum_active()) ||
               (rtl_ui_band == RtlBand::fm && orcsdr::fm::spectrum_active()) ||

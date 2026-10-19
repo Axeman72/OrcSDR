@@ -27,6 +27,7 @@ using namespace orcsdr::dead_air;
 constexpr uint32_t kObserveIntervalMs = 50;     // detector cadence: persistence is 200 ms
 constexpr uint32_t kSettleMs = 800;             // after a retune/gain/rate change or receiver (re)start
 constexpr uint32_t kSnapshotIntervalMs = 250;   // slowest visible refresh when nothing else changed
+constexpr uint32_t kSpectrumSnapshotIntervalMs = 125;  // Spectrum tab: about 8 frames per second
 constexpr uint32_t kSpectrumFreshMs = 1000;
 constexpr uint32_t kWorkerStopWaitMs = 1500;
 // Full scale matches the receiver's IQ meter (rtl_signal_dbfs): a CU8 complex sample with both axes
@@ -353,7 +354,7 @@ void tick() {
   const bool events_changed = s.model.total() != s.last_total;
   const bool changed = visibly_changed(s.snapshot, next) || events_changed;
   const bool spectrum_tab = dead_air::page() == Page::spectrum && s.snapshot.spectrum_valid;
-  if (changed || (spectrum_tab && now - s.last_snapshot_ms >= kSnapshotIntervalMs)) {
+  if (changed || (spectrum_tab && now - s.last_snapshot_ms >= kSpectrumSnapshotIntervalMs)) {
     s.last_total = s.model.total();
     s.snapshot.revision = revision + 1;
     s.last_snapshot_ms = now;
@@ -437,8 +438,9 @@ void describe(char* out, size_t size) {
   if (!out || !size) return;
   if (!g_state) { std::snprintf(out, size, "DEAD_AIR open=0"); return; }
   const Worker& w = g_state->worker;
+  const PaintStats ps = dead_air::paint_stats();
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
@@ -449,7 +451,11 @@ void describe(char* out, size_t size) {
                 g_state->sweep.running() ? 1 : 0, static_cast<unsigned long>(g_state->sweep.hops()),
                 static_cast<unsigned long>(g_state->sweep.stalls()), static_cast<unsigned long>(g_state->sweep.unobserved_ms()),
                 static_cast<unsigned long>(g_touches), static_cast<unsigned>(g_last_action), static_cast<unsigned long>(g_state->sweep.resume_hz()),
-                static_cast<unsigned long>(g_state->spectrum_seq), g_state->snapshot.spectrum_valid ? 1 : 0);
+                static_cast<unsigned long>(g_state->spectrum_seq), g_state->snapshot.spectrum_valid ? 1 : 0,
+                static_cast<unsigned long>(ps.compose_us), static_cast<unsigned long>(ps.diff_us),
+                static_cast<unsigned long>(ps.push_us), static_cast<unsigned long>(ps.push_us_max),
+                static_cast<unsigned long>(ps.pixels), static_cast<unsigned long>(ps.rects),
+                static_cast<unsigned long>(ps.whole_pushes), static_cast<unsigned long>(ps.partial_pushes));
 }
 
 }  // namespace orcsdr::dead_air_app
