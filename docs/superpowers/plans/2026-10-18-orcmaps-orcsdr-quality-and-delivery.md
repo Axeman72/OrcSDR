@@ -303,6 +303,10 @@ Primary files: existing OrcMaps pack builders/verification, a small catalog sche
 - [ ] Sign trusted catalog metadata using a reviewed approach consistent with existing project trust practices, without confusing the historical data catalog and map manifests.
 - [ ] Build one logical global regional-detail base and optional local-detail packs. Reuse identical versioned artifacts across users, validate them, and publish only after approval. Recommend local packs by location without generating a unique pack for every user by default.
 - [ ] Measure representative pack sizes/build cost. Model storage, reads and delivery for 20,000 users before choosing hosting; keep catalog URLs/provider replaceable.
+  Candidate-size traffic and request-cost scenarios are now recorded in the
+  [delivery sizing note](../../evidence/maps/2026-10-19-global-pack-delivery-cost.md).
+  Production build cost, optional-pack sizing, provider selection and endpoint
+  validation remain open; no hosting or publication has been performed.
 - [ ] Implement asynchronous resumable install with explicit size/free-space checks, bounded buffers, verified TLS/hash, staging and atomic activation preserving previous packs. Resume must validate object identity, not append unrelated versions.
 - [ ] Test short/corrupt/wrong-schema downloads, cancellation, network/power interruption, full/removed SD, version replacement and hash mismatch.
 - [ ] Keep manual import of compatible packs available without our hosting service. Preserve explicit legacy support/migration.
