@@ -54,3 +54,21 @@ Registered CTest `map_preview`, 1/1 passed; config/build/test logs named
 These tests exercise the actual eligibility helper used by the service, not
 concurrent mutex scheduling, sprite allocation failures or display clipping.
 Those broader integration checks and native runtime acceptance remain open.
+
+## Display clipping follow-up
+
+Moved the actual native preview painting into the small templated adapter seam
+`paint_preview` used by both map_service and a recording graphics target.
+Focused test first failed to compile with the seam absent, then passed 1/1.
+Checks translated and scaled paths receive only the intersection of parent/map
+clips, original clipping is restored, and an empty intersection performs no
+clear or push. Clip-edge arithmetic uses int64 intermediates.
+Logs: `map-preview-clip-red-20261018.log`, `map-preview-clip-build-20261018.log`,
+`map-preview-clip-green-20261018.log`. Command: build only
+`orcsdr_map_preview_tests`, then CTest `-R '^map_preview$' --output-on-failure`.
+Two real-SDK P4 syntax checks pass after extraction:
+`map-preview-clip-syntax-20261018.log`.
+
+The recording target verifies calls/clip boundaries; it is not pixel-level
+M5GFX raster verification. Concurrent scheduling and actual allocation/reclaim
+failures still require adapter integration or hardware tests. No device changed.

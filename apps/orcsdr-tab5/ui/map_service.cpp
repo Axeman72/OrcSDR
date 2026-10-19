@@ -100,20 +100,7 @@ void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y
   const auto& source=g_preview_request;
   if(prepare_preview(source.view,request.view,source.preferred,request.preferred,
       source.lifetime,g_preview_lifetime.load(),g_preview_valid,&transform)) {
-    int32_t cx,cy,cw,ch;target.getClipRect(&cx,&cy,&cw,&ch);
-    const int left=std::max(x,static_cast<int>(cx)),top=std::max(y,static_cast<int>(cy));
-    const int right=std::min(x+request.view.width_px,static_cast<int>(cx+cw));
-    const int bottom=std::min(y+request.view.height_px,static_cast<int>(cy+ch));
-    if(right>left&&bottom>top) {
-      target.setClipRect(left,top,right-left,bottom-top);
-      target.fillRect(x,y,request.view.width_px,request.view.height_px,0x0841);
-      if(transform.scale==1)g_preview.pushSprite(&target,x+std::lround(transform.dx),y+std::lround(transform.dy));
-      else {
-        g_preview.setPivot(0,0);
-        g_preview.pushRotateZoom(&target,x+transform.dx,y+transform.dy,0,transform.scale,transform.scale);
-      }
-      target.setClipRect(cx,cy,cw,ch);
-    }
+    paint_preview(g_preview,target,transform,x,y,request.view.width_px,request.view.height_px);
   }
   xSemaphoreGive(g_preview_lock);
 }
