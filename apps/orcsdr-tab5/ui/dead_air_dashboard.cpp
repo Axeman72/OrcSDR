@@ -259,6 +259,7 @@ void draw_body() {
 
 void attach_events(EventModel* events) { g_events = events; }
 void enter(const Snapshot& snapshot) {
+  if (!screens::is_active(screens::Id::dead_air)) return;
   g_snapshot = snapshot;
   sanitize_snapshot();
   g_page = Page::overview;
@@ -267,7 +268,8 @@ void enter(const Snapshot& snapshot) {
   draw_body();
 }
 void update(const Snapshot& snapshot) {
-  if (!g_active || snapshot.revision == g_snapshot.revision) return;
+  if (!g_active || !screens::owns(screens::Id::dead_air) ||
+      snapshot.revision == g_snapshot.revision) return;
   const int battery = g_snapshot.battery_percent;
   const bool sound = g_snapshot.sound_enabled;
   g_snapshot = snapshot;
@@ -280,7 +282,7 @@ void leave() { g_active = false; }
 bool active() { return g_active; }
 Page page() { return g_page; }
 Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
-  if (!g_active) return {};
+  if (!g_active || !screens::owns(screens::Id::dead_air)) return {};
   if (audio_header::home_hit(x, y)) return {ActionKind::close};
   if (audio_header::mute_hit(x, y)) return {ActionKind::toggle_mute};
   if (audio_header::settings_hit(x, y)) return {ActionKind::open_settings};

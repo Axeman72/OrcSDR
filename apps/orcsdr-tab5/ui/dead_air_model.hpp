@@ -100,6 +100,8 @@ class EventModel {
   uint32_t total_ = 0;
   uint32_t config_revision_ = 0, tuned_hz_ = 0;
   uint32_t candidate_since_ = 0, cooldown_until_ = 0;
+  uint32_t last_valid_ms_ = 0;
+  bool have_valid_sample_ = false;
   uint8_t baseline_count_ = 0;
   float baseline_ = 0.0f;
   bool have_tune_ = false, pending_ = false, latched_ = false;

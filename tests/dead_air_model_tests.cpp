@@ -51,6 +51,27 @@ int main() {
   assert(model.total() == 62);
   assert(model.newest(0)->sequence == 62);
   assert(model.newest(kEventCapacity) == nullptr);
+  // A stall must invalidate the learned baseline and pending event.
+  model.reset();
+  s = {};
+  s.frequency_hz = 101500000;
+  s.configuration_revision = 2;
+  s.valid = s.settled = true;
+  s.level_dbfs = -85.0f;
+  for (int i = 0; i < 12; ++i) {
+    s.monotonic_ms = 10000 + i * 100;
+    model.observe_rf(s);
+  }
+  assert(model.baseline_ready());
+  s.level_dbfs = -60.0f;
+  s.monotonic_ms = 12200; // 1100ms gap since last sample
+  model.observe_rf(s);
+  assert(!model.baseline_ready());
+  assert(model.count() == 0);
+  // A backward timestamp must not complete a pending candidate.
+  s.monotonic_ms = 12100;
+  model.observe_rf(s);
+  assert(!model.baseline_ready());
   assert(model.self_check());
   puts("Dead Air model tests PASS");
 }

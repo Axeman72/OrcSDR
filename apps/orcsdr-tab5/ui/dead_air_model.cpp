@@ -41,6 +41,8 @@ const char* kind_name(Kind kind) {
 void EventModel::reset() {
   count_ = next_ = total_ = 0;
   config_revision_ = tuned_hz_ = candidate_since_ = cooldown_until_ = 0;
+  last_valid_ms_ = 0;
+  have_valid_sample_ = false;
   baseline_count_ = 0; baseline_ = 0;
   have_tune_ = pending_ = latched_ = false;
   sensitivity_ = Sensitivity::standard;
@@ -55,6 +57,8 @@ void EventModel::reset_detector(uint32_t revision, uint32_t frequency) {
   config_revision_ = revision; tuned_hz_ = frequency;
   baseline_count_ = 0; baseline_ = 0;
   pending_ = latched_ = false;
+  last_valid_ms_ = 0;
+  have_valid_sample_ = false;
   have_tune_ = true;
 }
 void EventModel::push(Event event) {
@@ -105,8 +109,19 @@ void EventModel::observe_rf(const RfObservation& s) {
     pending_ = latched_ = false;
     baseline_count_ = 0;
     baseline_ = 0.0f;
+    have_valid_sample_ = false;
     return;
   }
+  // Missing or out-of-order samples cannot satisfy persistence. Treat a long
+  // gap as a new observation window even without a retune.
+  if (have_valid_sample_) {
+    const uint32_t elapsed = s.monotonic_ms - last_valid_ms_;
+    if (elapsed > 500u || static_cast<int32_t>(elapsed) <= 0) {
+      reset_detector(s.configuration_revision, s.frequency_hz);
+    }
+  }
+  last_valid_ms_ = s.monotonic_ms;
+  have_valid_sample_ = true;
   if (!baseline_ready()) {
     // First samples after every retune establish a new, frequency-local floor.
     baseline_ += s.level_dbfs;
