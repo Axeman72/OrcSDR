@@ -1,6 +1,8 @@
 #pragma once
 #include <string_view>
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include "orcmap/frame_transform.hpp"
 namespace orcsdr::maps {
 // Call while holding the snapshot lock. Lifetime changes on cancel/rescan,
@@ -15,21 +17,42 @@ inline bool prepare_preview(const orcmap::Viewport& source,const orcmap::Viewpor
   *output=result;return true;
 }
 // Graphics adapter seam, shared by the native service and the recording test.
+struct PreviewPaint {bool painted=false;uint64_t clear_us=0,transfer_us=0;};
+using PreviewClock=uint64_t (*)();
 template<class Image,class Target>
-void paint_preview(Image& image,Target& target,const orcmap::FrameTransform& transform,
-                   int x,int y,int width,int height) {
+PreviewPaint paint_preview(Image& image,Target& target,const orcmap::FrameTransform& transform,
+                   int x,int y,int width,int height,PreviewClock clock=nullptr) {
   int32_t cx,cy,cw,ch;target.getClipRect(&cx,&cy,&cw,&ch);
   const int64_t left=std::max<int64_t>(x,cx),top=std::max<int64_t>(y,cy);
   const int64_t right=std::min<int64_t>(int64_t{x}+width,int64_t{cx}+cw);
   const int64_t bottom=std::min<int64_t>(int64_t{y}+height,int64_t{cy}+ch);
-  if(width<=0||height<=0||cw<=0||ch<=0||right<=left||bottom<=top)return;
+  if(width<=0||height<=0||cw<=0||ch<=0||right<=left||bottom<=top)return {};
   target.setClipRect(left,top,right-left,bottom-top);
-  target.fillRect(x,y,width,height,0x0841);
-  if(transform.scale==1)image.pushSprite(&target,x+std::lround(transform.dx),y+std::lround(transform.dy));
+  const auto started=clock?clock():0;
+  const auto clear=[&](int64_t l,int64_t t,int64_t r,int64_t b) {
+    if(r>l&&b>t)target.fillRect(l,t,r-l,b-t,0x0841);
+  };
+  const auto dx=transform.scale==1?std::lround(transform.dx):0;
+  const auto dy=transform.scale==1?std::lround(transform.dy):0;
+  if(transform.scale==1) {
+    // The opaque snapshot overwrites the covered intersection. Clear only
+    // exposed strips; top/bottom and the two middle sides never overlap.
+    const int64_t il=std::max(left,int64_t{x}+dx),it=std::max(top,int64_t{y}+dy);
+    const int64_t ir=std::min(right,int64_t{x}+dx+width),ib=std::min(bottom,int64_t{y}+dy+height);
+    if(ir<=il||ib<=it)clear(left,top,right,bottom);
+    else {
+      clear(left,top,right,it);clear(left,ib,right,bottom);
+      clear(left,it,il,ib);clear(ir,it,right,ib);
+    }
+  } else clear(left,top,right,bottom);
+  const auto cleared=clock?clock():0;
+  if(transform.scale==1)image.pushSprite(&target,x+dx,y+dy);
   else {
     image.setPivot(0,0);
     image.pushRotateZoom(&target,x+transform.dx,y+transform.dy,0,transform.scale,transform.scale);
   }
+  const auto transferred=clock?clock():0;
   target.setClipRect(cx,cy,cw,ch);
+  return {true,cleared>=started?cleared-started:0,transferred>=cleared?transferred-cleared:0};
 }
 }

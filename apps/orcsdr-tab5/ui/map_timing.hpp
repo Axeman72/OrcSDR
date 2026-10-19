@@ -41,9 +41,11 @@ class UpdateTiming {
 // feedback starts at draw's request acceptance, not at physical touch sampling.
 class PreviewTiming {
  public:
-  void present(uint32_t request,uint64_t requested,uint64_t started,uint64_t finished) {
+  void present(uint32_t request,uint64_t requested,uint64_t started,uint64_t finished,
+      uint64_t clear_us=0,uint64_t transfer_us=0) {
     if((have_request_&&request==request_)||finished<started||started<requested)return;
     paint_.duration(finished-started);
+    clear_.duration(clear_us);transfer_.duration(transfer_us);
     feedback_.duration(finished-requested);
     intervals_.present(finished,request);
     request_=request;have_request_=true;
@@ -51,8 +53,10 @@ class PreviewTiming {
   UpdateTiming::Summary paint() const {return paint_.summary();}
   UpdateTiming::Summary feedback() const {return feedback_.summary();}
   UpdateTiming::Summary intervals() const {return intervals_.summary();}
+  UpdateTiming::Summary clear() const {return clear_.summary();}
+  UpdateTiming::Summary transfer() const {return transfer_.summary();}
  private:
-  UpdateTiming paint_,feedback_,intervals_;
+  UpdateTiming paint_,feedback_,intervals_,clear_,transfer_;
   uint32_t request_=0;
   bool have_request_=false;
 };

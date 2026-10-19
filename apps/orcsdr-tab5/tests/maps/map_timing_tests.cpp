@@ -2,7 +2,7 @@
 #include <cassert>
 #include <cstdint>
 int main() {
-  static_assert(2*sizeof(orcsdr::maps::PreviewTiming)<=13*1024,"Bound the two PSRAM timing pools");
+  static_assert(2*sizeof(orcsdr::maps::PreviewTiming)<=21*1024,"Bound ten 256-sample PSRAM rings plus metadata");
   orcsdr::maps::UpdateTiming timing;
   assert(timing.summary().count==0);
   timing.present(100,1);timing.present(200,1); // Repainting one frame is not a new update.
@@ -18,8 +18,10 @@ int main() {
   assert(summary.count==256&&summary.p50_us==10&&summary.p95_us==10&&summary.max_us==10);
 
   orcsdr::maps::PreviewTiming preview;
-  preview.present(1,100,110,140);
-  preview.present(1,100,150,190); // A duplicate repaint is not new camera feedback.
+  preview.present(1,100,110,140,5,20);
+  preview.present(1,100,150,190,30,35); // A duplicate repaint is not new camera feedback.
+  assert(preview.clear().count==1&&preview.clear().max_us==5);
+  assert(preview.transfer().count==1&&preview.transfer().max_us==20);
   assert(preview.paint().count==1&&preview.paint().max_us==30);
   assert(preview.feedback().count==1&&preview.feedback().max_us==40);
   assert(preview.intervals().count==0);
@@ -34,10 +36,12 @@ int main() {
   assert(preview.feedback().count==3);
   preview.present(4,300,305,340);
   assert(preview.paint().count==4&&preview.intervals().max_us==110);
-  for(uint32_t i=5;i<305;++i)preview.present(i,i*100,i*100+5,i*100+25);
+  for(uint32_t i=5;i<305;++i)preview.present(i,i*100,i*100+5,i*100+25,2,15);
   assert(preview.paint().count==256&&preview.paint().max_us==20);
   assert(preview.feedback().count==256&&preview.feedback().max_us==25);
   assert(preview.intervals().count==256&&preview.intervals().max_us==100);
+  assert(preview.clear().count==256&&preview.clear().max_us==2);
+  assert(preview.transfer().count==256&&preview.transfer().max_us==15);
 
   orcsdr::maps::PreviewTiming percentiles;
   for(uint32_t i=1;i<=20;++i)percentiles.present(i,i*100,i*100,i*100+i);

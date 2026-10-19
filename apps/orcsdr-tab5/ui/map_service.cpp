@@ -51,6 +51,8 @@ std::atomic<uint32_t> g_preview_lifetime{0};
 std::atomic<size_t> g_preview_bytes{0};
 EXT_RAM_BSS_ATTR orcmap::LabelLayout g_labels;
 EXT_RAM_BSS_ATTR UpdateTiming g_update_timing;
+// Ten bounded 256-sample rings, under 21 KiB including metadata; stage rings
+// add about 8 KiB of PSRAM and no internal/DMA allocation.
 EXT_RAM_BSS_ATTR PreviewTiming g_preview_pan_timing,g_preview_zoom_timing;
 std::atomic<uint32_t> g_preview_lock_misses{0};
 std::unique_ptr<orcmap::ByteSource> g_source;
@@ -104,10 +106,11 @@ void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y
   if(prepare_preview(source.view,request.view,source.preferred,request.preferred,
       source.lifetime,g_preview_lifetime.load(),g_preview_valid,&transform)) {
     const auto started=static_cast<uint64_t>(esp_timer_get_time());
-    paint_preview(g_preview,target,transform,x,y,request.view.width_px,request.view.height_px);
+    const auto paint=paint_preview(g_preview,target,transform,x,y,request.view.width_px,request.view.height_px,
+        +[]()->uint64_t{return static_cast<uint64_t>(esp_timer_get_time());});
     auto& timing=transform.scale==1?g_preview_pan_timing:g_preview_zoom_timing;
-    timing.present(request.serial,request.requested_us,started,
-        static_cast<uint64_t>(esp_timer_get_time()));
+    if(paint.painted)timing.present(request.serial,request.requested_us,started,
+        static_cast<uint64_t>(esp_timer_get_time()),paint.clear_us,paint.transfer_us);
   }
   xSemaphoreGive(g_preview_lock);
 }
@@ -358,13 +361,17 @@ void report(void (*write)(const char*)) {
     const auto pan_paint=g_preview_pan_timing.paint(),zoom_paint=g_preview_zoom_timing.paint();
     const auto pan_feedback=g_preview_pan_timing.feedback(),zoom_feedback=g_preview_zoom_timing.feedback();
     const auto pan_intervals=g_preview_pan_timing.intervals(),zoom_intervals=g_preview_zoom_timing.intervals();
+    const auto pan_clear=g_preview_pan_timing.clear(),zoom_clear=g_preview_zoom_timing.clear();
+    const auto pan_transfer=g_preview_pan_timing.transfer(),zoom_transfer=g_preview_zoom_timing.transfer();
     xSemaphoreGive(g_preview_lock);
     for(int mode=0;mode<2;++mode) {
-      for(int metric=0;metric<3;++metric) {
+      for(int metric=0;metric<5;++metric) {
         const auto& timing=metric==0?(mode==0?pan_paint:zoom_paint):
-            metric==1?(mode==0?pan_feedback:zoom_feedback):(mode==0?pan_intervals:zoom_intervals);
+            metric==1?(mode==0?pan_feedback:zoom_feedback):metric==2?(mode==0?pan_intervals:zoom_intervals):
+            metric==3?(mode==0?pan_clear:zoom_clear):(mode==0?pan_transfer:zoom_transfer);
         std::snprintf(line,sizeof(line),"ORC_MAP_PREVIEW mode=%s metric=%s samples=%u p50_us=%llu p95_us=%llu max_us=%llu lock_misses=%lu raw_includes_dwell=%u physical_touch_latency=0\n",
-            mode==0?"same_scale":"scaled",metric==0?"paint_call":metric==1?"request_feedback":"present_interval",
+            mode==0?"same_scale":"scaled",metric==0?"paint_call":metric==1?"request_feedback":
+                metric==2?"present_interval":metric==3?"clear_call":"transfer_call",
             static_cast<unsigned>(timing.count),static_cast<unsigned long long>(timing.p50_us),
             static_cast<unsigned long long>(timing.p95_us),static_cast<unsigned long long>(timing.max_us),
             static_cast<unsigned long>(g_preview_lock_misses.load()),metric==2?1u:0u);
