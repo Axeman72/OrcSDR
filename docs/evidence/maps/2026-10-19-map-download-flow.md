@@ -1,4 +1,4 @@
-# Map catalog/download UI and worker connection — 2026-10-19
+# Map catalog/download UI and worker connection â€” 2026-10-19
 
 ## Scope and behavior
 
@@ -34,7 +34,8 @@ intent makes a cut immediately after archive publication recoverable offline.
 
 Invocation directory: F:/AI/OrcSDR-TEMP/maps-integration-completion.
 
-- `cmake --build .local/maps/catalog-security-20261019 --config Debug --target map_transfer_test map_catalog_fetch_test map_download_actions_test`
+- `cmake --build .local/maps/catalog-security-20261019 --config Debug --target map_transfer_test map_catalog_fetch_test`
+- `cmake --build .local/maps/catalog-security-20261019 --config Debug --target map_download_actions_test`
 - `ctest --test-dir .local/maps/catalog-security-20261019 -C Debug -R '^map_(transfer|download_actions|catalog_fetch|delivery_state|delivery_nvs)$' --output-on-failure`: **5/5 PASS**.
 - `python apps/orcsdr-tab5/tests/maps/catalog_security/catalog_config_test.py`: **6/6 PASS**, default offline, configured public source, paired inputs, unsafe URL and private/oversized key rejection.
 - `python .local/maps/check_map_transfer_syntax_20261019.py map_catalog_fetch.cpp map_downloads.cpp map_install.cpp map_activation.cpp map_service.cpp map_screen.cpp`: **6/6 PASS**, actual P4 SDK flags/headers.
