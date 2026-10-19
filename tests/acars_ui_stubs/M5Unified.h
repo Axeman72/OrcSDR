@@ -77,6 +77,8 @@ class LovyanGFX {
   }
   void fillRect(int x, int y, int w, int h, uint16_t c) { add(Prim::fill, x, y, w, h, c); }
   void fillRoundRect(int x, int y, int w, int h, int, uint16_t c) { add(Prim::fill, x, y, w, h, c); }
+  void drawPixel(int x, int y, uint16_t c) { add(Prim::fill, x, y, 1, 1, c); }
+  void pushImage(int x, int y, int w, int h, const uint16_t*) { add(Prim::fill, x, y, w, h); }
   void drawRoundRect(int x, int y, int w, int h, int, uint16_t) { add(Prim::outline, x, y, w, h); }
   void drawFastHLine(int x, int y, int w, uint16_t) { add(Prim::line, x, y, w, 1); }
   void drawFastVLine(int x, int y, int h, uint16_t) { add(Prim::line, x, y, 1, h); }

@@ -77,6 +77,30 @@ int main() {
   assert(mode.kind == da::ActionKind::set_demod && mode.value == 1);
   assert(da::handle_touch(200, 470, 2340).kind == da::ActionKind::tune_up);
   assert(da::handle_touch(60, 470, 2350).kind == da::ActionKind::tune_down);
+  // A measured spectrum draws the ectoplasm trace, waterfall and legend inside the Spectrum panel; a retune, a new
+  // frame and a loss of the receiver all stay in bounds and never draw a trace without valid data.
+  for (size_t i = 0; i < da::kBins; ++i) snap.spectrum_dbfs[i] = -100.0f + static_cast<float>(i % 40);
+  snap.spectrum_valid = true;
+  snap.spectrum_seq = 1;
+  snap.revision = 20;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("-110") && displayed("-10 dBFS") && !displayed("NO LIVE SPECTRUM"));
+  validate_bounds();
+  snap.spectrum_seq = 2;
+  snap.frequency_hz = 98900000;
+  snap.revision = 21;
+  da::update(snap);
+  validate_bounds();
+  snap.spectrum_valid = false;
+  snap.revision = 22;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("NO LIVE SPECTRUM"));
+  validate_bounds();
+  snap.spectrum_valid = true;
+  snap.revision = 23;
+  da::update(snap);
   // Sweep controls: start/stop, preset and dwell are real actions; tuning and mode buttons yield while it runs.
   assert(da::handle_touch(366 + 20, 530 + 20, 2360).kind == da::ActionKind::start_scan);
   assert(da::handle_touch(606 + 20, 530 + 20, 2361).kind == da::ActionKind::sweep_preset);

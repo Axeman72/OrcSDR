@@ -10,6 +10,7 @@
 #include <utility>
 #include "acars_dirty_rects.hpp"
 #include "dead_air_sweep.hpp"
+#include "dead_air_palette.hpp"
 
 namespace orcsdr::dead_air {
 namespace {
@@ -41,6 +42,9 @@ struct Gfx {
   void drawRoundRect(int x, int y, int w, int h, int r, uint16_t c) { d().drawRoundRect(x, y - oy, w, h, r, c); }
   void drawFastHLine(int x, int y, int w, uint16_t c) { d().drawFastHLine(x, y - oy, w, c); }
   void drawLine(int x0, int y0, int x1, int y1, uint16_t c) { d().drawLine(x0, y0 - oy, x1, y1 - oy, c); }
+  void fillRect(int x, int y, int w, int h, uint16_t c) { d().fillRect(x, y - oy, w, h, c); }
+  void drawFastVLine(int x, int y, int h, uint16_t c) { d().drawFastVLine(x, y - oy, h, c); }
+  void pushImage(int x, int y, int w, int h, const uint16_t* p) { d().pushImage(x, y - oy, w, h, p); }
 };
 Gfx g;
 // Two sprites, as in the ACARS dashboard: a frame is composed in g_canvas and compared with g_front (what the
@@ -91,6 +95,137 @@ void box(int x, int y, int w, int h, uint16_t border = kEdge) {
 }
 void heading(const char* text, int x, int y) { label(text, x, y, kCyan, 2); }
 void divider(int x, int y, int width) { g.drawFastHLine(x, y, width, kEdge); }
+// ---- Ectoplasm spectrum and waterfall --------------------------------------------------------------------------
+// Colour is only a map over measured data (see dead_air_palette.hpp). The waterfall is a wrapping buffer: each new
+// spectrum frame overwrites the oldest row and a bright head line marks the write position, so only one row changes
+// per frame. That keeps the push small on the rotated panel, where scrolling a whole image would be too slow.
+constexpr int kPlotX = 373, kPlotY = 166, kPlotW = 862, kPlotH = 130;
+constexpr int kWfX = 373, kWfY = 306, kWfW = 862, kWfH = 150;
+constexpr int kLegendY = 464;
+constexpr float kTrailDecayDb = 1.5f;  // per spectrum frame
+struct Viz {
+  uint16_t lut[viz::kLutSize];
+  uint16_t* image = nullptr;  // kWfW x kWfH, byte-swapped RGB565 (the panel's pushImage order)
+  viz::Trail trail;
+  int head = 0;
+  bool have_frame = false;
+  bool last_valid = false;
+  uint32_t last_seq = 0, last_freq = 0;
+};
+Viz* g_viz = nullptr;
+uint16_t swap16(uint16_t c) { return static_cast<uint16_t>((c >> 8) | (c << 8)); }
+
+void viz_alloc() {
+  if (g_viz) return;
+  g_viz = new (std::nothrow) Viz();
+  if (!g_viz) return;
+  viz::build_lut(g_viz->lut);
+  g_viz->image = new (std::nothrow) uint16_t[static_cast<size_t>(kWfW) * kWfH];
+  if (g_viz->image) {
+    const uint16_t dark = swap16(g_viz->lut[0]);
+    for (size_t i = 0; i < static_cast<size_t>(kWfW) * kWfH; ++i) g_viz->image[i] = dark;
+  }
+}
+void viz_release() {
+  if (!g_viz) return;
+  delete[] g_viz->image;
+  delete g_viz;
+  g_viz = nullptr;
+}
+void viz_write_row(const float* bins) {
+  uint16_t* row = g_viz->image + static_cast<size_t>(g_viz->head) * kWfW;
+  if (bins) viz::render_row(bins, kBins, g_viz->lut, row, kWfW);
+  else viz::render_gap_row(row, kWfW);
+  for (int x = 0; x < kWfW; ++x) row[x] = swap16(row[x]);
+  g_viz->head = (g_viz->head + 1) % kWfH;
+}
+// Called once per snapshot. Rows are only written from a real, settled spectrum frame; a retune (including every sweep
+// hop) or a break in valid data leaves a marker row so the picture never implies continuity that did not exist.
+void viz_feed(const Snapshot& s) {
+  if (!g_viz || !g_viz->image) return;
+  const bool valid = s.receiver_ready && s.spectrum_valid;
+  if (!valid) { g_viz->last_valid = false; return; }
+  if (g_viz->have_frame && (!g_viz->last_valid || s.frequency_hz != g_viz->last_freq)) {
+    viz_write_row(nullptr);
+    g_viz->trail.reset();
+  }
+  g_viz->last_valid = true;
+  g_viz->last_freq = s.frequency_hz;
+  if (!g_viz->have_frame || s.spectrum_seq != g_viz->last_seq) {
+    viz_write_row(s.spectrum_dbfs);
+    g_viz->trail.update(s.spectrum_dbfs, kBins, kTrailDecayDb);
+    g_viz->last_seq = s.spectrum_seq;
+    g_viz->have_frame = true;
+  }
+}
+
+int level_y(float dbfs, int top, int height) {
+  return top + height - 1 - static_cast<int>(viz::normalize(dbfs) * static_cast<float>(height - 2));
+}
+void draw_trace() {
+  const uint16_t bg = viz::rgb565(6, 3, 18), grid = viz::rgb565(34, 18, 66);
+  g.fillRect(kPlotX, kPlotY, kPlotW, kPlotH, bg);
+  for (int db = -20; db >= -100; db -= 20) {
+    g.drawFastHLine(kPlotX, level_y(static_cast<float>(db), kPlotY, kPlotH), kPlotW, grid);
+  }
+  const bool live = g_snapshot->receiver_ready && g_snapshot->spectrum_valid;
+  if (live && g_viz) {
+    const uint16_t* lut = g_viz->lut;
+    if (g_viz->trail.valid()) {  // fading afterimage (peak hold), behind the live trace
+      float trail_bins[viz::Trail::kMax];
+      const size_t n = std::min<size_t>(g_viz->trail.count(), viz::Trail::kMax);
+      for (size_t i = 0; i < n; ++i) trail_bins[i] = g_viz->trail.at(i);
+      for (int x = 0; x < kPlotW; ++x) {
+        const float v = viz::interpolate_bins(trail_bins, n, x, kPlotW);
+        g.drawFastVLine(kPlotX + x, level_y(v, kPlotY, kPlotH), 1, viz::color_at(lut, v - 8.0f));
+      }
+    }
+    for (int x = 0; x < kPlotW; ++x) {
+      const float v = viz::interpolate_bins(g_snapshot->spectrum_dbfs, kBins, x, kPlotW);
+      const float t = viz::normalize(v);
+      const int top = level_y(v, kPlotY, kPlotH), bottom = kPlotY + kPlotH - 1;
+      const int px = kPlotX + x;
+      // Body: darker toward the base, brighter with level (the same palette, so colour still means level).
+      if (bottom >= top + 4) g.drawFastVLine(px, top + 4, bottom - (top + 4) + 1, lut[static_cast<int>(t * 70.0f)]);
+      g.drawFastVLine(px, top + 1, 3, lut[static_cast<int>(t * 150.0f)]);
+      g.drawFastVLine(px, top, 1, lut[std::min(255, 190 + static_cast<int>(t * 65.0f))]);  // bright edge
+      if (top > kPlotY) g.drawFastVLine(px, top - 1, 1, lut[static_cast<int>(t * 110.0f)]);   // soft halo
+    }
+  } else {
+    label("NO LIVE SPECTRUM", kPlotX + 16, kPlotY + kPlotH / 2, kMuted, 2);
+  }
+  g.drawRoundRect(kPlotX, kPlotY, kPlotW, kPlotH, 0, grid);
+  label("-20", kPlotX + 6, level_y(-20.0f, kPlotY, kPlotH) + 10, kMuted, 2);
+  label("-60", kPlotX + 6, level_y(-60.0f, kPlotY, kPlotH) + 10, kMuted, 2);
+  label("-100", kPlotX + 6, level_y(-100.0f, kPlotY, kPlotH) - 10, kMuted, 2);
+}
+void draw_waterfall() {
+  const uint16_t edge = viz::rgb565(34, 18, 66);
+  if (!g_viz || !g_viz->image) {
+    g.fillRect(kWfX, kWfY, kWfW, kWfH, viz::rgb565(6, 3, 18));
+    label("WATERFALL UNAVAILABLE (MEMORY)", kWfX + 16, kWfY + kWfH / 2, kYellow, 2);
+  } else {
+    g.pushImage(kWfX, kWfY, kWfW, kWfH, g_viz->image);
+    // Head line = next row to be overwritten; the rows just above it are the newest.
+    g.drawFastHLine(kWfX, kWfY + g_viz->head, kWfW, viz::rgb565(220, 235, 255));
+    if (!g_viz->have_frame) label("WAITING FOR A MEASURED SPECTRUM", kWfX + 16, kWfY + kWfH / 2, kMuted, 2);
+  }
+  g.drawRoundRect(kWfX, kWfY, kWfW, kWfH, 0, edge);
+}
+void draw_legend() {
+  if (g_viz) {
+    for (int x = 0; x < kWfW; ++x)
+      g.drawFastVLine(kWfX + x, kLegendY, 10, g_viz->lut[x * (viz::kLutSize - 1) / (kWfW - 1)]);
+  }
+  static const char* const kTicks[] = {"-110", "-85", "-60", "-35", "-10 dBFS"};
+  for (int i = 0; i < 5; ++i) {
+    const int len = static_cast<int>(std::strlen(kTicks[i]));
+    int x = kWfX + i * (kWfW - 1) / 4 - len * 6;
+    x = std::max(kWfX, std::min(x, kWfX + kWfW - len * 12));
+    label(kTicks[i], x, 489, kMuted, 2);
+  }
+}
+
 void button(const char* text, int x, int y, int w, uint16_t accent, bool enabled) {
   box(x, y, w, 52, enabled ? accent : kEdge);
   label(text, x + 16, y + 26, enabled ? TFT_WHITE : kMuted);
@@ -248,9 +383,9 @@ void spectrum() {
   box(346, 120, 914, 511);
   heading("RF SPECTRUM  /  dBFS", 366, 144);
   if (g_snapshot->receiver_ready) label(hz, 986, 144, kGreen, 2);
-  plot(g_snapshot->spectrum_dbfs, kBins,
-       g_snapshot->receiver_ready && g_snapshot->spectrum_valid,
-       373, 177, 862, 292, -120.0f, 0.0f, kGreen);
+  draw_trace();
+  draw_waterfall();
+  draw_legend();
   heading("SWEEP  /  GENERATED SCHEDULE", 366, 509);
   const bool ready = g_snapshot->receiver_ready;
   const bool run = g_snapshot->sweeping;
@@ -419,6 +554,8 @@ void enter(const Snapshot& snapshot) {
   sanitize_snapshot();
   g_page = Page::overview;
   g_active = true;
+  viz_alloc();
+  viz_feed(*g_snapshot);
   chrome();
   draw_body(true);
 }
@@ -429,6 +566,7 @@ void update(const Snapshot& snapshot) {
   const bool sound = g_snapshot->sound_enabled;
   *g_snapshot = snapshot;
   sanitize_snapshot();
+  viz_feed(*g_snapshot);
   if (sound != snapshot.sound_enabled) audio_header::draw_mute_button(snapshot.sound_enabled);
   if (battery != snapshot.battery_percent) audio_header::draw_battery(snapshot.battery_percent);
   draw_body();
@@ -436,6 +574,7 @@ void update(const Snapshot& snapshot) {
 void leave() {
   g_active = false;
   release_canvas();
+  viz_release();
 }
 bool active() { return g_active; }
 Page page() { return g_page; }

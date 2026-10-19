@@ -76,6 +76,7 @@ struct Snapshot {
   uint32_t recorder_dropped = 0;  // queue-full drops counted at the producer
   bool receiver_settled = false;  // false while a retune or gain change settles
   // Generated sweep profile (a tuning schedule on one tuner; never simultaneous coverage).
+  uint32_t spectrum_seq = 0;  // increments once per measured spectrum frame (the waterfall adds one row per frame)
   bool sweeping = false;
   uint8_t sweep_preset = 0;
   uint16_t sweep_dwell_ms = 0;

@@ -54,6 +54,7 @@ struct State {
   float spectrum[kBins]{};
   uint32_t spectrum_ms = 0;
   bool spectrum_have = false;
+  uint32_t spectrum_seq = 0;
   uint32_t opened_ms = 0;
   uint32_t last_observe_ms = 0, last_snapshot_ms = 0, settle_until_ms = 0;
   uint32_t last_signature = 0, config_revision = 0, last_counter = 0;
@@ -226,6 +227,7 @@ void build_snapshot(uint32_t now) {
   n.rf_level_dbfs = rf;
   const bool spectrum_ok = ready && n.receiver_settled && s.spectrum_have && now - s.spectrum_ms < kSpectrumFreshMs;
   n.spectrum_valid = spectrum_ok;
+  n.spectrum_seq = s.spectrum_seq;
   if (spectrum_ok) std::memcpy(n.spectrum_dbfs, s.spectrum, sizeof(n.spectrum_dbfs));
   n.sweeping = s.sweep.running();
   n.sweep_preset = s.sweep_preset;
@@ -428,6 +430,7 @@ void feed_spectrum(const float* levels, size_t bins, uint32_t sample_rate_sps) {
   }
   s.spectrum_ms = millis();
   s.spectrum_have = true;
+  ++s.spectrum_seq;
 }
 
 void describe(char* out, size_t size) {

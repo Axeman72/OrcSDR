@@ -9,6 +9,7 @@ on:
       - 'tests/dead_air_render_tests.cpp'
       - 'tests/dead_air_sd_sink_tests.cpp'
       - 'tests/dead_air_sweep_tests.cpp'
+      - 'tests/dead_air_palette_tests.cpp'
       - 'tests/dead_air_journal_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
   pull_request:
@@ -18,6 +19,7 @@ on:
       - 'tests/dead_air_render_tests.cpp'
       - 'tests/dead_air_sd_sink_tests.cpp'
       - 'tests/dead_air_sweep_tests.cpp'
+      - 'tests/dead_air_palette_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
 permissions:
   contents: read
@@ -54,6 +56,7 @@ jobs:
             tests/dead_air_ui_stubs/audio_header_stub.cpp \
             apps/orcsdr-tab5/ui/dead_air_dashboard.cpp \
             apps/orcsdr-tab5/ui/dead_air_sweep.cpp \
+            apps/orcsdr-tab5/ui/dead_air_palette.cpp \
             apps/orcsdr-tab5/ui/acars_dirty_rects.cpp \
             apps/orcsdr-tab5/ui/dead_air_model.cpp \
             apps/orcsdr-tab5/ui/screen_controller.cpp \
@@ -82,3 +85,12 @@ jobs:
             -o /tmp/dead-air-sweep-tests
       - name: Execute sweep schedule tests
         run: /tmp/dead-air-sweep-tests
+      - name: Compile ectoplasm palette with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_palette_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_palette.cpp \
+            -o /tmp/dead-air-palette-tests
+      - name: Execute palette tests
+        run: /tmp/dead-air-palette-tests
