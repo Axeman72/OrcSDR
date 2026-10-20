@@ -12,6 +12,7 @@
 #include <cstring>
 #include <new>
 
+#include "dead_air_audio.hpp"
 #include "dead_air_dashboard.hpp"
 #include "dead_air_journal.hpp"
 #include "dead_air_model.hpp"
@@ -44,6 +45,14 @@ struct Worker {
   TaskHandle_t task = nullptr;
 };
 
+// Level buckets from the DSP thread (single producer) to the UI task (single consumer).
+struct AudioRing {
+  static constexpr uint32_t kSize = 128;
+  AudioBucket slots[kSize];
+  std::atomic<uint32_t> head{0};
+  AudioMeter meter;  // touched by the DSP thread only
+};
+
 struct State {
   EventModel model;
   EventQueue queue;
@@ -63,6 +72,17 @@ struct State {
   float last_level = 0.0f;
   bool last_level_valid = false;
   uint32_t last_total = 0;
+  AudioRing audio;
+  AudioDetector audio_detector;
+  uint32_t audio_tail = 0;
+  float audio_env[kBins]{};
+  size_t audio_env_count = 0;
+  float audio_rms = kAudioSilenceDbfs, audio_peak = kAudioSilenceDbfs;
+  uint32_t last_audio_ms = 0;
+  bool audio_flowing = false;
+  Page last_page = Page::overview;
+  Snapshot pushed;  // what the dashboard was last given; refresh decisions compare against this
+  uint32_t last_level_refresh_ms = 0;
   Sweep sweep;
   uint8_t sweep_preset = 0;
   uint16_t sweep_dwell_ms = 500;
@@ -71,6 +91,8 @@ struct State {
 Hooks g_hooks;
 State* g_state = nullptr;
 bool g_open = false;
+std::atomic<AudioRing*> g_ring{nullptr};
+std::atomic<bool> g_audio_wanted{false};
 uint8_t g_last_action = 0;     // diagnostic: last touch action kind seen by the app
 uint32_t g_touches = 0;
 
@@ -212,9 +234,21 @@ void build_snapshot(uint32_t now) {
   n.session_elapsed_s = (now - s.opened_ms) / 1000u;
   n.recording = false;     // audio/IQ recording is not implemented
   n.scanning = false;      // no sweep exists; one tuned channel
-  n.audio_available = false;  // no demodulated-audio level source is connected yet
+  // Audio is only available while demodulated audio is actually flowing (speaker on, or the Audio tab open).
+  n.audio_available = s.audio_flowing;
   n.audio_level_dbfs = {};
-  n.audio_envelope_valid = false;
+  n.audio_envelope_valid = s.audio_flowing && s.audio_env_count >= 2;
+  if (s.audio_flowing) {
+    n.audio_level_dbfs.present = true;
+    n.audio_level_dbfs.valid = true;
+    n.audio_level_dbfs.value = s.audio_rms;
+    n.audio_level_dbfs.baseline_valid = s.audio_detector.baseline_ready();
+    n.audio_level_dbfs.baseline = s.audio_detector.baseline();
+  }
+  n.audio_peak_dbfs = s.audio_peak;
+  n.audio_baseline_ready = s.audio_detector.baseline_ready();
+  n.audio_baseline_dbfs = s.audio_detector.baseline();
+  std::memcpy(n.audio_envelope, s.audio_env, sizeof(n.audio_envelope));
   // ENV III is not connected: leave the optional sensor absent. Nothing is simulated.
   n.environment_sensor_attached = false;
   n.temperature_c = n.humidity_rh = n.pressure_hpa = n.motion_g = {};
@@ -242,20 +276,27 @@ void build_snapshot(uint32_t now) {
   n.recorder_dropped = s.queue.dropped();
 }
 
-// Quantised comparison so a flickering last digit does not repaint the whole panel.
+// Structural changes that need the page recomposed.
 bool visibly_changed(const Snapshot& a, const Snapshot& b) {
-  const auto q = [](float v) { return static_cast<int>(std::lround(v * 2.0f)); };
   return a.receiver_ready != b.receiver_ready || a.receiver_settled != b.receiver_settled ||
          a.frequency_hz != b.frequency_hz || a.sound_enabled != b.sound_enabled ||
-         a.battery_percent != b.battery_percent || (a.session_elapsed_s != b.session_elapsed_s && dead_air::page() == Page::overview) ||
+         a.battery_percent != b.battery_percent ||
+         (a.session_elapsed_s != b.session_elapsed_s && dead_air::page() == Page::overview) ||
          a.recorder_state != b.recorder_state || a.recorder_saved != b.recorder_saved ||
          a.recorder_missing != b.recorder_missing || a.recorder_dropped != b.recorder_dropped ||
          a.recorder_session != b.recorder_session || a.rf_level_dbfs.valid != b.rf_level_dbfs.valid ||
-         q(a.rf_level_dbfs.value) != q(b.rf_level_dbfs.value) ||
          a.rf_level_dbfs.baseline_valid != b.rf_level_dbfs.baseline_valid ||
+         a.audio_available != b.audio_available ||
          a.sweeping != b.sweeping || a.sweep_hops != b.sweep_hops || a.sweep_preset != b.sweep_preset ||
          a.sweep_dwell_ms != b.sweep_dwell_ms ||
          a.spectrum_valid != b.spectrum_valid || std::strcmp(a.demod, b.demod) != 0;
+}
+
+// Numeric readings shown only on the Overview; they change constantly, so they refresh at most twice a second.
+bool levels_moved(const Snapshot& a, const Snapshot& b) {
+  if (dead_air::page() != Page::overview) return false;
+  const auto q = [](float v) { return static_cast<int>(std::lround(v * 0.5f)); };  // 2 dB steps
+  return q(a.rf_level_dbfs.value) != q(b.rf_level_dbfs.value) || q(a.audio_level_dbfs.value) != q(b.audio_level_dbfs.value);
 }
 
 }  // namespace
@@ -277,20 +318,32 @@ void open() {
   s.spectrum_have = false;
   s.last_total = 0;
   s.snapshot = Snapshot();
+  s.audio.meter.configure(48000);
+  s.audio.head.store(0, std::memory_order_relaxed);
+  s.audio_tail = 0;
+  s.audio_detector.reset();
+  s.audio_env_count = 0;
+  s.audio_flowing = false;
+  s.last_audio_ms = 0;
+  s.last_level_refresh_ms = 0;
   (void)start_worker();
   if (g_hooks.set_demod) g_hooks.set_demod(0);  // NFM, the browse band's own demodulator
   build_snapshot(now);
   s.snapshot.revision = 1;
+  s.pushed = s.snapshot;
   screens::begin_transition(screens::Id::dead_air, now);
   dead_air::attach_events(&s.model);
   dead_air::enter(s.snapshot);
   screens::finish_transition();
+  g_ring.store(&s.audio, std::memory_order_release);  // the DSP thread may now offer audio
   g_open = true;
 }
 
 void close() {
   if (!g_open || !g_state) return;
   g_open = false;
+  g_ring.store(nullptr, std::memory_order_release);
+  g_audio_wanted.store(false, std::memory_order_relaxed);
   stop_sweep(*g_state, millis());  // logs the stop and puts the receiver back before the journal closes
   dead_air::leave();
   g_state->model.set_listener(nullptr, nullptr);
@@ -347,17 +400,80 @@ void tick() {
     else s.last_level_valid = false;
     s.model.observe_rf(obs);
   }
+  // Audio level buckets from the DSP thread: update the envelope and run the activity detector.
+  bool audio_changed = false;
+  const bool on_audio_tab = screens::owns(screens::Id::dead_air) && dead_air::page() == Page::audio;
+  g_audio_wanted.store(on_audio_tab, std::memory_order_relaxed);
+  if (dead_air::page() != s.last_page) {
+    s.last_page = dead_air::page();
+    if (on_audio_tab) audio_changed = true;  // paint the live part of the tab right after it opens
+  }
+  {
+    const uint32_t head = s.audio.head.load(std::memory_order_acquire);
+    if (head - s.audio_tail > AudioRing::kSize) {  // the UI fell behind: drop the oldest and restart the detector
+      s.audio_tail = head - AudioRing::kSize;
+      s.audio_detector.reset();
+    }
+    while (s.audio_tail != head) {
+      const AudioBucket b = s.audio.slots[s.audio_tail % AudioRing::kSize];
+      ++s.audio_tail;
+      s.audio_rms = b.rms_dbfs;
+      s.audio_peak = b.peak_dbfs;
+      s.last_audio_ms = now;
+      const float norm = std::clamp((b.peak_dbfs + 70.0f) / 70.0f, 0.0f, 1.0f);
+      std::memmove(s.audio_env, s.audio_env + 1, (kBins - 1) * sizeof(float));
+      s.audio_env[kBins - 1] = norm;
+      s.audio_env_count = std::min<size_t>(s.audio_env_count + 1, kBins);
+      audio_changed = true;
+      AudioFinding f;
+      // Not while a sweep is hopping: every hop is a different channel.
+      if (s.rx_settled && !s.sweep.running() &&
+          s.audio_detector.observe(b, now, s.config_revision, s.model.sensitivity(), &f)) {
+        Event e{};
+        e.monotonic_ms = now;
+        e.unix_time = g_hooks.utc_epoch ? g_hooks.utc_epoch() : 0;
+        e.frequency_hz = ready ? g_hooks.frequency_hz() : 0;
+        e.source = Source::audio;
+        e.kind = Kind::audio_burst;
+        e.value = f.rms_dbfs;
+        e.reference = f.baseline_dbfs;
+        e.threshold = f.threshold_db;
+        (void)s.model.append_measured(e);
+      } else if (!s.rx_settled || s.sweep.running()) {
+        s.audio_detector.reset();
+      }
+    }
+    const bool flowing = s.last_audio_ms != 0 && now - s.last_audio_ms < 500;
+    if (flowing != s.audio_flowing) {
+      s.audio_flowing = flowing;
+      audio_changed = true;
+      if (!flowing) s.audio_detector.reset();
+    }
+  }
+  if (on_audio_tab && audio_changed) {
+    AudioView v{};
+    v.envelope = s.audio_env;
+    v.count = kBins;
+    v.flowing = s.audio_flowing;
+    v.rms_dbfs = s.audio_rms;
+    v.peak_dbfs = s.audio_peak;
+    v.baseline_ready = s.audio_detector.baseline_ready();
+    v.baseline_dbfs = s.audio_detector.baseline();
+    (void)dead_air::draw_audio_frame(v, now);
+  }
   if (!screens::owns(screens::Id::dead_air)) return;
   if (now - s.last_snapshot_ms < 100) return;
-  Snapshot next = s.snapshot;
-  const uint32_t revision = next.revision;
+  const uint32_t revision = s.snapshot.revision;
   build_snapshot(now);
   const bool events_changed = s.model.total() != s.last_total;
-  const bool changed = visibly_changed(s.snapshot, next) || events_changed;
+  const bool slow_due = levels_moved(s.snapshot, s.pushed) && now - s.last_level_refresh_ms >= 500;
+  const bool changed = visibly_changed(s.snapshot, s.pushed) || events_changed || slow_due;
   if (changed) {
     s.last_total = s.model.total();
     s.snapshot.revision = revision + 1;
+    s.pushed = s.snapshot;
     s.last_snapshot_ms = now;
+    if (slow_due) s.last_level_refresh_ms = now;
     screens::note_visible_update(screens::Id::dead_air);
     dead_air::update(s.snapshot);
   } else {
@@ -414,6 +530,20 @@ void touch(int32_t x, int32_t y) {
   }
 }
 
+void offer_audio(const int16_t* pcm, size_t count) {
+  AudioRing* r = g_ring.load(std::memory_order_acquire);
+  if (!r || !pcm || count == 0) return;
+  AudioBucket out[4];
+  const size_t m = r->meter.feed(pcm, count, out, 4);
+  for (size_t i = 0; i < m; ++i) {
+    const uint32_t head = r->head.load(std::memory_order_relaxed);
+    r->slots[head % AudioRing::kSize] = out[i];
+    r->head.store(head + 1, std::memory_order_release);
+  }
+}
+
+bool wants_audio() { return g_audio_wanted.load(std::memory_order_relaxed); }
+
 bool wants_spectrum() {
   return active() && screens::owns(screens::Id::dead_air) && dead_air::page() == Page::spectrum;
 }
@@ -451,7 +581,7 @@ void describe(char* out, size_t size) {
   const Worker& w = g_state->worker;
   const PaintStats ps = dead_air::paint_stats();
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu audio=%d rms=%.1f peak=%.1f abase=%d",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
@@ -468,7 +598,9 @@ void describe(char* out, size_t size) {
                 static_cast<unsigned long>(ps.pixels), static_cast<unsigned long>(ps.rects),
                 static_cast<unsigned long>(ps.whole_pushes), static_cast<unsigned long>(ps.partial_pushes),
                 static_cast<unsigned long>(ps.frame_us), static_cast<unsigned long>(ps.frame_us_max),
-                static_cast<unsigned long>(ps.frames));
+                static_cast<unsigned long>(ps.frames),
+                g_state->audio_flowing ? 1 : 0, static_cast<double>(g_state->audio_rms), static_cast<double>(g_state->audio_peak),
+                g_state->audio_detector.baseline_ready() ? 1 : 0);
 }
 
 }  // namespace orcsdr::dead_air_app

@@ -126,6 +126,9 @@ struct Scope {
   uint32_t last_row_ms = 0, last_frame_ms = 0, last_epoch = 0;
   bool have_epoch = false;
   bool was_valid = false;
+  int16_t a_prev_half[kBins];  // audio envelope as last drawn (half height in pixels)
+  size_t a_prev_n = 0;
+  int a_state = -1;            // 0 = notice shown, 1 = live envelope drawn
 };
 Scope* g_scope = nullptr;
 PaintStats g_stats{};
@@ -374,19 +377,41 @@ void spectrum() {
     snprintf(info, sizeof(info), "One tuner, one channel at a time. Not simultaneous coverage.");
   label(info, 366, 608, run ? kYellow : kMuted, 2);
 }
+constexpr int kAuX = 42, kAuY = 171, kAuW = 1194, kAuH = 180;
+constexpr float kAudioFloorDb = -70.0f;  // envelope scale: -70..0 dBFS maps to 0..full half height
+
+int audio_half(float norm) {
+  const int max_half = kAuH / 2 - 3;
+  return static_cast<int>(std::clamp(norm, 0.0f, 1.0f) * static_cast<float>(max_half));
+}
+void draw_audio_grid(lgfx::LovyanGFX& d, int oy) {
+  const int cy = kAuY + kAuH / 2 - oy;
+  d.drawFastHLine(kAuX + 1, cy, kAuW - 2, plot_grid());
+  for (int db = -20; db >= -60; db -= 20) {
+    const int h = audio_half((static_cast<float>(db) - kAudioFloorDb) / -kAudioFloorDb);
+    d.drawFastHLine(kAuX + 1, cy - h, kAuW - 2, plot_grid());
+    d.drawFastHLine(kAuX + 1, cy + h, kAuW - 2, plot_grid());
+  }
+}
 void audio() {
   box(20, 120, 1240, 251);
-  heading("DEMODULATED AUDIO  /  NORMALIZED ENVELOPE", 40, 143);
-  plot(g_snapshot->audio_envelope, kBins, g_snapshot->audio_available &&
-       g_snapshot->audio_envelope_valid, 42, 171, 1194, 180, -1.0f, 1.0f, kCyan);
+  heading("DEMODULATED AUDIO  /  PEAK ENVELOPE", 40, 143);
+  label("0 = full scale", 900, 143, kMuted, 2);
+  g.fillRect(kAuX, kAuY, kAuW, kAuH, plot_bg());
+  draw_audio_grid(g.d(), g.oy);
+  g.drawRoundRect(kAuX, kAuY, kAuW, kAuH, 0, plot_grid());
+  label("-20", kAuX + 6, kAuY + kAuH / 2 - audio_half(50.0f / 70.0f) - 12, kMuted, 2);
+  label("-40", kAuX + 6, kAuY + kAuH / 2 - audio_half(30.0f / 70.0f) - 12, kMuted, 2);
   box(20, 388, 773, 243);
   heading("AUDIO ANALYSIS", 40, 415);
-  reading("LEVEL (dBFS)", g_snapshot->audio_level_dbfs, 40, 485, "%.1f");
-  label("No automatic speech claims", 40, 560, kMuted);
+  label("RMS LEVEL", 40, 470, kMuted);
+  label("PEAK", 40, 515, kMuted);
+  label("BASELINE", 40, 560, kMuted);
+  label("Level meter only. No speech claims.", 40, 606, kMuted, 2);
   box(809, 388, 451, 243);
   heading("SOURCE", 829, 415);
-  label(g_snapshot->receiver_ready ? g_snapshot->demod : "NO AUDIO SOURCE", 829, 482, TFT_WHITE, 2);
-  label("Clip replay: not implemented", 829, 551, kMuted, 2);
+  label(g_snapshot->receiver_ready ? g_snapshot->demod : "NO AUDIO SOURCE", 829, 462, TFT_WHITE, 3);
+  label("Clip replay: not implemented", 829, 606, kMuted, 2);
 }
 void environment() {
   box(20, 120, 610, 511);
@@ -598,6 +623,92 @@ bool draw_spectrum_frame(const float* dbfs, size_t count, uint32_t epoch, uint32
   return true;
 }
 
+void audio_text(int x, int y, int w, const char* text, uint16_t color) {
+  M5.Display.fillRect(x, y - 11, w, 22, kPanel);
+  M5.Display.setTextDatum(middle_left);
+  M5.Display.setTextSize(2);
+  M5.Display.setTextColor(color);
+  M5.Display.drawString(text, x, y);
+}
+
+bool draw_audio_frame(const AudioView& v, uint32_t now_ms) {
+  (void)now_ms;
+  if (!g_active || !g_scope || !g_snapshot) return false;
+  if (!screens::owns(screens::Id::dead_air) || g_page != Page::audio) return false;
+  const uint32_t t0 = now_us();
+  Scope& s = *g_scope;
+  const uint16_t bg = plot_bg();
+  const int cy = kAuY + kAuH / 2;
+  char text[48];
+  M5.Display.startWrite();
+  if (!v.flowing || !v.envelope || v.count < 2) {
+    if (s.a_state != 0) {  // one plain notice; no trace is invented
+      M5.Display.fillRect(kAuX + 1, kAuY + 1, kAuW - 2, kAuH - 2, bg);
+      draw_audio_grid(M5.Display, 0);
+      M5.Display.setTextDatum(middle_left);
+      M5.Display.setTextSize(2);
+      M5.Display.setTextColor(kYellow);
+      M5.Display.drawString("NO DEMODULATED AUDIO", kAuX + 20, cy - 14);
+      M5.Display.setTextColor(kMuted);
+      M5.Display.drawString("Receiver idle or between channels.", kAuX + 20, cy + 14);
+      audio_text(300, 470, 300, "--", kMuted);
+      audio_text(300, 515, 300, "--", kMuted);
+      audio_text(300, 560, 300, "--", kMuted);
+      audio_text(829, 515, 410, "AUDIO: NONE", kMuted);
+      s.a_state = 0;
+      s.a_prev_n = 0;
+    }
+    M5.Display.endWrite();
+    return true;
+  }
+  const size_t n = std::min(v.count, kBins);
+  const int x0 = kAuX + 1, w = kAuW - 2;
+  int16_t xs[kBins], hs[kBins];
+  for (size_t i = 0; i < n; ++i) {
+    xs[i] = static_cast<int16_t>(x0 + 3 + static_cast<int>(i) * (w - 7) / static_cast<int>(n - 1));
+    hs[i] = static_cast<int16_t>(audio_half(v.envelope[i]));
+  }
+  if (s.a_state == 1 && s.a_prev_n == n) {  // erase the last frame's bars and outline only
+    for (size_t i = 0; i < n; ++i) M5.Display.fillRect(xs[i] - 3, cy - s.a_prev_half[i] - 1, 7, 2 * s.a_prev_half[i] + 3, bg);
+    for (size_t i = 1; i < n; ++i) {
+      M5.Display.drawLine(xs[i - 1], cy - s.a_prev_half[i - 1], xs[i], cy - s.a_prev_half[i], bg);
+      M5.Display.drawLine(xs[i - 1], cy + s.a_prev_half[i - 1], xs[i], cy + s.a_prev_half[i], bg);
+    }
+  } else {
+    M5.Display.fillRect(x0, kAuY + 1, w, kAuH - 2, bg);
+  }
+  draw_audio_grid(M5.Display, 0);
+  const uint16_t* lut = s.lut;
+  for (size_t i = 0; i < n; ++i) {  // bars: dark violet body, colour rising with the measured level
+    const int h = hs[i];
+    const float t = std::clamp(v.envelope[i], 0.0f, 1.0f);
+    if (h > 0) M5.Display.fillRect(xs[i] - 2, cy - h, 5, 2 * h + 1, lut[static_cast<int>(t * 110.0f)]);
+  }
+  for (size_t i = 1; i < n; ++i) {
+    const float t = std::clamp(v.envelope[i], 0.0f, 1.0f);
+    const uint16_t core = lut[std::min(255, 150 + static_cast<int>(t * 105.0f))];
+    for (int sign = -1; sign <= 1; sign += 2)
+      M5.Display.drawLine(xs[i - 1], cy + sign * hs[i - 1], xs[i], cy + sign * hs[i], core);
+  }
+  for (size_t i = 0; i < n; ++i) s.a_prev_half[i] = hs[i];
+  s.a_prev_n = n;
+  s.a_state = 1;
+  std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.rms_dbfs));
+  audio_text(300, 470, 300, text, TFT_WHITE);
+  std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.peak_dbfs));
+  audio_text(300, 515, 300, text, TFT_WHITE);
+  if (v.baseline_ready) std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.baseline_dbfs));
+  else std::snprintf(text, sizeof(text), "WARMING UP");
+  audio_text(300, 560, 300, text, v.baseline_ready ? TFT_WHITE : kYellow);
+  audio_text(829, 515, 410, "AUDIO: FLOWING", kGreen);
+  M5.Display.endWrite();
+  const uint32_t us = now_us() - t0;
+  g_stats.frame_us = us;
+  g_stats.frame_us_max = std::max(g_stats.frame_us_max, us);
+  ++g_stats.frames;
+  return true;
+}
+
 void attach_events(EventModel* events) { g_events = events; }
 void enter(const Snapshot& snapshot) {
   if (!screens::is_active(screens::Id::dead_air)) return;
@@ -645,6 +756,7 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
       if (hit(x, y, kTabX + i * (kTabWidth + kTabGap), kTabY, kTabWidth, kTabHeight)) {
         if (g_page != static_cast<Page>(i)) {
           g_page = static_cast<Page>(i);
+          if (g_scope) { g_scope->a_state = -1; g_scope->a_prev_n = 0; g_scope->prev_n = 0; }
           nav(); draw_body(true);
         }
         return {};

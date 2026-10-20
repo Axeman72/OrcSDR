@@ -35,6 +35,19 @@ PaintStats paint_stats();
 // row. Returns false (drawing nothing) unless the Spectrum tab is the visible, owned screen.
 constexpr size_t kTracePoints = 216;
 bool draw_spectrum_frame(const float* dbfs, size_t count, uint32_t epoch, uint32_t now_ms);
+
+// Live audio level view for the Audio tab, drawn straight onto the panel like the spectrum. `envelope` holds `count`
+// peak levels normalised 0..1 over -70..0 dBFS (oldest first). All levels are measured, never synthesised; with
+// `flowing` false nothing is drawn but a plain "not demodulating" notice. Returns false off the Audio tab.
+struct AudioView {
+  const float* envelope = nullptr;
+  size_t count = 0;
+  bool flowing = false;
+  float rms_dbfs = -100.0f, peak_dbfs = -100.0f;
+  bool baseline_ready = false;
+  float baseline_dbfs = 0.0f;
+};
+bool draw_audio_frame(const AudioView& view, uint32_t now_ms);
 Page page();
 Action handle_touch(int32_t x, int32_t y, uint32_t now_ms);
 bool self_check();

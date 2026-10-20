@@ -7896,6 +7896,7 @@ void queue_audio_samples(int16_t* audio, size_t audio_count) {
   orcsdr::sstv::offer_audio_48k(audio, audio_count);
   orcsdr::web_audio::note_generated(audio_count);
   orcsdr::web_audio::publish(audio, audio_count);
+  orcsdr::dead_air_app::offer_audio(audio, audio_count);  // level meter only, lock-free
   orcsdr::visualizer::offer_audio(audio, nullptr, audio_count, 48000);
   /* Capture the post-DSP mono stream before expanding it for the stereo codec. */
   if (g_audio_rec_active.load(std::memory_order_acquire)) {
@@ -9402,7 +9403,7 @@ static void rtl_dsp_task(void *) {
         block.band != RtlBand::lora && block.band != RtlBand::p25 &&
         block.band != RtlBand::pocsag &&
         (rtl_audio_enabled.load(std::memory_order_relaxed) || sstv_owns_audio(block.band) ||
-         orcsdr::web_audio::demanded() ||
+         orcsdr::web_audio::demanded() || orcsdr::dead_air_app::wants_audio() ||
          g_audio_rec_active.load(std::memory_order_relaxed)) &&
         !rtl_audio_test_tone.load(std::memory_order_relaxed)) {
       if (block.band == RtlBand::cb && !orcsdr::home::active()) {

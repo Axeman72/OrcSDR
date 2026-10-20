@@ -113,6 +113,30 @@ int main() {
   validate_bounds();
   assert(!da::draw_spectrum_frame(nullptr, 0, 1, 5300));
   assert(da::paint_stats().frames == 3);
+  // Audio tab: static frame plus a directly drawn envelope; nothing is drawn off the tab, and "no audio" is explicit.
+  assert(!da::draw_audio_frame({}, 7000));  // Spectrum tab is showing
+  da::handle_touch(20 + 2 * 210 + 40, 673, 6990);
+  assert(da::page() == da::Page::audio);
+  assert(displayed("PEAK ENVELOPE") && displayed("RMS LEVEL") && displayed("Level meter only"));
+  host_display::reset();
+  assert(da::draw_audio_frame({}, 7000) && displayed("NO DEMODULATED AUDIO"));
+  validate_bounds();
+  float env[da::kBins];
+  for (size_t i = 0; i < da::kBins; ++i) env[i] = static_cast<float>(i % 10) / 10.0f;
+  da::AudioView view{};
+  view.envelope = env; view.count = da::kBins; view.flowing = true;
+  view.rms_dbfs = -31.2f; view.peak_dbfs = -12.5f; view.baseline_ready = false;
+  host_display::reset();
+  assert(da::draw_audio_frame(view, 7100));
+  assert(displayed("-31.2 dBFS") && displayed("-12.5 dBFS") && displayed("WARMING UP") && displayed("AUDIO: FLOWING"));
+  assert(!displayed("NO DEMODULATED AUDIO"));
+  validate_bounds();
+  view.baseline_ready = true; view.baseline_dbfs = -33.0f;
+  host_display::reset();
+  assert(da::draw_audio_frame(view, 7200) && displayed("-33.0 dBFS"));
+  validate_bounds();
+  da::handle_touch(20 + 1 * 210 + 40, 673, 7300);  // back to Spectrum for the sweep checks below
+  assert(da::page() == da::Page::spectrum);
   // Sweep controls: start/stop, preset and dwell are real actions; tuning and mode buttons yield while it runs.
   assert(da::handle_touch(366 + 20, 530 + 20, 2360).kind == da::ActionKind::start_scan);
   assert(da::handle_touch(606 + 20, 530 + 20, 2361).kind == da::ActionKind::sweep_preset);

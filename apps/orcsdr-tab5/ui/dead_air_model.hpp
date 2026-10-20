@@ -77,6 +77,9 @@ struct Snapshot {
   bool receiver_settled = false;  // false while a retune or gain change settles
   // Generated sweep profile (a tuning schedule on one tuner; never simultaneous coverage).
   uint32_t spectrum_seq = 0;  // increments once per measured spectrum frame (the waterfall adds one row per frame)
+  float audio_peak_dbfs = -100.0f;
+  float audio_baseline_dbfs = 0.0f;
+  bool audio_baseline_ready = false;
   bool sweeping = false;
   uint8_t sweep_preset = 0;
   uint16_t sweep_dwell_ms = 0;

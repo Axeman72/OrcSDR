@@ -41,7 +41,12 @@ void tick();                       // main loop: build snapshot, run detector, r
 void draw(bool static_panel);      // refresh requested by the ScreenController
 void touch(int32_t x, int32_t y);
 bool active();
-bool wants_spectrum();             // true while the Spectrum tab is the visible, owned page
+bool wants_spectrum();
+// DSP thread: offer the receiver's post-demodulation mono 48 kHz PCM. Lock-free, allocation-free, constant time; a no-op
+// unless Dead Air is open. It measures level only.
+void offer_audio(const int16_t* pcm, size_t count);
+// True while the Audio tab is visible: the receiver then demodulates even if the speaker is muted.
+bool wants_audio();             // true while the Spectrum tab is the visible, owned page
 // UI-task only. `levels` is the receiver's smoothed power spectrum (10*log10 of raw FFT power over
 // `bins` bins, windowed CU8 samples). It is converted to relative dBFS here.
 void feed_spectrum(const float* levels, size_t bins, uint32_t sample_rate_sps);
