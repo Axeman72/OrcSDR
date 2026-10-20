@@ -129,6 +129,7 @@ struct Scope {
   int16_t a_prev_half[kBins];  // audio envelope as last drawn (half height in pixels)
   size_t a_prev_n = 0;
   int a_state = -1;            // 0 = notice shown, 1 = live envelope drawn
+  uint32_t a_text_ms = 0;
 };
 Scope* g_scope = nullptr;
 PaintStats g_stats{};
@@ -378,6 +379,7 @@ void spectrum() {
   label(info, 366, 608, run ? kYellow : kMuted, 2);
 }
 constexpr int kAuX = 42, kAuY = 171, kAuW = 1194, kAuH = 180;
+constexpr int kAuStep = 6;  // pixels the plot rolls per 80 ms level reading
 constexpr float kAudioFloorDb = -70.0f;  // envelope scale: -70..0 dBFS maps to 0..full half height
 
 int audio_half(float norm) {
@@ -504,6 +506,8 @@ void paint_direct() {
   paint_page();
   if (g_page == Page::spectrum)  // the waterfall scrolls inside this rectangle, like the LoRa dashboard
     M5.Display.setScrollRect(kWfX + 1, kWfY + 1, kWfW - 2, kWfH - 2, plot_bg());
+  if (g_page == Page::audio)  // the envelope rolls inside this one
+    M5.Display.setScrollRect(kAuX + 1, kAuY + 1, kAuW - 2, kAuH - 2, plot_bg());
 }
 // page_change: another screen is replacing this one, so most pixels differ and tile pushes would not help.
 void draw_body(bool page_change = false) {
@@ -631,14 +635,35 @@ void audio_text(int x, int y, int w, const char* text, uint16_t color) {
   M5.Display.drawString(text, x, y);
 }
 
+// One envelope bar, mirrored about the centre line, in the column [x, x + kAuStep). Colour rises with the measured level.
+void draw_audio_bar(const Scope& s, int x, float norm) {
+  const uint16_t bg = plot_bg();
+  const int cy = kAuY + kAuH / 2;
+  const float t = std::clamp(norm, 0.0f, 1.0f);
+  const int h = audio_half(t);
+  M5.Display.fillRect(x, kAuY + 1, kAuStep, kAuH - 2, bg);
+  for (int db = -20; db >= -60; db -= 20) {
+    const int gh = audio_half((static_cast<float>(db) - kAudioFloorDb) / -kAudioFloorDb);
+    M5.Display.drawFastHLine(x, cy - gh, kAuStep, plot_grid());
+    M5.Display.drawFastHLine(x, cy + gh, kAuStep, plot_grid());
+  }
+  M5.Display.drawFastHLine(x, cy, kAuStep, plot_grid());
+  if (h > 0) {
+    M5.Display.fillRect(x, cy - h, kAuStep - 1, 2 * h + 1, s.lut[static_cast<int>(t * 110.0f)]);
+    const uint16_t cap = s.lut[std::min(255, 150 + static_cast<int>(t * 105.0f))];
+    M5.Display.fillRect(x, cy - h, kAuStep - 1, 2, cap);
+    M5.Display.fillRect(x, cy + h - 1, kAuStep - 1, 2, cap);
+  }
+}
+
 bool draw_audio_frame(const AudioView& v, uint32_t now_ms) {
-  (void)now_ms;
   if (!g_active || !g_scope || !g_snapshot) return false;
   if (!screens::owns(screens::Id::dead_air) || g_page != Page::audio) return false;
   const uint32_t t0 = now_us();
   Scope& s = *g_scope;
   const uint16_t bg = plot_bg();
   const int cy = kAuY + kAuH / 2;
+  const int right = kAuX + kAuW - 1 - kAuStep;  // x of the newest bar
   char text[48];
   M5.Display.startWrite();
   if (!v.flowing || !v.envelope || v.count < 2) {
@@ -656,51 +681,40 @@ bool draw_audio_frame(const AudioView& v, uint32_t now_ms) {
       audio_text(300, 560, 300, "--", kMuted);
       audio_text(829, 515, 410, "AUDIO: NONE", kMuted);
       s.a_state = 0;
-      s.a_prev_n = 0;
     }
     M5.Display.endWrite();
     return true;
   }
-  const size_t n = std::min(v.count, kBins);
-  const int x0 = kAuX + 1, w = kAuW - 2;
-  int16_t xs[kBins], hs[kBins];
-  for (size_t i = 0; i < n; ++i) {
-    xs[i] = static_cast<int16_t>(x0 + 3 + static_cast<int>(i) * (w - 7) / static_cast<int>(n - 1));
-    hs[i] = static_cast<int16_t>(audio_half(v.envelope[i]));
-  }
-  if (s.a_state == 1 && s.a_prev_n == n) {  // erase the last frame's bars and outline only
-    for (size_t i = 0; i < n; ++i) M5.Display.fillRect(xs[i] - 3, cy - s.a_prev_half[i] - 1, 7, 2 * s.a_prev_half[i] + 3, bg);
-    for (size_t i = 1; i < n; ++i) {
-      M5.Display.drawLine(xs[i - 1], cy - s.a_prev_half[i - 1], xs[i], cy - s.a_prev_half[i], bg);
-      M5.Display.drawLine(xs[i - 1], cy + s.a_prev_half[i - 1], xs[i], cy + s.a_prev_half[i], bg);
-    }
+  if (s.a_state != 1) {
+    // First frame after the tab opens or audio returns: start clean and seed the recent history from the envelope.
+    M5.Display.fillRect(kAuX + 1, kAuY + 1, kAuW - 2, kAuH - 2, bg);
+    draw_audio_grid(M5.Display, 0);
+    const size_t n = std::min<size_t>(v.count, static_cast<size_t>((kAuW - 2) / kAuStep));
+    for (size_t i = 0; i < n; ++i)
+      draw_audio_bar(s, right - static_cast<int>(n - 1 - i) * kAuStep, v.envelope[v.count - n + i]);
+    M5.Display.setScrollRect(kAuX + 1, kAuY + 1, kAuW - 2, kAuH - 2, bg);
+    s.a_state = 1;
   } else {
-    M5.Display.fillRect(x0, kAuY + 1, w, kAuH - 2, bg);
+    // Roll the plot left with the panel's own scroll and draw only the new bars on the right: nothing is erased and
+    // redrawn, so there is no flicker.
+    const size_t fresh = v.fresh ? std::min<size_t>(v.fresh_count, 8) : 0;
+    for (size_t i = 0; i < fresh; ++i) {
+      M5.Display.scroll(-kAuStep, 0);
+      draw_audio_bar(s, right, v.fresh[i]);
+    }
   }
-  draw_audio_grid(M5.Display, 0);
-  const uint16_t* lut = s.lut;
-  for (size_t i = 0; i < n; ++i) {  // bars: dark violet body, colour rising with the measured level
-    const int h = hs[i];
-    const float t = std::clamp(v.envelope[i], 0.0f, 1.0f);
-    if (h > 0) M5.Display.fillRect(xs[i] - 2, cy - h, 5, 2 * h + 1, lut[static_cast<int>(t * 110.0f)]);
+  // Numbers refresh at about 4 Hz so they stay steady to read.
+  if (now_ms - s.a_text_ms >= 250 || s.a_text_ms == 0) {
+    s.a_text_ms = now_ms;
+    std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.rms_dbfs));
+    audio_text(300, 470, 300, text, TFT_WHITE);
+    std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.peak_dbfs));
+    audio_text(300, 515, 300, text, TFT_WHITE);
+    if (v.baseline_ready) std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.baseline_dbfs));
+    else std::snprintf(text, sizeof(text), "WARMING UP");
+    audio_text(300, 560, 300, text, v.baseline_ready ? TFT_WHITE : kYellow);
+    audio_text(829, 515, 410, "AUDIO: FLOWING", kGreen);
   }
-  for (size_t i = 1; i < n; ++i) {
-    const float t = std::clamp(v.envelope[i], 0.0f, 1.0f);
-    const uint16_t core = lut[std::min(255, 150 + static_cast<int>(t * 105.0f))];
-    for (int sign = -1; sign <= 1; sign += 2)
-      M5.Display.drawLine(xs[i - 1], cy + sign * hs[i - 1], xs[i], cy + sign * hs[i], core);
-  }
-  for (size_t i = 0; i < n; ++i) s.a_prev_half[i] = hs[i];
-  s.a_prev_n = n;
-  s.a_state = 1;
-  std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.rms_dbfs));
-  audio_text(300, 470, 300, text, TFT_WHITE);
-  std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.peak_dbfs));
-  audio_text(300, 515, 300, text, TFT_WHITE);
-  if (v.baseline_ready) std::snprintf(text, sizeof(text), "%.1f dBFS", static_cast<double>(v.baseline_dbfs));
-  else std::snprintf(text, sizeof(text), "WARMING UP");
-  audio_text(300, 560, 300, text, v.baseline_ready ? TFT_WHITE : kYellow);
-  audio_text(829, 515, 410, "AUDIO: FLOWING", kGreen);
   M5.Display.endWrite();
   const uint32_t us = now_us() - t0;
   g_stats.frame_us = us;

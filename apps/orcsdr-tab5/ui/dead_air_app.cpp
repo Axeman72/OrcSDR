@@ -402,6 +402,8 @@ void tick() {
   }
   // Audio level buckets from the DSP thread: update the envelope and run the activity detector.
   bool audio_changed = false;
+  float fresh_bars[8];
+  size_t fresh_count = 0;
   const bool on_audio_tab = screens::owns(screens::Id::dead_air) && dead_air::page() == Page::audio;
   g_audio_wanted.store(on_audio_tab, std::memory_order_relaxed);
   if (dead_air::page() != s.last_page) {
@@ -424,6 +426,8 @@ void tick() {
       std::memmove(s.audio_env, s.audio_env + 1, (kBins - 1) * sizeof(float));
       s.audio_env[kBins - 1] = norm;
       s.audio_env_count = std::min<size_t>(s.audio_env_count + 1, kBins);
+      if (fresh_count == 8) { std::memmove(fresh_bars, fresh_bars + 1, 7 * sizeof(float)); --fresh_count; }
+      fresh_bars[fresh_count++] = norm;
       audio_changed = true;
       AudioFinding f;
       // Not while a sweep is hopping: every hop is a different channel.
@@ -453,7 +457,9 @@ void tick() {
   if (on_audio_tab && audio_changed) {
     AudioView v{};
     v.envelope = s.audio_env;
-    v.count = kBins;
+    v.count = s.audio_env_count;
+    v.fresh = fresh_bars;
+    v.fresh_count = fresh_count;
     v.flowing = s.audio_flowing;
     v.rms_dbfs = s.audio_rms;
     v.peak_dbfs = s.audio_peak;

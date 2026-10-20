@@ -132,8 +132,12 @@ int main() {
   assert(!displayed("NO DEMODULATED AUDIO"));
   validate_bounds();
   view.baseline_ready = true; view.baseline_dbfs = -33.0f;
+  float fresh[2] = {0.4f, 0.9f};
+  view.fresh = fresh; view.fresh_count = 2;
   host_display::reset();
-  assert(da::draw_audio_frame(view, 7200) && displayed("-33.0 dBFS"));
+  assert(da::draw_audio_frame(view, 7500) && displayed("-33.0 dBFS"));  // numbers refresh at 4 Hz
+  validate_bounds();
+  assert(da::draw_audio_frame(view, 7550));  // between text refreshes: only the scroll and new bars
   validate_bounds();
   da::handle_touch(20 + 1 * 210 + 40, 673, 7300);  // back to Spectrum for the sweep checks below
   assert(da::page() == da::Page::spectrum);

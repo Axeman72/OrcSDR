@@ -40,8 +40,10 @@ bool draw_spectrum_frame(const float* dbfs, size_t count, uint32_t epoch, uint32
 // peak levels normalised 0..1 over -70..0 dBFS (oldest first). All levels are measured, never synthesised; with
 // `flowing` false nothing is drawn but a plain "not demodulating" notice. Returns false off the Audio tab.
 struct AudioView {
-  const float* envelope = nullptr;
+  const float* envelope = nullptr;  // the whole recent history, used to seed the view
   size_t count = 0;
+  const float* fresh = nullptr;     // bars measured since the last call (oldest first); the view scrolls by these
+  size_t fresh_count = 0;
   bool flowing = false;
   float rms_dbfs = -100.0f, peak_dbfs = -100.0f;
   bool baseline_ready = false;
