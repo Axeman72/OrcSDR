@@ -3049,6 +3049,7 @@ static std::atomic<uint32_t> g_sstv_if_hz{0};
 // receiver demodulators are offered; sweep patterns and generated audio are not demodulators.
 static std::atomic<uint8_t> g_dead_air_demod{0};
 static uint32_t g_dead_air_saved_filter_hz = 0;  // IF width in force before Dead Air changed mode; UI task only
+static uint32_t g_dead_air_return_hz = 0;        // frequency to give back to Home when Dead Air is left; UI task only
 
 HomeDemod effective_demod(RtlBand band) {
   if (band == RtlBand::browse) {
@@ -13039,10 +13040,13 @@ void show_home(bool demo) {
   }
   orcsdr::sstv_app::close();
   orcsdr::acars_app::close();
+  const uint32_t dead_air_return_hz = orcsdr::dead_air_app::active() ? g_dead_air_return_hz : 0u;
   orcsdr::dead_air_app::close();
   home_enter();
   orcsdr::audio_header::reset(rtl_header_audio_control);
   orcsdr::navigation::show_home(demo);
+  // Home re-derives the band and demodulator for the frequency it had before Dead Air took the general band.
+  if (dead_air_return_hz != 0 && rtl_device_ready()) (void)home_tune_to(dead_air_return_hz, true);
 }
 
 void draw_home_dashboard() {
@@ -14154,6 +14158,9 @@ orcsdr::dead_air_app::Hooks dead_air_app_hooks() {
 }
 void open_dead_air_dashboard() {
   persist_dashboard_open(orcsdr::dashboards::Id::dead_air);
+  // Dead Air rides the general (BROWSE, NFM) band. Remember where the radio was so Home can take it back to the right
+  // band and demodulator when Dead Air is left; 0 means there was nothing to return to.
+  if (!orcsdr::dead_air_app::active()) g_dead_air_return_hz = rtl_device_ready() ? rtl_ui_frequency_hz : 0u;
   orcsdr::home::leave();
   orcsdr::ft8::leave();
   orcsdr::sstv_app::close();
@@ -19346,6 +19353,15 @@ void process_command(char* command) {
                   heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                   heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                   heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+    return;
+  }
+  if (strncmp(command, "RTL_DEAD_AIR FLOOD ", 19) == 0) {
+    if (!authenticated) {
+      Serial.println("RTL_DEAD_AIR_FLOOD_ERROR auth_required");
+      return;
+    }
+    const uint32_t logged = orcsdr::dead_air_app::flood_manual_marks(static_cast<uint32_t>(atoi(command + 19)));
+    Serial.printf("RTL_DEAD_AIR_FLOOD logged=%lu\n", static_cast<unsigned long>(logged));
     return;
   }
   if (strcmp(command, "RTL_DEAD_AIR STATUS") == 0) {

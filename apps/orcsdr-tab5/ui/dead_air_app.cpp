@@ -581,6 +581,16 @@ void feed_spectrum(const float* levels, size_t bins, uint32_t sample_rate_sps) {
     (void)dead_air::draw_spectrum_frame(points, kTracePoints, s.config_revision, s.spectrum_ms);
 }
 
+uint32_t flood_manual_marks(uint32_t count) {
+  if (!g_open || !g_state) return 0;
+  count = std::min<uint32_t>(count, 500);
+  const uint32_t now = millis();
+  const uint32_t unix_time = g_hooks.utc_epoch ? g_hooks.utc_epoch() : 0;
+  const uint32_t hz = g_hooks.frequency_hz ? g_hooks.frequency_hz() : 0;
+  for (uint32_t i = 0; i < count; ++i) g_state->model.mark_manual(now, unix_time, hz);
+  return count;
+}
+
 void describe(char* out, size_t size) {
   if (!out || !size) return;
   if (!g_state) { std::snprintf(out, size, "DEAD_AIR open=0"); return; }

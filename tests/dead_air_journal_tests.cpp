@@ -77,7 +77,25 @@ static void failure() {
   assert(journal.failed() && journal.saved() == 0);
   assert(!journal.finish(q, sink));
 }
+// A flush that fails after a successful append must not count those events as saved (an SD card pulled mid-session).
+struct FlushFailSink : MemorySink {
+  bool fail_sync = false;
+  bool sync() override { ++sync_calls; return !fail_sync; }
+};
+static void flush_failure() {
+  EventQueue q; FlushFailSink sink; EventJournal journal;
+  assert(journal.start(sink, 77));
+  assert(q.push(rf(1)));
+  assert(journal.drain(q, sink) == 1 && journal.saved() == 1 && journal.unconfirmed() == 0);
+  sink.fail_sync = true;
+  assert(q.push(rf(2)) && q.push(rf(3)));
+  assert(journal.drain(q, sink) == 2);
+  assert(journal.failed());
+  assert(journal.saved() == 1 && journal.unconfirmed() == 2);   // confirmed vs appended-but-unflushed
+  assert(journal.drain(q, sink) == 0 && journal.saved() == 1);   // nothing more is attempted after a failure
+  assert(!journal.finish(q, sink));                               // and the session is never reported complete
+}
 int main() {
-  encoding(); queue_and_writer(); gaps_and_listener(); failure();
+  encoding(); queue_and_writer(); gaps_and_listener(); failure(); flush_failure();
   std::puts("Dead Air journal tests PASS");
 }

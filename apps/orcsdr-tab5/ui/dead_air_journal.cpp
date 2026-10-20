@@ -147,11 +147,14 @@ size_t EventJournal::drain(EventQueue& queue, JournalSink& sink, size_t max_reco
       failed_ = true; break;
     }
     last_sequence_ = in_flight_.sequence;
-    ++saved_; ++processed;
+    ++unsynced_; ++processed;
     pending_ = false;
   }
   // Persist each bounded worker batch; no SD calls run in the UI/IQ task.
-  if (processed != 0 && !failed_ && !sink.sync()) failed_ = true;
+  if (processed != 0 && !failed_) {
+    if (sink.sync()) { saved_ += unsynced_; unsynced_ = 0; }
+    else failed_ = true;  // these events stay "unconfirmed": they may or may not have reached the card
+  }
   return processed;
 }
 bool EventJournal::finish(EventQueue& queue, JournalSink& sink) {

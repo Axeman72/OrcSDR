@@ -50,6 +50,9 @@ bool wants_audio();             // true while the Spectrum tab is the visible, o
 // UI-task only. `levels` is the receiver's smoothed power spectrum (10*log10 of raw FFT power over
 // `bins` bins, windowed CU8 samples). It is converted to relative dBFS here.
 void feed_spectrum(const float* levels, size_t bins, uint32_t sample_rate_sps);
+// Bench test (authenticated serial only): log `count` manual marks in one burst, faster than the SD worker drains the
+// queue, to exercise overflow accounting. Returns the number logged (0 when Dead Air is not open).
+uint32_t flood_manual_marks(uint32_t count);
 void describe(char* out, size_t size);  // one diagnostic line for the serial console
 
 }  // namespace orcsdr::dead_air_app

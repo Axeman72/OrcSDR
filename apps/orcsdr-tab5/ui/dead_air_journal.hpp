@@ -45,14 +45,17 @@ class EventJournal {
   size_t drain(EventQueue& queue, JournalSink& sink, size_t max_records = 8);
   bool finish(EventQueue& queue, JournalSink& sink);
   bool failed() const { return failed_; }
+  // Events confirmed durable (appended AND flushed). Appended-but-unflushed events are counted separately so a failed
+  // flush can never make the log look more complete than it is.
   uint32_t saved() const { return saved_; }
+  uint32_t unconfirmed() const { return unsynced_; }
   uint32_t missing() const { return missing_; }
   uint32_t last_sequence() const { return last_sequence_; }
  private:
   bool append_gap(JournalSink& sink, uint32_t start_sequence, uint32_t end_sequence);
   bool started_ = false, failed_ = false, pending_ = false;
   Event in_flight_{};
-  uint32_t saved_ = 0, missing_ = 0, last_sequence_ = 0;
+  uint32_t saved_ = 0, unsynced_ = 0, missing_ = 0, last_sequence_ = 0;
   uint32_t session_id_ = 0;
 };
 
