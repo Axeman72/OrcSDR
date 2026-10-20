@@ -212,26 +212,6 @@ void reading(const char* name, const Reading& value, int x, int y, const char* f
   label(output, x + 230, y, state == Status::current ? TFT_WHITE : kMuted, 2);
   if (state == Status::stale) label("STALE", x + 400, y, kYellow, 2);
 }
-void plot(const float* data, size_t count, bool valid, int x, int y, int w, int h,
-          float minimum, float maximum, uint16_t color) {
-  g.drawRoundRect(x, y, w, h, 0, kEdge);
-  for (int t = 1; t < 4; ++t)
-    g.drawFastHLine(x + 1, y + h * t / 4, w - 2, kEdge);
-  if (!valid || count < 2 || !(maximum > minimum)) {
-    label("NO LIVE PLOT DATA", x + 16, y + h / 2, kMuted, 2);
-    return;
-  }
-  const auto py = [&](float v) {
-    if (!std::isfinite(v)) v = minimum;
-    const float n = std::clamp((v - minimum) / (maximum - minimum), 0.0f, 1.0f);
-    return y + h - 2 - static_cast<int>(n * (h - 4));
-  };
-  for (size_t i = 1; i < count; ++i) {
-    const int xa = x + 1 + static_cast<int>((i - 1) * (w - 3) / (count - 1));
-    const int xb = x + 1 + static_cast<int>(i * (w - 3) / (count - 1));
-    g.drawLine(xa, py(data[i - 1]), xb, py(data[i]), color);
-  }
-}
 const char* recorder_text(RecorderState state) {
   switch (state) {
     case RecorderState::starting: return "STARTING";
@@ -463,30 +443,45 @@ void events() {
   button("HIGH", 1094, 382, 145, kCyan, true);
   button("MARK EVENT", 818, 505, 420, kRed, g_events != nullptr);
 }
+constexpr int kClipBtnX = 40, kClipBtnY = 556, kClipBtnW = 300, kClipBtnH = 52;
 void review() {
   box(20, 120, 460, 511);
   heading("SESSION ARCHIVE", 40, 144);
-  label("EVENT LOG (JSONL)", 40, 200, kMuted, 2);
-  label(recorder_text(g_snapshot->recorder_state), 40, 245,
-        recorder_color(g_snapshot->recorder_state), 3);
+  label("EVENT LOG (JSONL)", 40, 190, kMuted, 2);
+  label(recorder_text(g_snapshot->recorder_state), 40, 232, recorder_color(g_snapshot->recorder_state), 3);
   char line[56];
-  if (g_snapshot->recorder_session) {
-    snprintf(line, sizeof(line), "Session %lu", static_cast<unsigned long>(g_snapshot->recorder_session));
-    label(line, 40, 300, TFT_WHITE, 2);
-  }
-  snprintf(line, sizeof(line), "Saved %lu", static_cast<unsigned long>(g_snapshot->recorder_saved));
-  label(line, 40, 345, TFT_WHITE, 2);
-  snprintf(line, sizeof(line), "Lost %lu  Dropped %lu",
-           static_cast<unsigned long>(g_snapshot->recorder_missing),
-           static_cast<unsigned long>(g_snapshot->recorder_dropped));
-  label(line, 40, 390,
-        g_snapshot->recorder_missing || g_snapshot->recorder_dropped ? kYellow : kMuted, 2);
-  label("Audio/IQ clips: not implemented", 40, 560, kMuted, 2);
+  snprintf(line, sizeof(line), "Saved %lu  Lost %lu  Dropped %lu", static_cast<unsigned long>(g_snapshot->recorder_saved),
+           static_cast<unsigned long>(g_snapshot->recorder_missing), static_cast<unsigned long>(g_snapshot->recorder_dropped));
+  label(line, 40, 280, g_snapshot->recorder_missing || g_snapshot->recorder_dropped ? kYellow : TFT_WHITE, 2);
+  divider(40, 318, 420);
+  label("CLIPS  (RECEIVER AUDIO)", 40, 346, kMuted, 2);
+  const char* clip_text = !g_snapshot->clips_enabled ? "OFF" : g_snapshot->clip_state == 1 ? "CAPTURING" :
+                          g_snapshot->clip_state == 2 ? "WRITING" : "READY";
+  label(clip_text, 40, 392, g_snapshot->clips_enabled ? (g_snapshot->clip_state ? kYellow : kGreen) : kMuted, 3);
+  snprintf(line, sizeof(line), "Saved %lu  Failed %lu  Skipped %lu", static_cast<unsigned long>(g_snapshot->clips_saved),
+           static_cast<unsigned long>(g_snapshot->clips_failed), static_cast<unsigned long>(g_snapshot->clips_refused));
+  label(line, 40, 440, g_snapshot->clips_failed ? kYellow : TFT_WHITE, 2);
+  label("Skipped = no audio or busy", 40, 482, kMuted, 2);
+  button(g_snapshot->clips_enabled ? "CLIPS ON" : "CLIPS OFF", kClipBtnX, kClipBtnY, kClipBtnW,
+         g_snapshot->clips_enabled ? kGreen : kCyan, true);
   box(497, 120, 763, 511);
   heading("EVIDENCE REVIEW", 517, 144);
-  plot(nullptr, 0, false, 519, 195, 718, 248, -1.0f, 1.0f, kGreen);
-  label("WAV / IQ clip indexing and hashes", 519, 498, kMuted);
-  label("will appear after the storage adapter is wired.", 519, 550, kMuted);
+  if (!g_snapshot->clip_count) {
+    label("NO CLIPS THIS SESSION", 517, 220, kMuted, 3);
+    label("A clip is saved when an event fires:", 517, 290, kMuted, 2);
+    label("5 s before and 5 s after, exactly as", 517, 328, kMuted, 2);
+    label("the receiver demodulated it.", 517, 366, kMuted, 2);
+  } else {
+    for (uint8_t i = 0; i < g_snapshot->clip_count && i < kClipInfoCount; ++i) {
+      const ClipInfo& c = g_snapshot->clips[i];
+      snprintf(line, sizeof(line), "%s", c.name);
+      label(line, 517, 196 + i * 62, i == 0 ? kGreen : TFT_WHITE, 2);
+      snprintf(line, sizeof(line), "%u.%u s   sha %s%s", static_cast<unsigned>(c.duration_ds / 10),
+               static_cast<unsigned>(c.duration_ds % 10), c.sha8, c.truncated ? "   TRUNCATED" : "");
+      label(line, 517, 224 + i * 62, c.truncated ? kYellow : kMuted, 2);
+    }
+  }
+  label("Mic clips: not implemented", 517, 596, kMuted, 2);
 }
 void paint_page() {
   switch (g_page) {
@@ -790,6 +785,7 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
           return {ActionKind::set_demod, i};
     }
   }
+  if (g_page == Page::review && hit(x, y, kClipBtnX, kClipBtnY, kClipBtnW, kClipBtnH)) return {ActionKind::toggle_clips, 0};
   if (g_page == Page::events && g_events != nullptr) {
     if (hit(x, y, 818, 505, 420, 52)) {
       g_events->mark_manual(now_ms, g_snapshot->unix_time, g_snapshot->frequency_hz);

@@ -40,6 +40,15 @@ struct Event {
   uint32_t sweep_hops = 0, sweep_unobserved_ms = 0;
 };
 
+// One saved audio clip as shown on the Review tab (newest first).
+struct ClipInfo {
+  char name[32] = "";
+  char sha8[9] = "";            // first 8 hex digits of the file's SHA-256
+  uint16_t duration_ds = 0;     // tenths of a second
+  bool truncated = false;       // cut short at an interruption in the audio
+};
+constexpr size_t kClipInfoCount = 4;
+
 constexpr size_t kBins = 96;
 constexpr size_t kEventCapacity = 48;
 struct Snapshot {
@@ -80,6 +89,12 @@ struct Snapshot {
   float audio_peak_dbfs = -100.0f;
   float audio_baseline_dbfs = 0.0f;
   bool audio_baseline_ready = false;
+  // Event-linked clips of the receiver's demodulated audio. Microphone clips are not implemented.
+  bool clips_enabled = true;
+  uint8_t clip_state = 0;       // 0 idle, 1 capturing, 2 writing
+  uint32_t clips_saved = 0, clips_failed = 0, clips_refused = 0;
+  ClipInfo clips[kClipInfoCount];
+  uint8_t clip_count = 0;
   bool sweeping = false;
   uint8_t sweep_preset = 0;
   uint16_t sweep_dwell_ms = 0;
