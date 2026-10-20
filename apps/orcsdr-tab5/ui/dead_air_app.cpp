@@ -74,14 +74,24 @@ struct ClipTicket {
   char demod[8]{};
   uint32_t frequency_hz = 0;
   bool speaker_on = false;
+  bool verify = false;                   // re-check an existing clip against its recorded hash instead of writing one
+  char verify_name[32]{};
+  char verify_sha[65]{};
 };
 struct ClipResult {
   bool ok = false;
   bool abandoned = false;
   bool truncated = false;
+  bool is_verify = false;
+  uint8_t verify_result = 0;             // 2 matches, 3 mismatch, 4 file missing
   char name[32]{};
   char sha[65]{};
   uint32_t samples = 0;
+  char demod[8]{};
+  uint32_t frequency_hz = 0;
+  bool speaker_on = false;
+  uint32_t seqs[kClipMaxTriggers]{};
+  uint8_t seq_count = 0;
 };
 struct ClipMail {
   std::atomic<uint8_t> state{0};         // 0 empty, 1 ticket ready, 2 worker busy, 3 result ready
@@ -117,7 +127,11 @@ struct State {
   std::atomic<uint32_t> clips_saved{0}, clips_failed{0};
   uint32_t clips_refused_no_audio = 0, clips_refused_busy = 0, clips_refused_limit = 0;
   ClipInfo recent[kClipInfoCount];
+  char recent_sha[kClipInfoCount][65]{};  // full hashes, for re-checking
   uint8_t recent_count = 0;
+  uint8_t verify_state = 0;               // for the newest clip: 0 not yet, 1 running, 2 matches, 3 mismatch, 4 missing
+  uint32_t seq_hist[16]{};                // events that have a clip, newest first
+  uint8_t seq_hist_count = 0;
   AudioDetector audio_detector;
   uint32_t audio_tail = 0;
   float audio_env[kBins]{};
@@ -239,6 +253,11 @@ void write_clip(State& s) {
   r.ok = true;
   r.truncated = job.truncated;
   r.samples = samples;
+  std::memcpy(r.demod, t.demod, sizeof(r.demod));
+  r.frequency_hz = t.frequency_hz;
+  r.speaker_on = t.speaker_on;
+  r.seq_count = job.seq_count;
+  std::memcpy(r.seqs, job.trigger_seqs, sizeof(r.seqs));
   len = 0;
   json_append(line, sizeof(line), len, "{\"v\":1,\"type\":\"clip\",\"event_seqs\":");
   json_seqs(line, sizeof(line), len, job);
@@ -261,6 +280,38 @@ void write_clip(State& s) {
     return;
   }
   s.clips_saved.fetch_add(1, std::memory_order_relaxed);
+}
+
+// Re-reads a clip from the card and compares its SHA-256 with the one recorded when it was written.
+void verify_clip(State& s) {
+  ClipMail& m = s.mail;
+  ClipResult& r = m.result;
+  r = ClipResult{};
+  r.is_verify = true;
+  char path[96];
+  std::snprintf(path, sizeof(path), "/orcsdr/dead_air/clips/%s", m.ticket.verify_name);
+  storage::File file = storage::filesystem().open(path, FILE_READ);
+  if (!file) { r.verify_result = 4; return; }
+  mbedtls_sha256_context sha;
+  mbedtls_sha256_init(&sha);
+  bool ok = mbedtls_sha256_starts(&sha, 0) == 0;
+  for (;;) {
+    const size_t n = file.read(reinterpret_cast<uint8_t*>(m.chunk), sizeof(m.chunk));
+    if (n == 0) break;
+    ok = ok && mbedtls_sha256_update(&sha, reinterpret_cast<const uint8_t*>(m.chunk), n) == 0;
+  }
+  uint8_t digest[32]{};
+  ok = ok && mbedtls_sha256_finish(&sha, digest) == 0;
+  mbedtls_sha256_free(&sha);
+  file.close();
+  char hex[65]{};
+  for (int i = 0; i < 32; ++i) std::snprintf(hex + i * 2, 3, "%02x", digest[i]);
+  r.verify_result = ok && std::strcmp(hex, m.ticket.verify_sha) == 0 ? 2 : 3;
+}
+
+void run_ticket(State& s) {
+  if (s.mail.ticket.verify) verify_clip(s);
+  else write_clip(s);
 }
 
 void write_clip_summary(State& s) {
@@ -299,7 +350,7 @@ void worker_main(void* arg) {
     s->journal.drain(s->queue, s->sink, 8);
     if (s->mail.state.load(std::memory_order_acquire) == 1) {
       s->mail.state.store(2, std::memory_order_relaxed);
-      write_clip(*s);
+      run_ticket(*s);
       s->mail.state.store(3, std::memory_order_release);
     }
     w.saved.store(s->journal.saved(), std::memory_order_relaxed);
@@ -315,7 +366,7 @@ void worker_main(void* arg) {
   if (open) {
     if (s->mail.state.load(std::memory_order_acquire) == 1) {  // a ticket posted just before the stop
       s->mail.state.store(2, std::memory_order_relaxed);
-      write_clip(*s);
+      run_ticket(*s);
       s->mail.state.store(3, std::memory_order_release);
     }
     write_clip_summary(*s);
@@ -410,23 +461,49 @@ void on_event(void* context, const Event& e) {
 }
 
 void remember_clip(State& s, const ClipResult& r) {
-  for (size_t i = kClipInfoCount - 1; i > 0; --i) s.recent[i] = s.recent[i - 1];
+  for (size_t i = kClipInfoCount - 1; i > 0; --i) {
+    s.recent[i] = s.recent[i - 1];
+    std::memcpy(s.recent_sha[i], s.recent_sha[i - 1], sizeof(s.recent_sha[i]));
+  }
   ClipInfo& c = s.recent[0];
   c = ClipInfo{};
   std::snprintf(c.name, sizeof(c.name), "%s", r.name);
-  std::snprintf(c.sha8, sizeof(c.sha8), "%.8s", r.sha);
+  std::snprintf(c.sha16, sizeof(c.sha16), "%.16s", r.sha);
+  std::snprintf(s.recent_sha[0], sizeof(s.recent_sha[0]), "%s", r.sha);
   c.duration_ds = static_cast<uint16_t>(std::min<uint64_t>(65535, static_cast<uint64_t>(r.samples) * 10u / kClipSampleRate));
   c.truncated = r.truncated;
+  std::snprintf(c.demod, sizeof(c.demod), "%s", r.demod);
+  c.frequency_hz = r.frequency_hz;
+  c.speaker_on = r.speaker_on;
   s.recent_count = static_cast<uint8_t>(std::min<size_t>(kClipInfoCount, s.recent_count + 1u));
+  s.verify_state = 0;  // the newest clip has changed, so it has not been re-checked
+  // Remember which events have a clip (newest first, bounded).
+  for (int i = 15; i >= r.seq_count; --i) s.seq_hist[i] = s.seq_hist[i - r.seq_count];
+  for (uint8_t i = 0; i < r.seq_count; ++i) s.seq_hist[i] = r.seqs[i];
+  s.seq_hist_count = static_cast<uint8_t>(std::min<size_t>(16, s.seq_hist_count + r.seq_count));
+}
+
+// Asks the SD worker to re-read the newest clip and compare its hash. Ignored while the worker is busy.
+void request_verify(State& s) {
+  if (!s.recent_count || s.verify_state == 1 || s.mail.state.load(std::memory_order_acquire) != 0) return;
+  ClipTicket t{};
+  t.verify = true;
+  std::snprintf(t.verify_name, sizeof(t.verify_name), "%s", s.recent[0].name);
+  std::snprintf(t.verify_sha, sizeof(t.verify_sha), "%s", s.recent_sha[0]);
+  s.verify_state = 1;
+  post_ticket(s, t);
 }
 
 // Collects a finished clip from the SD worker, then asks the planner whether another is ready to hand over.
 void service_clips(State& s, uint32_t now) {
   if (s.mail.state.load(std::memory_order_acquire) == 3) {
     const ClipResult r = s.mail.result;
-    if (r.ok) remember_clip(s, r);
+    if (r.is_verify) s.verify_state = r.verify_result;
+    else {
+      if (r.ok) remember_clip(s, r);
+      if (s.planner.state() == ClipState::writing) s.planner.finished();
+    }
     s.mail.state.store(0, std::memory_order_relaxed);
-    if (s.planner.state() == ClipState::writing) s.planner.finished();
   }
   if (s.mail.state.load(std::memory_order_acquire) != 0) return;
   ClipJob job;
@@ -513,6 +590,9 @@ void build_snapshot(uint32_t now) {
   n.clips_refused = s.clips_refused_no_audio + s.clips_refused_busy + s.clips_refused_limit;
   for (size_t i = 0; i < kClipInfoCount; ++i) n.clips[i] = s.recent[i];
   n.clip_count = s.recent_count;
+  n.verify_state = s.verify_state;
+  std::memcpy(n.clip_event_seqs, s.seq_hist, sizeof(n.clip_event_seqs));
+  n.clip_event_seq_count = s.seq_hist_count;
   n.audio_baseline_ready = s.audio_detector.baseline_ready();
   n.audio_baseline_dbfs = s.audio_detector.baseline();
   std::memcpy(n.audio_envelope, s.audio_env, sizeof(n.audio_envelope));
@@ -554,6 +634,7 @@ bool visibly_changed(const Snapshot& a, const Snapshot& b) {
          a.recorder_session != b.recorder_session || a.rf_level_dbfs.valid != b.rf_level_dbfs.valid ||
          a.rf_level_dbfs.baseline_valid != b.rf_level_dbfs.baseline_valid ||
          a.audio_available != b.audio_available || a.clips_enabled != b.clips_enabled || a.clip_state != b.clip_state ||
+         a.verify_state != b.verify_state || a.clip_event_seq_count != b.clip_event_seq_count ||
          a.clips_saved != b.clips_saved || a.clips_failed != b.clips_failed || a.clips_refused != b.clips_refused ||
          a.sweeping != b.sweeping || a.sweep_hops != b.sweep_hops || a.sweep_preset != b.sweep_preset ||
          a.sweep_dwell_ms != b.sweep_dwell_ms ||
@@ -602,6 +683,8 @@ void open() {
   s.clips_failed.store(0, std::memory_order_relaxed);
   s.clips_refused_no_audio = s.clips_refused_busy = s.clips_refused_limit = 0;
   s.recent_count = 0;
+  s.verify_state = 0;
+  s.seq_hist_count = 0;
   s.audio.head.store(0, std::memory_order_relaxed);
   s.audio_tail = 0;
   s.audio_detector.reset();
@@ -800,6 +883,7 @@ void touch(int32_t x, int32_t y) {
     case ActionKind::close: if (g_hooks.go_home) g_hooks.go_home(); break;
     case ActionKind::toggle_mute: if (g_hooks.toggle_mute) g_hooks.toggle_mute(); break;
     case ActionKind::open_settings: if (g_hooks.open_settings) g_hooks.open_settings(); break;
+    case ActionKind::verify_clip: request_verify(*g_state); break;
     case ActionKind::toggle_clips:
       g_state->clips_enabled = !g_state->clips_enabled;
       g_state->audio.capture.store(g_state->clips_enabled && g_state->audio.pcm != nullptr, std::memory_order_relaxed);

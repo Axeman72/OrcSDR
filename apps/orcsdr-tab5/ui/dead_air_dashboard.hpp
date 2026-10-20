@@ -7,7 +7,7 @@ namespace orcsdr::dead_air {
 enum class ActionKind : uint8_t {
   none, close, toggle_mute, open_settings, start_scan, stop_scan,
   start_recording, stop_recording, save_clip, export_session, play_clip,
-  tune_up, tune_down, set_demod, sweep_preset, sweep_dwell, toggle_clips
+  tune_up, tune_down, set_demod, sweep_preset, sweep_dwell, toggle_clips, verify_clip
 };
 // Real receiver demodulators only. Sweep patterns and generated audio are not demodulators.
 constexpr const char* kModeNames[] = {"NFM", "WFM", "AM", "USB", "LSB"};

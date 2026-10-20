@@ -60,7 +60,7 @@ int main() {
   assert(model.sensitivity() == da::Sensitivity::sensitive);
   da::handle_touch(900, 530, 2200);
   assert(model.count() == 1 && model.newest(0)->source == da::Source::manual);
-  assert(displayed("INVESTIGATOR MARK"));
+  assert(displayed("MARK no receiver"));
   // Mode and step buttons act only while a receiver is actually present, and only on the Spectrum tab.
   da::handle_touch(20 + 1 * 210 + 40, 673, 2300);
   assert(da::page() == da::Page::spectrum);
@@ -159,6 +159,49 @@ int main() {
   snap.revision = 7;
   da::update(snap);
   validate_bounds();
+  // Events tab: rows carry time and level, and an event that has a clip says so.
+  da::handle_touch(20 + 4 * 210 + 40, 673, 8000);
+  assert(da::page() == da::Page::events);
+  snap.clip_event_seqs[0] = model.newest(0)->sequence;
+  snap.clip_event_seq_count = 1;
+  snap.revision = 30;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("MARK no receiver") && displayed("CLIP") && displayed("RF RISE + AUDIO RISE"));
+  validate_bounds();
+  // Review tab: newest clip details, a VERIFY action, and the re-check result.
+  da::handle_touch(20 + 5 * 210 + 40, 673, 8100);
+  assert(da::page() == da::Page::review);
+  snap.clip_count = 2;
+  std::snprintf(snap.clips[0].name, sizeof(snap.clips[0].name), "s1792536903_e1.wav");
+  std::snprintf(snap.clips[0].sha16, sizeof(snap.clips[0].sha16), "9f932fde12345678");
+  std::snprintf(snap.clips[0].demod, sizeof(snap.clips[0].demod), "NFM");
+  snap.clips[0].duration_ds = 100; snap.clips[0].frequency_hz = 97289000; snap.clips[0].speaker_on = false;
+  std::snprintf(snap.clips[1].name, sizeof(snap.clips[1].name), "s1792536903_e0.wav");
+  snap.clips[1].duration_ds = 87; snap.clips[1].truncated = true;
+  snap.verify_state = 0;
+  snap.revision = 31;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("s1792536903_e1.wav") && displayed("10.0 s  NFM  97.289 MHz  speaker MUTED") && displayed("sha256 9f932fde12345678"));
+  assert(displayed("VERIFY NEWEST") && displayed("NOT RE-CHECKED YET") && displayed("EARLIER") && displayed("8.7 s  TRUNCATED"));
+  validate_bounds();
+  assert(da::handle_touch(537, 350, 8200).kind == da::ActionKind::verify_clip);
+  snap.verify_state = 1; snap.revision = 32;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("VERIFYING..."));
+  assert(da::handle_touch(537, 350, 8300).kind == da::ActionKind::none);   // not while a check is running
+  snap.verify_state = 2; snap.revision = 33;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("VERIFIED: file on the card matches"));
+  snap.verify_state = 3; snap.revision = 34;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("MISMATCH"));
+  validate_bounds();
+  da::handle_touch(20 + 1 * 210 + 40, 673, 8400);  // back to Spectrum
   // Once another screen takes the framebuffer, Dead Air must be silent.
   screen::begin_transition(screen::Id::home, 3000);
   screen::finish_transition();

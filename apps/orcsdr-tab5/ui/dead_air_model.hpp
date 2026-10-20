@@ -43,9 +43,12 @@ struct Event {
 // One saved audio clip as shown on the Review tab (newest first).
 struct ClipInfo {
   char name[32] = "";
-  char sha8[9] = "";            // first 8 hex digits of the file's SHA-256
+  char sha16[17] = "";          // first 16 hex digits of the file's SHA-256
   uint16_t duration_ds = 0;     // tenths of a second
   bool truncated = false;       // cut short at an interruption in the audio
+  char demod[8] = "";           // what the receiver was demodulating
+  uint32_t frequency_hz = 0;
+  bool speaker_on = false;      // the Tab5 speaker state when the clip was taken
 };
 constexpr size_t kClipInfoCount = 4;
 
@@ -95,6 +98,9 @@ struct Snapshot {
   uint32_t clips_saved = 0, clips_failed = 0, clips_refused = 0;
   ClipInfo clips[kClipInfoCount];
   uint8_t clip_count = 0;
+  uint8_t verify_state = 0;     // newest clip re-checked against the card: 0 not yet, 1 running, 2 matches, 3 mismatch, 4 file missing
+  uint32_t clip_event_seqs[16]{};  // events that have a clip, newest first
+  uint8_t clip_event_seq_count = 0;
   bool sweeping = false;
   uint8_t sweep_preset = 0;
   uint16_t sweep_dwell_ms = 0;

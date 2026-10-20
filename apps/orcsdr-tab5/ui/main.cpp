@@ -19186,7 +19186,8 @@ void process_command(char* command) {
     }
     if (strncmp(command, "UI_CAPTURE ", 11) == 0) {
       const char* slug = command + 11;
-      const bool visualizer_capture = orcsdr::visualizer::active();
+      // The live Visualizer and Dead Air screens capture as they are, without pausing reception.
+      const bool visualizer_capture = orcsdr::visualizer::active() || orcsdr::dead_air_app::active();
       const bool lab_capture = orcsdr::rf_lab::active();
       if ((!ui_doc.active || !ui_doc.current_screen[0]) && !visualizer_capture &&
           !lab_capture) {

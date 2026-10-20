@@ -14,6 +14,7 @@
 #endif
 #include "acars_dirty_rects.hpp"
 #include "dead_air_sweep.hpp"
+#include "dead_air_format.hpp"
 #include "dead_air_palette.hpp"
 
 namespace orcsdr::dead_air {
@@ -299,9 +300,8 @@ void overview() {
   if (!g_events || !g_events->count()) label("No recorded observations yet", 40, 483, kMuted);
   else for (size_t i = 0; i < std::min<size_t>(4, g_events->count()); ++i) {
     const Event* e = g_events->newest(i); if (!e) continue;
-    char row[86];
-    snprintf(row, sizeof(row), "#%lu  %s: %s", static_cast<unsigned long>(e->sequence),
-             source_name(e->source), kind_name(e->kind));
+    char row[96];
+    format_event_row(*e, row, sizeof(row));
     label(row, 40, 462 + i * 38, i == 0 ? kGreen : TFT_WHITE, 2);
   }
   box(646, 390, 614, 241);
@@ -412,6 +412,11 @@ void environment() {
   label("Temperature / humidity / pressure", 666, 426, kCyan, 2);
   label("shown only from current valid sensor samples", 666, 476, kMuted, 2);
 }
+bool event_has_clip(uint32_t sequence) {
+  for (uint8_t i = 0; i < g_snapshot->clip_event_seq_count && i < 16; ++i)
+    if (g_snapshot->clip_event_seqs[i] == sequence) return true;
+  return false;
+}
 void events() {
   box(20, 120, 767, 511);
   heading("EVENT LOG / LAST 7", 40, 144);
@@ -421,35 +426,42 @@ void events() {
     const size_t rows = std::min<size_t>(7, g_events->count());
     for (size_t i = 0; i < rows; ++i) {
       const Event* e = g_events->newest(i); if (!e) continue;
-      char line[94];
-      snprintf(line, sizeof(line), "#%lu %s / %s",
-        static_cast<unsigned long>(e->sequence), source_name(e->source), kind_name(e->kind));
-      label(line, 40, 206 + static_cast<int>(i) * 55,
-        e->source == Source::manual ? kViolet : TFT_WHITE, 2);
+      char line[96];
+      format_event_row(*e, line, sizeof(line));
+      const int y = 206 + static_cast<int>(i) * 55;
+      label(line, 40, y, e->source == Source::manual ? kViolet : e->source == Source::sweep ? kMuted : TFT_WHITE, 2);
+      if (event_has_clip(e->sequence)) label("CLIP", 690, y, kGreen, 2);
       if (i != rows - 1) divider(40, 233 + static_cast<int>(i) * 55, 718);
     }
   }
   box(801, 120, 459, 511);
   heading("DETECTION", 822, 144);
-  label("AUTO RF LEVEL RISE", 822, 211, kCyan);
+  label("AUTO: RF RISE + AUDIO RISE", 822, 205, kCyan, 2);
   const Sensitivity sens = g_events ? g_events->sensitivity() : Sensitivity::standard;
   char threshold[64];
   snprintf(threshold, sizeof(threshold), "Threshold +%.0f dB", rf_rise_threshold_db(sens));
-  label(threshold, 822, 272, TFT_WHITE, 3);
-  label(g_events && g_events->baseline_ready() ? "BASELINE READY" : "BASELINE WARMING",
-        822, 333, g_events && g_events->baseline_ready() ? kGreen : kYellow, 2);
-  button("QUIET", 818, 382, 135, kCyan, true);
-  button("NORMAL", 956, 382, 135, kCyan, true);
-  button("HIGH", 1094, 382, 145, kCyan, true);
+  label(threshold, 822, 258, TFT_WHITE, 3);
+  const bool rf_ready = g_events && g_events->baseline_ready();
+  label(rf_ready ? "RF BASELINE READY" : "RF BASELINE WARMING", 822, 310, rf_ready ? kGreen : kYellow, 2);
+  label(!g_snapshot->audio_available ? "AUDIO: NOT FLOWING" : g_snapshot->audio_baseline_ready ? "AUDIO BASELINE READY" : "AUDIO BASELINE WARMING",
+        822, 342, !g_snapshot->audio_available ? kMuted : g_snapshot->audio_baseline_ready ? kGreen : kYellow, 2);
+  const char* names[3] = {"QUIET", "NORMAL", "HIGH"};
+  const int xs[3] = {818, 956, 1094}, ws[3] = {135, 135, 145};
+  for (int i = 0; i < 3; ++i) {
+    const bool selected = static_cast<int>(sens) == i;  // Sensitivity: quiet, standard, sensitive
+    box(xs[i], 382, ws[i], 52, selected ? kGreen : kCyan);
+    label(names[i], xs[i] + 16, 408, selected ? kGreen : TFT_WHITE);
+  }
   button("MARK EVENT", 818, 505, 420, kRed, g_events != nullptr);
 }
 constexpr int kClipBtnX = 40, kClipBtnY = 556, kClipBtnW = 300, kClipBtnH = 52;
+constexpr int kVerifyBtnX = 517, kVerifyBtnY = 330, kVerifyBtnW = 300, kVerifyBtnH = 52;
 void review() {
   box(20, 120, 460, 511);
   heading("SESSION ARCHIVE", 40, 144);
   label("EVENT LOG (JSONL)", 40, 190, kMuted, 2);
   label(recorder_text(g_snapshot->recorder_state), 40, 232, recorder_color(g_snapshot->recorder_state), 3);
-  char line[56];
+  char line[80];
   snprintf(line, sizeof(line), "Saved %lu  Lost %lu  Dropped %lu", static_cast<unsigned long>(g_snapshot->recorder_saved),
            static_cast<unsigned long>(g_snapshot->recorder_missing), static_cast<unsigned long>(g_snapshot->recorder_dropped));
   label(line, 40, 280, g_snapshot->recorder_missing || g_snapshot->recorder_dropped ? kYellow : TFT_WHITE, 2);
@@ -461,7 +473,7 @@ void review() {
   snprintf(line, sizeof(line), "Saved %lu  Failed %lu  Skipped %lu", static_cast<unsigned long>(g_snapshot->clips_saved),
            static_cast<unsigned long>(g_snapshot->clips_failed), static_cast<unsigned long>(g_snapshot->clips_refused));
   label(line, 40, 440, g_snapshot->clips_failed ? kYellow : TFT_WHITE, 2);
-  label("Skipped = no audio or busy", 40, 482, kMuted, 2);
+  label("Skipped: no audio, busy or cap", 40, 482, kMuted, 2);
   button(g_snapshot->clips_enabled ? "CLIPS ON" : "CLIPS OFF", kClipBtnX, kClipBtnY, kClipBtnW,
          g_snapshot->clips_enabled ? kGreen : kCyan, true);
   box(497, 120, 763, 511);
@@ -472,16 +484,30 @@ void review() {
     label("5 s before and 5 s after, exactly as", 517, 328, kMuted, 2);
     label("the receiver demodulated it.", 517, 366, kMuted, 2);
   } else {
-    for (uint8_t i = 0; i < g_snapshot->clip_count && i < kClipInfoCount; ++i) {
-      const ClipInfo& c = g_snapshot->clips[i];
-      snprintf(line, sizeof(line), "%s", c.name);
-      label(line, 517, 196 + i * 62, i == 0 ? kGreen : TFT_WHITE, 2);
-      snprintf(line, sizeof(line), "%u.%u s   sha %s%s", static_cast<unsigned>(c.duration_ds / 10),
-               static_cast<unsigned>(c.duration_ds % 10), c.sha8, c.truncated ? "   TRUNCATED" : "");
-      label(line, 517, 224 + i * 62, c.truncated ? kYellow : kMuted, 2);
+    const ClipInfo& c = g_snapshot->clips[0];
+    label(c.name, 517, 190, kGreen, 2);
+    snprintf(line, sizeof(line), "%u.%u s  %s  %.3f MHz  speaker %s%s", static_cast<unsigned>(c.duration_ds / 10),
+             static_cast<unsigned>(c.duration_ds % 10), c.demod, static_cast<double>(c.frequency_hz) / 1e6,
+             c.speaker_on ? "ON" : "MUTED", c.truncated ? "  TRUNCATED" : "");
+    label(line, 517, 222, c.truncated ? kYellow : TFT_WHITE, 2);
+    snprintf(line, sizeof(line), "sha256 %s...", c.sha16);
+    label(line, 517, 254, kMuted, 2);
+    const uint8_t v = g_snapshot->verify_state;
+    label(v == 1 ? "VERIFYING..." : v == 2 ? "VERIFIED: file on the card matches" : v == 3 ? "MISMATCH: file differs from its hash" :
+          v == 4 ? "FILE MISSING from the card" : "NOT RE-CHECKED YET", 517, 292,
+          v == 2 ? kGreen : (v == 3 || v == 4) ? kRed : v == 1 ? kYellow : kMuted, 2);
+    button("VERIFY NEWEST", kVerifyBtnX, kVerifyBtnY, kVerifyBtnW, kCyan, v != 1);
+    if (g_snapshot->clip_count > 1) {
+      label("EARLIER", 517, 424, kMuted, 2);
+      for (uint8_t i = 1; i < g_snapshot->clip_count && i < kClipInfoCount; ++i) {
+        const ClipInfo& o = g_snapshot->clips[i];
+        snprintf(line, sizeof(line), "%s  %u.%u s%s", o.name, static_cast<unsigned>(o.duration_ds / 10),
+                 static_cast<unsigned>(o.duration_ds % 10), o.truncated ? "  TRUNCATED" : "");
+        label(line, 517, 454 + (i - 1) * 30, o.truncated ? kYellow : TFT_WHITE, 2);
+      }
     }
   }
-  label("Mic clips: not implemented", 517, 596, kMuted, 2);
+  label("Mic clips: not implemented", 517, 610, kMuted, 2);
 }
 void paint_page() {
   switch (g_page) {
@@ -786,6 +812,8 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
     }
   }
   if (g_page == Page::review && hit(x, y, kClipBtnX, kClipBtnY, kClipBtnW, kClipBtnH)) return {ActionKind::toggle_clips, 0};
+  if (g_page == Page::review && g_snapshot->clip_count && g_snapshot->verify_state != 1 &&
+      hit(x, y, kVerifyBtnX, kVerifyBtnY, kVerifyBtnW, kVerifyBtnH)) return {ActionKind::verify_clip, 0};
   if (g_page == Page::events && g_events != nullptr) {
     if (hit(x, y, 818, 505, 420, 52)) {
       g_events->mark_manual(now_ms, g_snapshot->unix_time, g_snapshot->frequency_hz);
