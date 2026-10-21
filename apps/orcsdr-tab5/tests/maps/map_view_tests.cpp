@@ -1,0 +1,46 @@
+#include "map_view.hpp"
+#include <M5GFX.h>
+#include <cassert>
+#include <cstdio>
+#include <cstring>
+
+namespace orcsdr::maps {
+Frame next_frame=Frame::pending;
+bool preview=true;
+int service_calls=0;
+bool regional_view(int32_t lat,int32_t lon,double,int width,int height,orcmap::Viewport* out) {
+  out->center_lat_deg=lat/1e7;out->center_lon_deg=lon/1e7;
+  out->width_px=width;out->height_px=height;out->zoom=8;return true;
+}
+bool project(const orcmap::Viewport&,int32_t,int32_t,int* x,int* y) {*x=5;*y=6;return true;}
+Frame draw(const orcmap::Viewport&,lgfx::LovyanGFX& target,int,int,FrameInfo* info,const char*,bool) {
+  ++service_calls;
+  if(preview||next_frame==Frame::ready) {
+    target.drawString("OrcMaps pixels",0,0);
+    std::snprintf(info->credit,sizeof(info->credit),"Original pack attribution");
+  }
+  return next_frame;
+}
+}
+int main() {
+  using namespace orcsdr::maps;
+  lgfx::LovyanGFX display;
+  for(const auto state:{Frame::pending,Frame::ready,Frame::unavailable}) {
+    next_frame=state;display.strings.clear();
+    // A stale saved legacy identity must never bypass the shared engine.
+    const auto view=draw_region(display,444013775,-1229940563,100,10,20,622,302,
+                                0,1,2,"lane_county_map",true);
+    assert(view.valid&&view.frame.state==state);
+    int x=0,y=0;assert(project(view,444013775,-1229940563,&x,&y));
+    assert(x==15&&y==26);
+    if(state==Frame::pending) {
+      assert(std::strcmp(view.frame.credit,"Original pack attribution")==0);
+      assert(std::strcmp(view.frame.status,"UPDATING LOCAL MAP")==0);
+    }
+  }
+  assert(service_calls==3);
+  next_frame=Frame::pending;preview=false;
+  const auto loading=draw_region(display,0,0,25,10,20,622,302,0,1,2);
+  assert(std::strcmp(loading.frame.status,"LOADING LOCAL MAP")==0);
+  std::puts("MAP_VIEW_PASS pending/ready/unavailable use one engine and projection; pending credit retained");
+}

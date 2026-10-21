@@ -21,6 +21,21 @@ not a claim that all existing features already meet it. Application-wide gaps
 outside maps should be recorded separately without expanding this integration
 into an unrelated refactor.
 
+### Worldwide shipping defaults and legacy retirement — October 21, 2026
+
+The user explicitly retires personal Lane County/Oregon setup from the shipping
+experience. Remove the legacy map renderer/fallback rather than retaining it
+behind the new maps. Preserve existing SD files and saved locations, identify
+unsupported old formats clearly, and derive regional map recommendations from
+the user's location. Do not ship development/demo regional configuration as a
+real first-boot default. Earlier legacy-renderer compatibility requirements in
+this historical ledger are superseded; data preservation remains required.
+
+The pending ADS-B zoom defect is confirmed: the shared regional adapter paints
+ORCMAP1 over the cached OrcMaps preview. Its removal and catalog retirement pass
+focused host checks; native/device gates remain open at this checkpoint.
+[Scope, commands and evidence](../../evidence/maps/2026-10-21-legacy-map-retirement.md).
+
 **Active delivery work: Phase 4; Phases 2 and 3 remain open.** Labels and cached
 gestures run on COM17. Delivery now has a signed catalog consumer and hidden
 resumable staging, connected worker/setup UI and bounded COM17 evidence. The

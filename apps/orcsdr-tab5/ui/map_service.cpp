@@ -5,7 +5,6 @@
 #include "map_activation.hpp"
 #include "map_downloads.hpp"
 #include "map_preferences.hpp"
-#include "offline_map.hpp"
 #include "memory_reclaim.hpp"
 #include "orcmap/esp_idf/file_byte_source.hpp"
 #include "orcmap/esp_idf/pack_filesystem.hpp"
@@ -51,6 +50,7 @@ EXT_RAM_BSS_ATTR Inventory g_inventory;
 EXT_RAM_BSS_ATTR M5Canvas g_canvas(&M5.Display);
 EXT_RAM_BSS_ATTR M5Canvas g_preview(&M5.Display);
 EXT_RAM_BSS_ATTR Request g_preview_request;
+EXT_RAM_BSS_ATTR FrameInfo g_preview_info;
 bool g_preview_valid=false;
 std::atomic<uint32_t> g_preview_lifetime{0};
 std::atomic<size_t> g_preview_bytes{0};
@@ -113,7 +113,7 @@ void publish_preview(const Request& request) {
   }
   if(g_preview_bytes.load()) {
     g_canvas.pushSprite(&g_preview,0,0);
-    g_preview_request=request;g_preview_valid=true;
+    g_preview_request=request;g_preview_info=g_frame;g_preview_valid=true;
   }
   xSemaphoreGive(g_preview_lock);
 }
@@ -153,7 +153,7 @@ void capture_preview_facts(const Request& request,lgfx::v1::LovyanGFX& target,
   facts.copy_bbox_pixels=static_cast<uint64_t>(std::max<int64_t>(0,std::min(right,image_right)-std::max(left,image_left)))*
       std::max<int64_t>(0,std::min(bottom,image_bottom)-std::max(top,image_top));
 }
-void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y) {
+void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y,FrameInfo* info) {
   if(!g_preview_lock)return;
   if(xSemaphoreTake(g_preview_lock,0)!=pdTRUE){g_preview_lock_misses.fetch_add(1);return;}
   orcmap::FrameTransform transform;
@@ -166,7 +166,10 @@ void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y
     auto& timing=transform.scale==1?g_preview_pan_timing:g_preview_zoom_timing;
     if(paint.painted)timing.present(request.serial,request.requested_us,started,
         static_cast<uint64_t>(esp_timer_get_time()),paint.clear_us,paint.transfer_us);
-    if(paint.painted)capture_preview_facts(request,target,transform,x,y);
+    if(paint.painted) {
+      capture_preview_facts(request,target,transform,x,y);
+      if(info){*info=g_preview_info;info->state=Frame::pending;}
+    }
   }
   xSemaphoreGive(g_preview_lock);
 }
@@ -268,11 +271,13 @@ void discover() {
   next.world=world.usable;text(world.status,world.usable ? "FIRMWARE; HASH UNCHECKED" : "NOT PROVISIONED / UNREADABLE");
   if(g_sd) {
     auto& legacy=next.packs[next.count++];
-    legacy.kind=Kind::legacy;text(legacy.identity,"lane_county_map");text(legacy.title,"Legacy regional map (ORCMAP1)");
-    text(legacy.region,"Lane County, Oregon");legacy.usable=offline_map::available();next.legacy=legacy.usable;
+    legacy.kind=Kind::legacy;text(legacy.identity,"lane_county_map");text(legacy.title,"Older map file (unsupported)");
     text(legacy.credit,"OpenStreetMap contributors, ODbL");
     const bool exists=files.FileSize("/sd/orcsdr/data/lane_county_map.idx",&legacy.bytes);
-    text(legacy.status,legacy.usable ? "LEGACY; HASH UNCHECKED" : exists ? "INVALID / EMPTY LEGACY FILE" : "NOT INSTALLED");
+    next.legacy=exists;
+    text(legacy.region,"Install a PMTiles map to replace this format");
+    text(legacy.status,exists ? "UNSUPPORTED FORMAT; FILE PRESERVED" : "NOT INSTALLED");
+    if(!exists)--next.count;
   }
   for(const auto& pack:g_inventory.catalog().Packs()) {
     auto& item=next.packs[next.count++];item.kind=Kind::pmtiles;
@@ -546,7 +551,7 @@ Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,
     xQueueOverwrite(g_queue,&request);
   }
   request=g_requested; // Preserve the first acceptance timestamp across repaint/lock retries.
-  if(xSemaphoreTake(g_lock,0)!=pdTRUE){draw_preview(request,target,x,y);return Frame::pending;}
+  if(xSemaphoreTake(g_lock,0)!=pdTRUE){draw_preview(request,target,x,y,info);return Frame::pending;}
   if(g_cached && g_ready.serial==g_serial.load() && same(request,g_ready)) {
     if(g_frame.state==Frame::ready) {
       const uint64_t started=clock_us();g_canvas.pushSprite(&target,x,y);
@@ -556,6 +561,6 @@ Frame draw(const orcmap::Viewport& view,lgfx::v1::LovyanGFX& target,int x,int y,
     if(info)*info=g_frame;
     const Frame result=g_frame.state;xSemaphoreGive(g_lock);return result;
   }
-  xSemaphoreGive(g_lock);draw_preview(request,target,x,y);return Frame::pending;
+  xSemaphoreGive(g_lock);draw_preview(request,target,x,y,info);return Frame::pending;
 }
 } // namespace orcsdr::maps

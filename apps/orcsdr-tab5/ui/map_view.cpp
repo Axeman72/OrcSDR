@@ -11,23 +11,15 @@ RegionalView draw_region(lgfx::v1::LovyanGFX& display,int32_t latitude,int32_t l
   RegionalView result;
   result.valid=regional_view(latitude,longitude,range,width,height,&result.camera);
   if(!result.valid)return result;
-  result.legacy={latitude/1e7f,longitude/1e7f,static_cast<float>(range),x,y,width,height};
+  result.x=x;result.y=y;
   display.fillRect(x,y,width,height,background);
-  const bool prefer_legacy=preferred&&std::strcmp(preferred,"lane_county_map")==0&&offline_map::available();
-  result.frame.state=prefer_legacy?Frame::unavailable:draw(result.camera,display,x,y,&result.frame,preferred,labels);
+  result.frame.state=draw(result.camera,display,x,y,&result.frame,preferred,labels);
   if(result.frame.state!=Frame::ready) {
-    // Legacy data remains usable without conversion. Keep its projection with
-    // its basemap, rather than putting Mercator markers over equirectangular data.
-    result.legacy_pixels=offline_map::available();
-    if(result.legacy_pixels) {
-      offline_map::draw_base(display,result.legacy,0x0320,grid,ink,grid,labels && result.camera.zoom >= 6);
-      std::snprintf(result.frame.title,sizeof(result.frame.title),"Legacy regional map (ORCMAP1)");
-      std::snprintf(result.frame.credit,sizeof(result.frame.credit),"OpenStreetMap contributors, ODbL");
-    } else display.drawRect(x,y,width,height,grid);
+    display.drawRect(x,y,width,height,grid);
     std::snprintf(result.frame.status,sizeof(result.frame.status),"%s",
-        prefer_legacy ? "LEGACY MAP - COVERAGE UNVERIFIED" :
-        result.frame.state==Frame::pending ? "LOADING LOCAL MAP" :
-        result.legacy_pixels ? "LEGACY - COVERAGE UNVERIFIED" : "NO BASEMAP - COORDINATES ONLY");
+        result.frame.state==Frame::pending ?
+          (result.frame.credit[0] ? "UPDATING LOCAL MAP" : "LOADING LOCAL MAP") :
+          "NO BASEMAP - COORDINATES ONLY");
   }
   display.setFont(nullptr);
   display.setTextSize(1);display.setTextDatum(bottom_left);display.setTextColor(ink,background);
@@ -49,8 +41,7 @@ RegionalView draw_region(lgfx::v1::LovyanGFX& display,int32_t latitude,int32_t l
 bool project(const RegionalView& view,int32_t latitude,int32_t longitude,int* x,int* y) {
   if(!view.valid || !x || !y || latitude<-900000000 || latitude>900000000 ||
       longitude<-1800000000 || longitude>1800000000)return false;
-  if(view.legacy_pixels)return offline_map::project(view.legacy,latitude/1e7f,longitude/1e7f,x,y);
   if(!project(view.camera,latitude,longitude,x,y))return false;
-  *x+=view.legacy.x;*y+=view.legacy.y;return true;
+  *x+=view.x;*y+=view.y;return true;
 }
 } // namespace orcsdr::maps

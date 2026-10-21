@@ -133,7 +133,6 @@ idf_component_register(
         "../ui/lora_channel_control.cpp"
         "../ui/location_estimate.cpp"
         "../ui/receiver_location.cpp"
-        "../ui/offline_map.cpp"
         "../ui/map_pipeline.cpp"
         "../ui/map_inventory.cpp"
         "../ui/map_service.cpp"

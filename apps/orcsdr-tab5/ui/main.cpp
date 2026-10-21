@@ -119,7 +119,6 @@
 #include "setup_ui.hpp"
 #include "orc_badge.hpp"
 #include "navigation_service.hpp"
-#include "offline_map.hpp"
 #include "map_service.hpp"
 #include "map_screen.hpp"
 #include "location_store.hpp"
@@ -14694,7 +14693,6 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       } else if (ensure_tab5_sd()) {
         orcsdr::catalog::begin(g_sd_fs, sd_total_bytes() -
             orcsdr::storage::used_bytes());
-        (void)orcsdr::offline_map::load(g_sd_fs);
         if (!orcsdr::wifi::connected()) {
           (void)orcsdr::catalog::request_check();
           Serial.println("ORC_CATALOG_CHECK_REJECTED");
@@ -20877,7 +20875,7 @@ void process_command(char* command) {
     Serial.println("RTL_CATALOG_FETCH              - fetch+verify signed catalog (Wi-Fi required)");
     Serial.println("RTL_CATALOG_INSTALL <id>       - fetch+verify+activate data/map pack");
     Serial.println("RTL_CATALOG_REMOVE <id> CONFIRM - remove installed pack (SD only)");
-    Serial.println("RTL_CATALOG packs: faa_aircraft|faa_aviation|noaa_weather|fcc_broadcast|lane_county_map");
+    Serial.println("RTL_CATALOG packs: faa_aircraft|faa_aviation|noaa_weather|fcc_broadcast");
     Serial.println("RTL_LOCATION STATUS|IP|LOOKUP <zip/address>|CONFIRM - resolve and save receiver location");
     Serial.println("ORC_RTC_STATUS                 - trusted hardware UTC clock status");
     Serial.println("ORC_RTC_SET <unix_utc>         - establish hardware UTC clock (auth)");
@@ -22117,7 +22115,7 @@ void setup() {
   Serial.println("RTL_LAB_SELF_CHECK_OK");
   configure_navigation_service();
   if (!orcsdr::adsb::self_check() || !orcsdr::adsb_rx::Decoder::self_check() ||
-      !orcsdr::offline_map::self_check() || !orcsdr::atc::self_check()) {
+      !orcsdr::atc::self_check()) {
     Serial.println("RTL_ADSB_SELF_CHECK_FAIL");
   }
   Serial.println("RTL_ADSB_SELF_CHECK_OK");
@@ -22269,7 +22267,6 @@ void setup() {
   (void)orcsdr::rf_lab::initialize(g_sd_fs);
   load_pocsag_scan_list();
   if (test_sd_ready) {
-    (void)orcsdr::offline_map::load(g_sd_fs);
     refresh_adsb_atc_preset();
   }
   initialize_rtl_sdr_host();
@@ -22350,7 +22347,6 @@ void setup() {
     (void)orcsdr::rf_lab::initialize(g_sd_fs);
     load_pocsag_scan_list();
     orcsdr::catalog::begin(g_sd_fs, sd_total_bytes() - orcsdr::storage::used_bytes());
-    (void)orcsdr::offline_map::load(g_sd_fs);
     refresh_adsb_atc_preset();
     heard_db_load_from_sd();   // stations-heard journal: replayed now, while internal DMA memory is free
     set_lora_sd_logging(true);  // worker replays persistent node history; no SD IO on the decoder path
@@ -22577,7 +22573,6 @@ void loop() {
     static bool catalog_was_busy = false;
     const auto catalog_state = orcsdr::catalog::state();
     if (catalog_was_busy && !catalog_state.busy && g_sd_fs != nullptr) {
-      (void)orcsdr::offline_map::load(g_sd_fs);
       orcsdr::maps::rescan();
       refresh_adsb_atc_preset();
       resume_radio_after_catalog();

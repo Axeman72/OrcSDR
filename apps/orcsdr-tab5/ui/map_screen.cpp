@@ -158,7 +158,7 @@ void draw_inventory() {
     button(title,32,y,1070,76,index==g_index);
     char line[160];
     const char* detail=pack.kind==maps::Kind::firmware?"World overview - broad coverage, limited detail":
-        pack.kind==maps::Kind::legacy?"Legacy regional map":pack.region;
+        pack.kind==maps::Kind::legacy?"Older format - install a PMTiles map":pack.region;
     std::snprintf(line,sizeof(line),"%.55s | zoom %u-%u%s%s",detail,pack.min_zoom,pack.max_zoom,
         std::strcmp(location.map_pack,pack.identity)==0?" | SELECTED":"",pack.usable?"":" | UNAVAILABLE");
     text(line,44,y+46,2);

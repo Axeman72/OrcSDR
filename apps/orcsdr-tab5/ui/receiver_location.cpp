@@ -71,16 +71,16 @@ Snapshot snapshot() {
 bool self_check() {
   const Snapshot saved = g_location;
   g_location = {};
-  set(true, 440462000, -1230220000, "Springfield, Oregon", "Willamette Valley");
+  set(true, 100000000, 200000000, "Test location", "Test map");
   const Snapshot first = snapshot();
   const uint32_t revision = first.revision;
-  set(true, 440462000, -1230220000, "Springfield, Oregon", "Willamette Valley");
+  set(true, 100000000, 200000000, "Test location", "Test map");
   const bool stable = snapshot().revision == revision;
   set(false, 123, 456, nullptr, nullptr);
   const Snapshot cleared = snapshot();
-  const bool ok = first.configured && first.latitude_e7 == 440462000 &&
-                  first.longitude_e7 == -1230220000 &&
-                  std::strcmp(first.label, "Springfield, Oregon") == 0 &&
+  const bool ok = first.configured && first.latitude_e7 == 100000000 &&
+                  first.longitude_e7 == 200000000 &&
+                  std::strcmp(first.label, "Test location") == 0 &&
                   stable && !cleared.configured && cleared.latitude_e7 == 0 &&
                   cleared.longitude_e7 == 0 &&
                   valid(true, 900000000, 1800000000) &&
