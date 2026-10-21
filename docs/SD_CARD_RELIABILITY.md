@@ -153,3 +153,18 @@ timings, data hashes, memory/counters, actual failures and restoration steps.
 Preserve recovery/NVS/SD data; do not fold an overnight soak or card fault
 campaign into a bounded test approval. No guarantee against all future SD failures
 is inferred from a host gate or one device sample.
+
+## 2026-10-20 label/dashboard retained-map check
+
+COM17 `30:ED:A0:E2:E6:95`, firmware `af877ed7`: after visiting LoRa, ADS-B and
+the picker, both map buffers retained 2,835,456 B. An existing 8,192-byte reserved
+scratch file was read with reception stopped and matched its previously recorded
+SHA-256; no new SD file was written. Reception resumed at BROWSE 146.520 MHz,
+about 2.4 MSPS, zero observed driver drops/overruns in this bounded check.
+
+Free PSRAM after this workload was 1,870,944 B, largest block 917,504 B. The
+memory-holder report showed 15,840,000 B of reclaimable LoRa IQ buffers. Treat
+this as workload/reclaim evidence, not a leak diagnosis or a universal SD pass.
+FT8 with these retained allocations still needs its native fallback/reclaim test.
+Commands/logs and point-in-time DMA/stack measurements:
+[evidence](evidence/maps/2026-10-19-geographic-label-controls.md).

@@ -1,5 +1,7 @@
 # FT8 selective integration - October 20 source/host checkpoint
 
+Local selective-integration commit: `89882f7a`.
+
 Cloud source reviewed: `origin/codex/ft8-orcmaps` at
 `2e86835bb75720ab3286eac6e95c40d50e9b7c99`, based on `af877ed7`.
 Imported the final source/test/build-registration delta only, not its branch
