@@ -19366,7 +19366,7 @@ void process_command(char* command) {
     return;
   }
   if (strcmp(command, "RTL_DEAD_AIR STATUS") == 0) {
-    char line[512];
+    char line[768];
     orcsdr::dead_air_app::describe(line, sizeof(line));
     Serial.println(line);
     return;

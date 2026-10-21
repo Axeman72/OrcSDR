@@ -1121,7 +1121,7 @@ void describe(char* out, size_t size) {
   const Worker& w = g_state->worker;
   const PaintStats ps = dead_air::paint_stats();
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu audio=%d rms=%.1f peak=%.1f abase=%d clip=%u cs=%lu cf=%lu cr=%lu mic=%u ms=%lu mf=%lu mr=%lu mic_blocks=%lu",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu audio=%d rms=%.1f peak=%.1f snd=%d abase=%d clip=%u cs=%lu cf=%lu cr=%lu mic=%u ms=%lu mf=%lu mr=%lu mic_blocks=%lu",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
@@ -1140,6 +1140,7 @@ void describe(char* out, size_t size) {
                 static_cast<unsigned long>(ps.frame_us), static_cast<unsigned long>(ps.frame_us_max),
                 static_cast<unsigned long>(ps.frames),
                 g_state->audio_flowing ? 1 : 0, static_cast<double>(g_state->audio_rms), static_cast<double>(g_state->audio_peak),
+                (g_hooks.sound_enabled && g_hooks.sound_enabled()) ? 1 : 0,
                 g_state->audio_detector.baseline_ready() ? 1 : 0,
                 static_cast<unsigned>(g_state->rx.planner.state()), static_cast<unsigned long>(g_state->rx.saved.load()),
                 static_cast<unsigned long>(g_state->rx.failed.load()),
