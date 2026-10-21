@@ -368,7 +368,7 @@ void worker(void*) {
     if(ok) {
       orcmap::m5gfx_adapter::DisplayTarget target(g_canvas);
       orcmap::m5gfx_adapter::LabelTarget text_target(g_canvas,fonts::DejaVu24);
-      g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target,request.labels?&g_labels:nullptr,request.labels?&text_target:nullptr);
+      g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target,request.labels?&g_labels:nullptr,request.labels?&text_target:nullptr,request.view.zoom);
     }
     if(g_pipeline)g_frame.stats=g_pipeline->stats();
     if(g_frame.stats.out_of_memory) {

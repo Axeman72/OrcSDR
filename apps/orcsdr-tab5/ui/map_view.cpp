@@ -20,7 +20,7 @@ RegionalView draw_region(lgfx::v1::LovyanGFX& display,int32_t latitude,int32_t l
     // its basemap, rather than putting Mercator markers over equirectangular data.
     result.legacy_pixels=offline_map::available();
     if(result.legacy_pixels) {
-      offline_map::draw_base(display,result.legacy,0x0320,grid,ink,grid,labels);
+      offline_map::draw_base(display,result.legacy,0x0320,grid,ink,grid,labels && result.camera.zoom >= 6);
       std::snprintf(result.frame.title,sizeof(result.frame.title),"Legacy regional map (ORCMAP1)");
       std::snprintf(result.frame.credit,sizeof(result.frame.credit),"OpenStreetMap contributors, ODbL");
     } else display.drawRect(x,y,width,height,grid);

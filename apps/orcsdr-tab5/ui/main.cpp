@@ -15103,7 +15103,7 @@ void load_state() {
   adsb_settings.location_configured = stored_location.configured;
   adsb_settings.latitude_e7 = stored_location.latitude;
   adsb_settings.longitude_e7 = stored_location.longitude;
-  adsb_settings.radar_range_nm = preferences.getUShort("adsb_range", 25);
+  adsb_settings.radar_range_nm = preferences.getUShort("adsb_range", orcsdr::adsb::kDefaultRadarRangeNm);
   load_cb_settings();
   if (adsb_settings.latitude_e7 < -900000000 || adsb_settings.latitude_e7 > 900000000 ||
       adsb_settings.longitude_e7 < -1800000000 ||
@@ -15111,7 +15111,7 @@ void load_state() {
       (adsb_settings.radar_range_nm != 10 && adsb_settings.radar_range_nm != 25 &&
        adsb_settings.radar_range_nm != 50 && adsb_settings.radar_range_nm != 100)) {
     adsb_settings = {};
-    adsb_settings.radar_range_nm = 25;
+    adsb_settings.radar_range_nm = orcsdr::adsb::kDefaultRadarRangeNm;
   }
   orcsdr::receiver_location::set(
       adsb_settings.location_configured, adsb_settings.latitude_e7,

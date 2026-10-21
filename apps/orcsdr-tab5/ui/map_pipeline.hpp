@@ -40,7 +40,8 @@ class Pipeline {
   bool open(std::string_view profile);
   // Optional labels use caller-owned storage (PSRAM on P4) and a real font target.
   bool render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target,
-              orcmap::LabelLayout* labels = nullptr, orcmap::LabelTextTarget* text = nullptr);
+              orcmap::LabelLayout* labels = nullptr, orcmap::LabelTextTarget* text = nullptr,
+              int label_zoom = -1); // User zoom; source viewport may be coarser. -1 uses viewport.zoom.
   const orcmap::PmTilesHeader& header() const { return reader_.Header(); }
   const RenderStats& stats() const { return stats_; }
 
@@ -60,7 +61,7 @@ class Pipeline {
   struct Context;
   bool open_impl(std::string_view profile);
   bool render_impl(const orcmap::Viewport&,orcmap::RenderTarget&,
-                   orcmap::LabelLayout*,orcmap::LabelTextTarget*);
+                   orcmap::LabelLayout*,orcmap::LabelTextTarget*,int);
   static bool feature(const orcmap::Feature&, void*);
   uint64_t now() const { return hooks_.now_us ? hooks_.now_us() : 0; }
   WorkHooks hooks_;

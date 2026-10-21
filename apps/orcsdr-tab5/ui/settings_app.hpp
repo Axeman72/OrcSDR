@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "catalog_sync.hpp"
+#include "adsb_dashboard.hpp"
 
 namespace orcsdr::settings {
 
@@ -78,7 +79,7 @@ struct State {
   bool location_configured = false;
   int32_t latitude_e7 = 0;
   int32_t longitude_e7 = 0;
-  uint16_t radar_range_nm = 25;
+  uint16_t radar_range_nm = orcsdr::adsb::kDefaultRadarRangeNm;
   char location_label[40]{};
   char map_pack[256]{};
   bool ip_location_busy = false;

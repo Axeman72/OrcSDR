@@ -480,8 +480,10 @@ void draw_radar() {
          i == g_selected ? TFT_WHITE : TFT_LIGHTGREY, 1, middle_left);
   }
   M5.Display.clearClipRect();
-  button("+", kZoomX, kZoomY, kZoomSize, kZoomSize, TFT_DARKCYAN);
-  button("-", kZoomX, kZoomY+kZoomStep, kZoomSize, kZoomSize, TFT_DARKCYAN);
+  button("+", kZoomX, kZoomY, kZoomSize, kZoomSize,
+         g_settings.radar_range_nm==kRanges[0] ? TFT_DARKGREY : TFT_DARKCYAN);
+  button("-", kZoomX, kZoomY+kZoomStep, kZoomSize, kZoomSize,
+         g_settings.radar_range_nm==kRanges[std::size(kRanges)-1] ? TFT_DARKGREY : TFT_DARKCYAN);
 
   card(234, 488, 646, 136);
   text("SIGNAL LEVEL", 250, 512, TFT_WHITE, 1, middle_left);

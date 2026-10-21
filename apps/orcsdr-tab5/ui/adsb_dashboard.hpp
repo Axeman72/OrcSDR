@@ -5,11 +5,13 @@
 
 namespace orcsdr::adsb {
 
+// About 47 statute miles across the wide dashboard map at its initial scale.
+inline constexpr uint16_t kDefaultRadarRangeNm = 10;
 struct Settings {
   bool location_configured = false;
   int32_t latitude_e7 = 0;
   int32_t longitude_e7 = 0;
-  uint16_t radar_range_nm = 25;
+  uint16_t radar_range_nm = kDefaultRadarRangeNm;
   uint32_t atc_frequency_hz = 0;
   int16_t gain_tenth_db = 0;
   bool gain_supported = false;

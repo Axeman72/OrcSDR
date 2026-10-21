@@ -53,6 +53,7 @@ struct Pipeline::Context {
   orcmap::RenderTarget& target;
   const std::vector<orcmap::TilePlacement>& placements;
   orcmap::TileId tile;
+  uint8_t label_zoom;
   orcmap::LabelLayout* labels;
   orcmap::OrderedRenderScratch& scratch;
 };
@@ -80,7 +81,7 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
       orcmap::TileScreenMap map;
       if (!orcmap::MakeTilePlacementScreenMap(context.viewport, placement,
               feature.extent ? feature.extent : 4096, &map)) return false;
-      context.labels->OfferPlace(feature,map,context.viewport.zoom,orcmap::styles::OrcSdrDark());
+      context.labels->OfferPlace(feature,map,context.label_zoom,orcmap::styles::OrcSdrDark());
     }
   }
   pipeline.stats_.render_us += pipeline.now() - start;
@@ -88,15 +89,17 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
 }
 
 bool Pipeline::render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target,
-                       orcmap::LabelLayout* labels, orcmap::LabelTextTarget* text) {
-  try {return render_impl(viewport,target,labels,text);}
+                       orcmap::LabelLayout* labels, orcmap::LabelTextTarget* text,int label_zoom) {
+  try {return render_impl(viewport,target,labels,text,label_zoom);}
   catch(const std::bad_alloc&) {render_scratch_.Reset();ready_=false;stats_.out_of_memory=true;++stats_.failed;return false;}
 }
 bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget& target,
-                            orcmap::LabelLayout* labels,orcmap::LabelTextTarget* text) {
+                            orcmap::LabelLayout* labels,orcmap::LabelTextTarget* text,int label_zoom) {
   stats_ = {};
   const uint64_t start = now();
   if ((labels == nullptr) != (text == nullptr)) return false;
+  if (label_zoom < -1 || label_zoom > 31) return false;
+  if (label_zoom == -1) label_zoom = viewport.zoom;
   if (!ready_ || viewport.width_px != target.Width() || viewport.height_px != target.Height() ||
       viewport.zoom < reader_.Header().min_zoom || viewport.zoom > reader_.Header().max_zoom) return false;
   std::vector<orcmap::TilePlacement> placements;
@@ -115,7 +118,7 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     // Keep the world overview clear; place names begin at regional zoom.
     render_scratch_.Reset();
     Context context{*this, viewport, target, placements, tile,
-                    viewport.zoom >= 6 ? labels : nullptr, render_scratch_};
+                    static_cast<uint8_t>(label_zoom), label_zoom >= 6 ? labels : nullptr, render_scratch_};
     orcmap::MvtStreamOptions options;
     options.include_layer = [](const char* name,size_t size,void* opaque) {
       const auto& ctx=*static_cast<Context*>(opaque);

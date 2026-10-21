@@ -35,7 +35,23 @@ not the current state.
 
 Checked items below close only their stated behavior/test scope, not an entire phase.
 
-### October 20 runtime / visual follow-up
+### October 21 dashboard-label follow-up
+
+COM17 now runs the native-built/app-only flashed `4b22585b` fit/ordered-renderer
+candidate. App and non-app preservation verification passed; bounded boot,
+retained-map SD readback and screenshot write/readback passed. Physical feedback
+says the fit is improving; full aircraft alignment and RF acceptance remain open.
+Settled ADS-B decoder queue losses require comparison with the prior app;
+zero USB-driver drops alone does not close continuity acceptance.
+
+The Labels button changes its saved state, but the installed pipeline suppresses
+names using source zoom 4 instead of the requested camera zoom. The prepared
+correction passes focused actual-world-archive tests; native/device acceptance
+is pending. A closer 10 NM fresh-install default preserves existing saved ranges.
+[Current defect, commands and evidence](../../evidence/maps/2026-10-21-dashboard-label-zoom.md).
+COM39 remains reserved for the separate Dead Air work.
+
+### October 20 runtime / visual follow-up (historical source checkpoint)
 
 - OrcMaps `b59d478` subsequently passed the approved configured host regression
   (8/8), was pushed to its development branch and verified remotely. OrcSDR's
