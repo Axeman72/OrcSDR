@@ -37,6 +37,14 @@ Checked items below close only their stated behavior/test scope, not an entire p
 
 ### October 20 runtime / visual follow-up
 
+- Worldwide host previews now expose a shared paint-order blocker: the archive
+  emits boundaries before opaque earth/landuse polygons, which cover the lines.
+  A 64×64 production-renderer reproduction confirms zero boundary pixels in
+  archive order versus 128 when the line is drawn last; immediate streamed
+  rendering reproduces the same loss. Hierarchy classification alone is not
+  accepted rendering. The eight zoom-8 views found all requested tiles, but
+  contrast, naming and physical quality remain open. Engine evidence:
+  `F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery/docs/evidence/2026-10-20-world-boundary-paint-order.md`.
 - FT8 candidate app-only flash and preservation checks pass on COM17. Initial
   runtime test returned unavailable under low memory; later screen changes mean
   follow-up ready frames are not FT8 acceptance. Controlled FT8 checks remain open.
