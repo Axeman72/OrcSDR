@@ -30,6 +30,9 @@ struct Hooks {
   uint32_t (*utc_epoch)() = nullptr;       // 0 when the wall clock is not verified
   bool (*sd_ready)() = nullptr;            // mounts on demand; true when the card is usable
   void (*toggle_mute)() = nullptr;
+  bool (*replay_begin)(const int16_t* pcm, size_t samples) = nullptr;  // play 48 kHz mono PCM on its own speaker channel
+  bool (*replay_playing)() = nullptr;
+  void (*replay_stop)() = nullptr;         // stop a replay and give the speaker back to the receiver
   void (*go_home)() = nullptr;
   void (*open_settings)() = nullptr;
 };

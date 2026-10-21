@@ -79,6 +79,9 @@ struct ClipTicket {
   uint32_t frequency_hz = 0;
   bool speaker_on = false;
   bool verify = false;                   // re-check an existing clip against its recorded hash instead of writing one
+  bool load = false;                     // verify, and also read the PCM into the replay buffer
+  bool log_play = false;                 // write a clip_replay journal record
+  bool played_to_end = false;            // with log_play: the replay ran to the end
   char verify_name[32]{};
   char verify_sha[65]{};
 };
@@ -87,7 +90,9 @@ struct ClipResult {
   bool abandoned = false;
   bool truncated = false;
   bool is_verify = false;
-  uint8_t verify_result = 0;             // 2 matches, 3 mismatch, 4 file missing
+  bool is_load = false;
+  bool is_log = false;
+  uint8_t verify_result = 0;             // 2 matches, 3 mismatch, 4 file missing, 5 clip too long to replay
   char name[32]{};
   char sha[65]{};
   uint32_t samples = 0;
@@ -147,7 +152,18 @@ struct State {
   ClipInfo recent[kClipInfoCount];
   char recent_sha[kClipInfoCount][65]{};  // full hashes, for re-checking
   uint8_t recent_count = 0;
-  uint8_t verify_state = 0;               // for the newest clip: 0 not yet, 1 running, 2 matches, 3 mismatch, 4 missing
+  uint8_t verify_state[kClipInfoCount]{}; // per clip: 0 not yet, 1 running, 2 matches, 3 mismatch, 4 missing
+  uint8_t selected = 0;                   // clip chosen on the Review tab (index into recent)
+  bool pinned = false;                    // the owner chose a clip; new clips do not move the selection
+  char op_name[32]{};                     // clip the in-flight verify/load applies to
+  int16_t* replay_pcm = nullptr;          // PSRAM buffer the SD worker fills for a replay
+  uint32_t replay_cap = 0;                // samples
+  uint32_t replay_samples = 0;            // loaded
+  uint8_t replay_state = 0;               // 0 idle, 1 loading, 2 playing, 3 not played
+  const char* replay_note = "";
+  uint32_t replay_started_ms = 0;
+  bool log_pending = false, log_completed = false;
+  char log_name[32]{};
   uint32_t seq_hist[16]{};                // events that have a clip, newest first
   uint8_t seq_hist_count = 0;
   AudioDetector audio_detector;
@@ -170,6 +186,7 @@ State* g_state = nullptr;
 bool g_open = false;
 std::atomic<AudioRing*> g_ring{nullptr};
 std::atomic<PcmRing*> g_rx_ring{nullptr};   // DSP thread writes the receiver audio here
+std::atomic<bool> g_replaying{false};        // a clip is playing through the speaker
 std::atomic<PcmRing*> g_mic_ring{nullptr};  // the mic task writes room audio here
 std::atomic<bool> g_audio_wanted{false};
 uint8_t g_last_action = 0;     // diagnostic: last touch action kind seen by the app
@@ -332,8 +349,61 @@ void verify_clip(State& s) {
   r.verify_result = ok && std::strcmp(hex, m.ticket.verify_sha) == 0 ? 2 : 3;
 }
 
+// Like verify_clip, and also copies the clip's samples into the replay buffer so a matching clip can be played.
+void load_clip(State& s) {
+  ClipMail& m = s.rx.mail;
+  ClipResult& r = m.result;
+  r = ClipResult{};
+  r.is_load = true;
+  std::snprintf(r.name, sizeof(r.name), "%s", m.ticket.verify_name);
+  char path[96];
+  std::snprintf(path, sizeof(path), "/orcsdr/dead_air/clips/%s", m.ticket.verify_name);
+  storage::File file = storage::filesystem().open(path, FILE_READ);
+  if (!file) { r.verify_result = 4; return; }
+  mbedtls_sha256_context sha;
+  mbedtls_sha256_init(&sha);
+  bool ok = mbedtls_sha256_starts(&sha, 0) == 0;
+  uint8_t* out = reinterpret_cast<uint8_t*>(s.replay_pcm);
+  const size_t out_cap = static_cast<size_t>(s.replay_cap) * sizeof(int16_t);
+  size_t offset = 0;
+  bool too_long = false;
+  for (;;) {
+    const size_t n = file.read(reinterpret_cast<uint8_t*>(m.chunk), sizeof(m.chunk));
+    if (n == 0) break;
+    ok = ok && mbedtls_sha256_update(&sha, reinterpret_cast<const uint8_t*>(m.chunk), n) == 0;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(m.chunk);
+    for (size_t i = 0; i < n; ++i, ++offset) {
+      if (offset < kWavHeaderBytes) continue;
+      const size_t at = offset - kWavHeaderBytes;
+      if (at >= out_cap) { too_long = true; break; }
+      out[at] = bytes[i];
+    }
+  }
+  uint8_t digest[32]{};
+  ok = ok && mbedtls_sha256_finish(&sha, digest) == 0;
+  mbedtls_sha256_free(&sha);
+  file.close();
+  char hex[65]{};
+  for (int i = 0; i < 32; ++i) std::snprintf(hex + i * 2, 3, "%02x", digest[i]);
+  if (too_long) { r.verify_result = 5; return; }
+  r.verify_result = ok && std::strcmp(hex, m.ticket.verify_sha) == 0 ? 2 : 3;
+  r.samples = offset > kWavHeaderBytes ? static_cast<uint32_t>((offset - kWavHeaderBytes) / sizeof(int16_t)) : 0;
+}
+
+void write_replay_log(State& s) {
+  const ClipTicket& t = s.rx.mail.ticket;
+  s.rx.mail.result = ClipResult{};
+  s.rx.mail.result.is_log = true;
+  char line[200];
+  const int n = std::snprintf(line, sizeof(line), "{\"v\":1,\"type\":\"clip_replay\",\"file\":\"clips/%s\",\"completed\":%s,\"hash_checked\":true}\n",
+                              t.verify_name, t.played_to_end ? "true" : "false");
+  if (n > 0) (void)journal_line(s, line, static_cast<size_t>(n));
+}
+
 void run_ticket(State& s, ClipChannel& ch) {
-  if (ch.mail.ticket.verify) verify_clip(s);
+  if (ch.mail.ticket.load) load_clip(s);
+  else if (ch.mail.ticket.log_play) write_replay_log(s);
+  else if (ch.mail.ticket.verify) verify_clip(s);
   else write_clip(s, ch);
 }
 
@@ -533,30 +603,102 @@ void remember_clip(State& s, const ClipChannel& ch, const ClipResult& r) {
   c.speaker_on = r.speaker_on;
   c.mic = ch.mic;
   s.recent_count = static_cast<uint8_t>(std::min<size_t>(kClipInfoCount, s.recent_count + 1u));
-  s.verify_state = 0;  // the newest clip has changed, so it has not been re-checked
+  for (size_t i = kClipInfoCount - 1; i > 0; --i) s.verify_state[i] = s.verify_state[i - 1];
+  s.verify_state[0] = 0;  // the newest clip has not been re-checked
+  if (s.pinned) s.selected = static_cast<uint8_t>(std::min<size_t>(s.selected + 1u, s.recent_count - 1u));
+  else s.selected = 0;
   // Remember which events have a clip (newest first, bounded).
   for (int i = 15; i >= r.seq_count; --i) s.seq_hist[i] = s.seq_hist[i - r.seq_count];
   for (uint8_t i = 0; i < r.seq_count; ++i) s.seq_hist[i] = r.seqs[i];
   s.seq_hist_count = static_cast<uint8_t>(std::min<size_t>(16, s.seq_hist_count + r.seq_count));
 }
 
-// Asks the SD worker to re-read the newest clip and compare its hash. Ignored while the worker is busy.
+int find_recent(const State& s, const char* name) {
+  for (uint8_t i = 0; i < s.recent_count; ++i)
+    if (std::strcmp(s.recent[i].name, name) == 0) return i;
+  return -1;
+}
+
+// Asks the SD worker to re-read the selected clip and compare its hash. Ignored while the worker is busy.
 void request_verify(State& s) {
-  if (!s.recent_count || s.verify_state == 1 || s.rx.mail.state.load(std::memory_order_acquire) != 0) return;
+  if (!s.recent_count || s.replay_state == 1 || s.replay_state == 2) return;
+  const uint8_t i = std::min<uint8_t>(s.selected, static_cast<uint8_t>(s.recent_count - 1));
+  if (s.verify_state[i] == 1 || s.rx.mail.state.load(std::memory_order_acquire) != 0) return;
   ClipTicket t{};
   t.verify = true;
-  std::snprintf(t.verify_name, sizeof(t.verify_name), "%s", s.recent[0].name);
-  std::snprintf(t.verify_sha, sizeof(t.verify_sha), "%s", s.recent_sha[0]);
-  s.verify_state = 1;
+  std::snprintf(t.verify_name, sizeof(t.verify_name), "%s", s.recent[i].name);
+  std::snprintf(t.verify_sha, sizeof(t.verify_sha), "%s", s.recent_sha[i]);
+  std::snprintf(s.op_name, sizeof(s.op_name), "%s", s.recent[i].name);
+  s.verify_state[i] = 1;
   post_ticket(s.rx, t);
+}
+
+void end_replay(State& s, bool completed) {
+  if (s.replay_state != 2) return;
+  if (g_hooks.replay_stop) g_hooks.replay_stop();
+  g_replaying.store(false, std::memory_order_release);
+  s.replay_state = 0;
+  s.log_pending = true;  // recorded once the worker is free
+  s.log_completed = completed;
+  const int i = find_recent(s, s.op_name);
+  std::snprintf(s.log_name, sizeof(s.log_name), "%s", i >= 0 ? s.recent[i].name : s.op_name);
+}
+
+// Reads the selected clip from the card, checks its hash, and plays it only if it matches.
+void request_play(State& s) {
+  if (!s.recent_count || s.replay_state == 1 || s.replay_state == 2 || !g_hooks.replay_begin) return;
+  if (s.rx.mail.state.load(std::memory_order_acquire) != 0) { s.replay_state = 3; s.replay_note = "Busy writing; try again"; return; }
+  if (!s.replay_pcm) {
+    s.replay_cap = kClipSampleRate / 1000u * kClipRingMs;
+    s.replay_pcm = static_cast<int16_t*>(heap_caps_malloc(static_cast<size_t>(s.replay_cap) * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!s.replay_pcm) { s.replay_cap = 0; s.replay_state = 3; s.replay_note = "No memory for replay"; return; }
+  }
+  const uint8_t i = std::min<uint8_t>(s.selected, static_cast<uint8_t>(s.recent_count - 1));
+  ClipTicket t{};
+  t.verify = true;
+  t.load = true;
+  std::snprintf(t.verify_name, sizeof(t.verify_name), "%s", s.recent[i].name);
+  std::snprintf(t.verify_sha, sizeof(t.verify_sha), "%s", s.recent_sha[i]);
+  std::snprintf(s.op_name, sizeof(s.op_name), "%s", s.recent[i].name);
+  s.verify_state[i] = 1;
+  s.replay_state = 1;
+  s.replay_note = "";
+  post_ticket(s.rx, t);
+}
+
+// A finished load: the clip plays only when its hash matched what was recorded.
+void finish_load(State& s, const ClipResult& r) {
+  const int i = find_recent(s, r.name);
+  if (i >= 0) s.verify_state[i] = r.verify_result == 5 ? 3 : r.verify_result;
+  if (s.replay_state != 1) return;
+  if (r.verify_result != 2 || r.samples == 0) {
+    s.replay_state = 3;
+    s.replay_note = r.verify_result == 4 ? "File missing: not played" : r.verify_result == 5 ? "Clip too long: not played" :
+                    r.verify_result == 3 ? "Hash mismatch: not played" : "Empty clip: not played";
+    return;
+  }
+  s.replay_samples = r.samples;
+  g_replaying.store(true, std::memory_order_release);  // the radio's audio and the mic stand down first
+  if (g_hooks.replay_begin(s.replay_pcm, s.replay_samples)) {
+    s.replay_state = 2;
+    s.replay_started_ms = millis();
+  } else {
+    g_replaying.store(false, std::memory_order_release);
+    s.replay_state = 3;
+    s.replay_note = "Speaker unavailable";
+  }
 }
 
 // Collects a finished clip from the SD worker, then asks the planner whether another is ready to hand over.
 void service_clips(State& s, ClipChannel& ch, uint32_t now) {
   if (ch.mail.state.load(std::memory_order_acquire) == 3) {
     const ClipResult r = ch.mail.result;
-    if (r.is_verify) s.verify_state = r.verify_result;
-    else {
+    if (r.is_load) finish_load(s, r);
+    else if (r.is_log) {}
+    else if (r.is_verify) {
+      const int i = find_recent(s, s.op_name);
+      if (i >= 0) s.verify_state[i] = r.verify_result;
+    } else {
       if (r.ok) remember_clip(s, ch, r);
       if (ch.planner.state() == ClipState::writing) ch.planner.finished();
     }
@@ -600,7 +742,7 @@ void abandon_capture(ClipChannel& ch, const char* reason) {
 void mic_sink(const int16_t* pcm, size_t count) {
   PcmRing* ring = g_mic_ring.load(std::memory_order_acquire);
   if (!ring) return;
-  if (g_hooks.sound_enabled && g_hooks.sound_enabled()) return;
+  if ((g_hooks.sound_enabled && g_hooks.sound_enabled()) || g_replaying.load(std::memory_order_relaxed)) return;
   ring_write(*ring, pcm, count);
 }
 
@@ -715,7 +857,10 @@ void build_snapshot(uint32_t now) {
   std::snprintf(n.mic_error, sizeof(n.mic_error), "%s", s.mic_error ? s.mic_error : "");
   for (size_t i = 0; i < kClipInfoCount; ++i) n.clips[i] = s.recent[i];
   n.clip_count = s.recent_count;
-  n.verify_state = s.verify_state;
+  n.selected_clip = std::min<uint8_t>(s.selected, static_cast<uint8_t>(s.recent_count ? s.recent_count - 1 : 0));
+  n.verify_state = s.verify_state[n.selected_clip];
+  n.replay_state = s.replay_state;
+  std::snprintf(n.replay_note, sizeof(n.replay_note), "%s", s.replay_note);
   std::memcpy(n.clip_event_seqs, s.seq_hist, sizeof(n.clip_event_seqs));
   n.clip_event_seq_count = s.seq_hist_count;
   n.audio_baseline_ready = s.audio_detector.baseline_ready();
@@ -759,7 +904,7 @@ bool visibly_changed(const Snapshot& a, const Snapshot& b) {
          a.recorder_session != b.recorder_session || a.rf_level_dbfs.valid != b.rf_level_dbfs.valid ||
          a.rf_level_dbfs.baseline_valid != b.rf_level_dbfs.baseline_valid ||
          a.audio_available != b.audio_available || a.clips_enabled != b.clips_enabled || a.clip_state != b.clip_state ||
-         a.verify_state != b.verify_state || a.clip_event_seq_count != b.clip_event_seq_count ||
+         a.verify_state != b.verify_state || a.selected_clip != b.selected_clip || a.replay_state != b.replay_state || a.clip_event_seq_count != b.clip_event_seq_count ||
          a.clips_saved != b.clips_saved || a.clips_failed != b.clips_failed || a.clips_refused != b.clips_refused ||
          a.mic_state != b.mic_state || a.mic_clip_state != b.mic_clip_state || a.mic_clips_saved != b.mic_clips_saved ||
          a.mic_clips_failed != b.mic_clips_failed || a.mic_clips_refused != b.mic_clips_refused ||
@@ -815,7 +960,13 @@ void open() {
   s.mic_error = nullptr;
   s.mic_used = false;
   s.recent_count = 0;
-  s.verify_state = 0;
+  std::memset(s.verify_state, 0, sizeof(s.verify_state));
+  s.selected = 0;
+  s.pinned = false;
+  s.replay_state = 0;
+  s.replay_note = "";
+  s.log_pending = false;
+  g_replaying.store(false, std::memory_order_relaxed);
   s.seq_hist_count = 0;
   s.audio.head.store(0, std::memory_order_relaxed);
   s.audio_tail = 0;
@@ -843,6 +994,9 @@ void close() {
   g_open = false;
   g_ring.store(nullptr, std::memory_order_release);
   g_rx_ring.store(nullptr, std::memory_order_release);
+  if (g_state->replay_state == 2 && g_hooks.replay_stop) g_hooks.replay_stop();  // never keep playing after the screen is gone
+  g_replaying.store(false, std::memory_order_release);
+  g_state->replay_state = 0;
   g_state->rx.ring.capture.store(false, std::memory_order_relaxed);
   abandon_capture(g_state->rx, "session_closed");  // the worker records why this clip never happened
   mic_stop(*g_state, "session_closed");            // the microphone never outlives the screen
@@ -960,11 +1114,20 @@ void tick() {
   }
   s.rx.flowing = s.audio_flowing;
   if (s.mic.enabled) {
-    const bool speaker_on = g_hooks.sound_enabled && g_hooks.sound_enabled();
+    const bool speaker_on = (g_hooks.sound_enabled && g_hooks.sound_enabled()) || g_replaying.load(std::memory_order_relaxed);
     const uint32_t last = s.mic.ring.last_write_ms.load(std::memory_order_relaxed);
     s.mic.flowing = !speaker_on && last != 0 && now - last < 500;
     if (!dead_air_mic::running()) { s.mic_error = "mic stopped"; mic_stop(s, "mic_failed"); s.mic_state = 3; }
     else s.mic_state = speaker_on ? 2 : 1;  // paused while the speaker is audible, otherwise listening
+  }
+  if (s.replay_state == 2 && g_hooks.replay_playing && now - s.replay_started_ms > 300 && !g_hooks.replay_playing()) end_replay(s, true);
+  if (s.log_pending && s.rx.mail.state.load(std::memory_order_acquire) == 0) {
+    ClipTicket t{};
+    t.log_play = true;
+    t.played_to_end = s.log_completed;
+    std::snprintf(t.verify_name, sizeof(t.verify_name), "%s", s.log_name);
+    s.log_pending = false;
+    post_ticket(s.rx, t);
   }
   service_clips(s, s.rx, now);
   service_clips(s, s.mic, now);
@@ -1021,6 +1184,14 @@ void touch(int32_t x, int32_t y) {
     case ActionKind::toggle_mute: if (g_hooks.toggle_mute) g_hooks.toggle_mute(); break;
     case ActionKind::open_settings: if (g_hooks.open_settings) g_hooks.open_settings(); break;
     case ActionKind::verify_clip: request_verify(*g_state); break;
+    case ActionKind::select_clip:
+      if (action.value >= 0 && action.value < g_state->recent_count) {
+        g_state->selected = static_cast<uint8_t>(action.value);
+        g_state->pinned = action.value != 0;
+      }
+      break;
+    case ActionKind::play_clip: request_play(*g_state); break;
+    case ActionKind::stop_replay: end_replay(*g_state, false); break;
     case ActionKind::toggle_clips:
       g_state->rx.enabled = !g_state->rx.enabled;
       g_state->rx.ring.capture.store(g_state->rx.enabled && g_state->rx.ring.pcm != nullptr, std::memory_order_relaxed);
@@ -1121,7 +1292,7 @@ void describe(char* out, size_t size) {
   const Worker& w = g_state->worker;
   const PaintStats ps = dead_air::paint_stats();
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu audio=%d rms=%.1f peak=%.1f snd=%d abase=%d clip=%u cs=%lu cf=%lu cr=%lu mic=%u ms=%lu mf=%lu mr=%lu mic_blocks=%lu",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu audio=%d rms=%.1f peak=%.1f snd=%d abase=%d clip=%u cs=%lu cf=%lu cr=%lu mic=%u ms=%lu mf=%lu mr=%lu mic_blocks=%lu rp=%u sel=%u rn=\"%s\"",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
@@ -1148,7 +1319,8 @@ void describe(char* out, size_t size) {
                 static_cast<unsigned>(g_state->mic_state), static_cast<unsigned long>(g_state->mic.saved.load()),
                 static_cast<unsigned long>(g_state->mic.failed.load()),
                 static_cast<unsigned long>(g_state->mic.refused_no_audio + g_state->mic.refused_busy + g_state->mic.refused_limit),
-                static_cast<unsigned long>(dead_air_mic::stats().blocks));
+                static_cast<unsigned long>(dead_air_mic::stats().blocks), static_cast<unsigned>(g_state->replay_state),
+                static_cast<unsigned>(g_state->selected), g_state->replay_note);
 }
 
 }  // namespace orcsdr::dead_air_app

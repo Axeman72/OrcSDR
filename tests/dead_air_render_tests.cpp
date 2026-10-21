@@ -183,15 +183,47 @@ int main() {
   snap.revision = 31;
   host_display::reset();
   da::update(snap);
-  assert(displayed("s1792536903_e1.wav") && displayed("10.0 s  NFM  97.289 MHz  speaker MUTED") && displayed("sha256 9f932fde12345678"));
-  assert(displayed("VERIFY NEWEST") && displayed("NOT RE-CHECKED YET") && displayed("EARLIER") && displayed("8.7 s  TRUNCATED"));
+  assert(displayed("s1792536903_e1.wav") && displayed("NFM  97.289 MHz  speaker MUTED") && displayed("sha256 9f932fde12345678"));
+  assert(displayed("VERIFY SELECTED") && displayed("PLAY SELECTED") && displayed("NOT RE-CHECKED YET") && displayed("8.7 s  TRUNCATED"));
+  assert(displayed("1 RADIO s1792536903_e1.wav") && displayed("2 RADIO s1792536903_e0.wav"));
   validate_bounds();
-  assert(da::handle_touch(537, 350, 8200).kind == da::ActionKind::verify_clip);
+  // Selecting the second row moves the details to that clip.
+  {
+    const da::Action pick = da::handle_touch(600, 172 + 44 + 20, 8150);
+    assert(pick.kind == da::ActionKind::select_clip && pick.value == 1);
+    snap.selected_clip = 1; snap.revision = 310;
+    host_display::reset();
+    da::update(snap);
+    assert(displayed("sha256 ") && displayed("speaker MUTED  TRUNCATED"));
+    snap.selected_clip = 0; snap.revision = 311;
+    host_display::reset();
+    da::update(snap);
+  }
+  assert(da::handle_touch(537, 490, 8200).kind == da::ActionKind::verify_clip);
+  assert(da::handle_touch(817, 490, 8210).kind == da::ActionKind::play_clip);
+  snap.replay_state = 1; snap.revision = 312;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("LOADING...") && displayed("Reading the clip and checking its hash"));
+  assert(da::handle_touch(817, 490, 8220).kind == da::ActionKind::none && da::handle_touch(537, 490, 8221).kind == da::ActionKind::none);
+  snap.replay_state = 2; snap.revision = 313;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("STOP REPLAY") && displayed("PLAYING through the speaker; mic paused"));
+  assert(da::handle_touch(817, 490, 8230).kind == da::ActionKind::stop_replay && da::handle_touch(537, 490, 8231).kind == da::ActionKind::none);
+  snap.replay_state = 3; snap.revision = 314;
+  std::snprintf(snap.replay_note, sizeof(snap.replay_note), "Hash mismatch: not played");
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("Hash mismatch: not played"));
+  snap.replay_state = 0; snap.revision = 315;
+  host_display::reset();
+  da::update(snap);
   snap.verify_state = 1; snap.revision = 32;
   host_display::reset();
   da::update(snap);
   assert(displayed("VERIFYING..."));
-  assert(da::handle_touch(537, 350, 8300).kind == da::ActionKind::none);   // not while a check is running
+  assert(da::handle_touch(537, 490, 8300).kind == da::ActionKind::none);   // not while a check is running
   snap.verify_state = 2; snap.revision = 33;
   host_display::reset();
   da::update(snap);
@@ -213,7 +245,7 @@ int main() {
   snap.mic_state = 2; snap.revision = 36;
   host_display::reset();
   da::update(snap);
-  assert(displayed("MIC PAUSED: SOUND ON") && displayed("PAUSED: SOUND ON"));
+  assert(displayed("MIC PAUSED: SPEAKER ON") && displayed("PAUSED: SPEAKER ON"));
   snap.mic_state = 3; snap.revision = 37;
   std::snprintf(snap.mic_error, sizeof(snap.mic_error), "mic_begin_failed");
   host_display::reset();
@@ -224,7 +256,7 @@ int main() {
   snap.revision = 38;
   host_display::reset();
   da::update(snap);
-  assert(displayed("10.0 s  ROOM MIC  speaker MUTED") && !displayed("97.289 MHz"));
+  assert(displayed("ROOM MIC  speaker MUTED") && displayed("1 MIC   s1792536903_e1.wav") && !displayed("97.289 MHz"));
   validate_bounds();
   snap.mic_state = 0; snap.clips[0].mic = false; snap.revision = 39;
   host_display::reset();

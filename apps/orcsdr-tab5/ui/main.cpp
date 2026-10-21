@@ -3667,6 +3667,9 @@ bool rtl_audio_select_writable_block(uint32_t now) {
   return false;
 }
 
+// A Dead Air clip is playing on its own speaker channel: the receiver stands down so the two never mix.
+std::atomic<bool> g_dead_air_replay{false};
+
 void flush_audio_play_batch(bool force) {
   if (rtl_audio_play_count == 0) return;
   if (!force && rtl_audio_play_count < kRtlAudioPlayBatchSamples) return;
@@ -3681,7 +3684,7 @@ void flush_audio_play_batch(bool force) {
       return;
     }
   }
-  if (!rtl_audio_enabled.load(std::memory_order_acquire)) {
+  if (!rtl_audio_enabled.load(std::memory_order_acquire) || g_dead_air_replay.load(std::memory_order_relaxed)) {
     rtl_audio_play_count = 0;
     return;
   }
@@ -14154,6 +14157,27 @@ orcsdr::dead_air_app::Hooks dead_air_app_hooks() {
   hooks.toggle_mute = [] { set_rtl_audio_user_enabled(!rtl_audio_user_enabled.load(std::memory_order_acquire)); };
   hooks.go_home = [] { show_home(); };
   hooks.open_settings = [] { open_global_settings(orcsdr::settings::Section::system); };
+  hooks.replay_begin = [](const int16_t* pcm, size_t samples) {
+    g_dead_air_replay.store(true, std::memory_order_release);
+    const uint8_t volume = rtl_live_volume.load(std::memory_order_acquire);
+    if (!M5.Speaker.isRunning() && !ensure_speaker_running(volume)) {
+      g_dead_air_replay.store(false, std::memory_order_release);
+      return false;
+    }
+    apply_speaker_volume(volume);
+    // The channel needs the same level as the receiver's (channel 0); left alone it plays at full scale.
+    M5.Speaker.setChannelVolume(2, std::min(volume, kRtlSpeakerHardwareMax));
+    // Its own virtual channel (2): the receiver uses channel 0, so stopping one never cuts the other.
+    const bool queued = M5.Speaker.playRaw(pcm, samples, 48000, false, 1, 2, true);
+    if (!queued) g_dead_air_replay.store(false, std::memory_order_release);
+    return queued;
+  };
+  hooks.replay_playing = [] { return M5.Speaker.isPlaying(2) != 0; };
+  hooks.replay_stop = [] {
+    M5.Speaker.stop(2);
+    g_dead_air_replay.store(false, std::memory_order_release);
+    if (!rtl_audio_enabled.load(std::memory_order_acquire)) (void)end_rtl_speaker();  // sound is off: leave the speaker idle again
+  };
   return hooks;
 }
 void open_dead_air_dashboard() {

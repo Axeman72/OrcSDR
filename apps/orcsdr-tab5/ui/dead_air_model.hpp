@@ -104,7 +104,10 @@ struct Snapshot {
   uint8_t mic_clip_state = 0;   // 0 idle, 1 capturing, 2 writing
   uint32_t mic_clips_saved = 0, mic_clips_failed = 0, mic_clips_refused = 0;
   char mic_error[24] = "";
-  uint8_t verify_state = 0;     // newest clip re-checked against the card: 0 not yet, 1 running, 2 matches, 3 mismatch, 4 file missing
+  uint8_t selected_clip = 0;    // index into clips[] chosen on the Review tab (0 = newest)
+  uint8_t replay_state = 0;     // 0 idle, 1 loading, 2 playing, 3 not played
+  char replay_note[28] = "";    // why a replay did not play
+  uint8_t verify_state = 0;     // selected clip re-checked against the card: 0 not yet, 1 running, 2 matches, 3 mismatch, 4 file missing
   uint32_t clip_event_seqs[16]{};  // events that have a clip, newest first
   uint8_t clip_event_seq_count = 0;
   bool sweeping = false;

@@ -265,7 +265,7 @@ void mic_banner() {
   M5.Display.fillRoundRect(420, 12, 446, 54, 8, kPanel);
   M5.Display.drawRoundRect(420, 12, 446, 54, 8, color);
   if (m == 1) M5.Display.fillCircle(446, 39, 9, color);
-  label(m == 1 ? "MIC LISTENING" : m == 2 ? "MIC PAUSED: SOUND ON" : "MIC FAILED", m == 1 ? 466 : 440, 39, color, 2);
+  label(m == 1 ? "MIC LISTENING" : m == 2 ? "MIC PAUSED: SPEAKER ON" : "MIC FAILED", m == 1 ? 466 : 440, 39, color, 2);
 }
 void chrome() {
   M5.Display.setFont(nullptr);
@@ -468,7 +468,9 @@ void events() {
 }
 constexpr int kClipBtnX = 40, kClipBtnY = 366, kClipBtnW = 300, kClipBtnH = 52;
 constexpr int kMicBtnX = 40, kMicBtnY = 548, kMicBtnW = 300, kMicBtnH = 52;
-constexpr int kVerifyBtnX = 517, kVerifyBtnY = 330, kVerifyBtnW = 300, kVerifyBtnH = 52;
+constexpr int kRowX = 517, kRowY0 = 172, kRowDy = 44, kRowW = 723, kRowH = 40;
+constexpr int kVerifyBtnX = 517, kVerifyBtnY = 466, kVerifyBtnW = 260, kVerifyBtnH = 52;
+constexpr int kPlayBtnX = 797, kPlayBtnY = 466, kPlayBtnW = 260, kPlayBtnH = 52;
 void review() {
   box(20, 120, 460, 511);
   heading("SESSION ARCHIVE", 40, 144);
@@ -493,7 +495,7 @@ void review() {
   const uint8_t m = g_snapshot->mic_state;
   const char* mic_text = m == 0 ? "OFF" : m == 1 ? (g_snapshot->mic_clip_state == 1 ? "CAPTURING" :
                          g_snapshot->mic_clip_state == 2 ? "WRITING" : "LISTENING") :
-                         m == 2 ? "PAUSED: SOUND ON" : "FAILED";
+                         m == 2 ? "PAUSED: SPEAKER ON" : "FAILED";
   label(mic_text, 40, 486, m == 0 ? kMuted : m == 1 ? kRed : m == 2 ? kYellow : kRed, 3);
   snprintf(line, sizeof(line), "Saved %lu  Failed %lu  Skipped %lu", static_cast<unsigned long>(g_snapshot->mic_clips_saved),
            static_cast<unsigned long>(g_snapshot->mic_clips_failed), static_cast<unsigned long>(g_snapshot->mic_clips_refused));
@@ -509,32 +511,36 @@ void review() {
     label("Radio clips are the demodulated audio;", 517, 366, kMuted, 2);
     label("mic clips are the room, never mixed.", 517, 404, kMuted, 2);
   } else {
-    const ClipInfo& c = g_snapshot->clips[0];
-    label(c.name, 517, 190, c.mic ? kRed : kGreen, 2);
+    const uint8_t sel = std::min<uint8_t>(g_snapshot->selected_clip, static_cast<uint8_t>(g_snapshot->clip_count - 1));
+    for (uint8_t i = 0; i < g_snapshot->clip_count && i < kClipInfoCount; ++i) {
+      const ClipInfo& o = g_snapshot->clips[i];
+      const bool chosen = i == sel;
+      box(kRowX, kRowY0 + i * kRowDy, kRowW, kRowH, chosen ? (o.mic ? kRed : kGreen) : kEdge);
+      snprintf(line, sizeof(line), "%u %s %s  %u.%u s%s", static_cast<unsigned>(i + 1), o.mic ? "MIC  " : "RADIO", o.name,
+               static_cast<unsigned>(o.duration_ds / 10), static_cast<unsigned>(o.duration_ds % 10), o.truncated ? "  TRUNCATED" : "");
+      label(line, kRowX + 14, kRowY0 + i * kRowDy + kRowH / 2, o.truncated ? kYellow : chosen ? TFT_WHITE : kMuted, 2);
+    }
+    const ClipInfo& c = g_snapshot->clips[sel];
     if (c.mic)
-      snprintf(line, sizeof(line), "%u.%u s  ROOM MIC  speaker %s%s", static_cast<unsigned>(c.duration_ds / 10),
-               static_cast<unsigned>(c.duration_ds % 10), c.speaker_on ? "ON" : "MUTED", c.truncated ? "  TRUNCATED" : "");
+      snprintf(line, sizeof(line), "ROOM MIC  speaker %s%s", c.speaker_on ? "ON" : "MUTED", c.truncated ? "  TRUNCATED" : "");
     else
-      snprintf(line, sizeof(line), "%u.%u s  %s  %.3f MHz  speaker %s%s", static_cast<unsigned>(c.duration_ds / 10),
-               static_cast<unsigned>(c.duration_ds % 10), c.demod, static_cast<double>(c.frequency_hz) / 1e6,
+      snprintf(line, sizeof(line), "%s  %.3f MHz  speaker %s%s", c.demod, static_cast<double>(c.frequency_hz) / 1e6,
                c.speaker_on ? "ON" : "MUTED", c.truncated ? "  TRUNCATED" : "");
-    label(line, 517, 222, c.truncated ? kYellow : TFT_WHITE, 2);
+    label(line, 517, 370, c.truncated ? kYellow : TFT_WHITE, 2);
     snprintf(line, sizeof(line), "sha256 %s...", c.sha16);
-    label(line, 517, 254, kMuted, 2);
+    label(line, 517, 400, kMuted, 2);
     const uint8_t v = g_snapshot->verify_state;
     label(v == 1 ? "VERIFYING..." : v == 2 ? "VERIFIED: file on the card matches" : v == 3 ? "MISMATCH: file differs from its hash" :
-          v == 4 ? "FILE MISSING from the card" : "NOT RE-CHECKED YET", 517, 292,
+          v == 4 ? "FILE MISSING from the card" : "NOT RE-CHECKED YET", 517, 432,
           v == 2 ? kGreen : (v == 3 || v == 4) ? kRed : v == 1 ? kYellow : kMuted, 2);
-    button("VERIFY NEWEST", kVerifyBtnX, kVerifyBtnY, kVerifyBtnW, kCyan, v != 1);
-    if (g_snapshot->clip_count > 1) {
-      label("EARLIER", 517, 424, kMuted, 2);
-      for (uint8_t i = 1; i < g_snapshot->clip_count && i < kClipInfoCount; ++i) {
-        const ClipInfo& o = g_snapshot->clips[i];
-        snprintf(line, sizeof(line), "%s%s  %u.%u s%s", o.mic ? "MIC " : "", o.name, static_cast<unsigned>(o.duration_ds / 10),
-                 static_cast<unsigned>(o.duration_ds % 10), o.truncated ? "  TRUNCATED" : "");
-        label(line, 517, 454 + (i - 1) * 30, o.truncated ? kYellow : TFT_WHITE, 2);
-      }
-    }
+    const uint8_t rp = g_snapshot->replay_state;
+    button("VERIFY SELECTED", kVerifyBtnX, kVerifyBtnY, kVerifyBtnW, kCyan, v != 1 && rp != 1 && rp != 2);
+    button(rp == 2 ? "STOP REPLAY" : rp == 1 ? "LOADING..." : "PLAY SELECTED", kPlayBtnX, kPlayBtnY, kPlayBtnW,
+           rp == 2 ? kRed : kGreen, rp != 1);
+    label(rp == 2 ? "PLAYING through the speaker; mic paused" : rp == 1 ? "Reading the clip and checking its hash" :
+          rp == 3 ? g_snapshot->replay_note : "Plays only if its hash matches the card.", 517, 546,
+          rp == 2 ? kGreen : rp == 3 ? kYellow : kMuted, 2);
+    label("Replay mutes the radio audio while it plays.", 517, 580, kMuted, 2);
   }
 }
 void paint_page() {
@@ -843,8 +849,17 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
   }
   if (g_page == Page::review && hit(x, y, kClipBtnX, kClipBtnY, kClipBtnW, kClipBtnH)) return {ActionKind::toggle_clips, 0};
   if (g_page == Page::review && hit(x, y, kMicBtnX, kMicBtnY, kMicBtnW, kMicBtnH)) return {ActionKind::toggle_mic, 0};
-  if (g_page == Page::review && g_snapshot->clip_count && g_snapshot->verify_state != 1 &&
-      hit(x, y, kVerifyBtnX, kVerifyBtnY, kVerifyBtnW, kVerifyBtnH)) return {ActionKind::verify_clip, 0};
+  if (g_page == Page::review) {
+    for (uint8_t i = 0; i < g_snapshot->clip_count && i < kClipInfoCount; ++i)
+      if (hit(x, y, kRowX, kRowY0 + i * kRowDy, kRowW, kRowH)) return {ActionKind::select_clip, i};
+    const uint8_t rp = g_snapshot->replay_state;
+    if (g_snapshot->clip_count && g_snapshot->verify_state != 1 && rp != 1 && rp != 2 &&
+        hit(x, y, kVerifyBtnX, kVerifyBtnY, kVerifyBtnW, kVerifyBtnH)) return {ActionKind::verify_clip, 0};
+    if (g_snapshot->clip_count && hit(x, y, kPlayBtnX, kPlayBtnY, kPlayBtnW, kPlayBtnH)) {
+      if (rp == 2) return {ActionKind::stop_replay, 0};
+      if (rp != 1) return {ActionKind::play_clip, 0};
+    }
+  }
   if (g_page == Page::events && g_events != nullptr) {
     if (hit(x, y, 818, 505, 420, 52)) {
       g_events->mark_manual(now_ms, g_snapshot->unix_time, g_snapshot->frequency_hz);
