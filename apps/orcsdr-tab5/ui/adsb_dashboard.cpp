@@ -31,7 +31,23 @@ constexpr int kRadarPanelX = 234;
 constexpr int kRadarPanelY = 88;
 constexpr int kRadarPanelW = 646;
 constexpr int kRadarPanelH = 390;
+constexpr int kMapX = 12, kMapY = 76;
+constexpr int kMapW = kRadarPanelW - 2 * kMapX;
+constexpr int kMapH = kRadarPanelH - kMapY - 12;
+constexpr int kZoomX = kRadarPanelX + kMapX + kMapW - 60;
+constexpr int kZoomY = kRadarPanelY + kMapY + 12;
+constexpr int kZoomSize = 48, kZoomStep = 56;
+static_assert(kMapW == 622 && kMapH == 302);
+static_assert(kZoomY + kZoomStep + kZoomSize < kRadarPanelY + kMapY + kMapH);
 constexpr uint16_t kRanges[] = {10, 25, 50, 100};
+constexpr uint16_t zoomed_range(uint16_t current, bool zoom_in) {
+  size_t index = 0;
+  while (index + 1 < std::size(kRanges) && kRanges[index] < current) ++index;
+  if (zoom_in) return kRanges[index ? index - 1 : 0];
+  return kRanges[index + 1 < std::size(kRanges) ? index + 1 : index];
+}
+static_assert(zoomed_range(10,true)==10 && zoomed_range(100,false)==100);
+static_assert(zoomed_range(25,true)==10 && zoomed_range(25,false)==50);
 constexpr size_t kAltitudeBins = 12;
 constexpr int kGainMinTenthDb = 0;
 constexpr int kGainMaxTenthDb = 496;
@@ -110,9 +126,6 @@ int gain_from_slider_x(int x) {
 }
 
 void draw_radar_base() {
-  constexpr int cx = kRadarPanelW / 2;
-  constexpr int cy = kRadarPanelH / 2 + 4;
-  constexpr int radius = 180;
   const uint32_t map_revision=maps::revision();
   const bool stale = g_radar_base.getBuffer() == nullptr ||
                      g_radar_cache_latitude_e7 != g_settings.latitude_e7 ||
@@ -130,15 +143,12 @@ void draw_radar_base() {
   if (g_settings.location_configured) {
     const auto location=receiver_location::snapshot();
     g_radar_map=maps::draw_region(g_radar_base,g_settings.latitude_e7,g_settings.longitude_e7,
-        g_settings.radar_range_nm,cx-radius,cy-radius,radius*2,radius*2,kPanel,0x2382,kMuted,location.map_pack,maps::preferences::labels(maps::preferences::Consumer::adsb));
+        g_settings.radar_range_nm,kMapX,kMapY,kMapW,kMapH,kPanel,0x2382,kMuted,location.map_pack,maps::preferences::labels(maps::preferences::Consumer::adsb));
   } else g_radar_map={};
   g_radar_base.setTextDatum(middle_center);
   g_radar_base.setTextSize(2);
   g_radar_base.setTextColor(TFT_WHITE);
-  g_radar_base.drawString("N", cx, cy - radius - 17);
-  g_radar_base.drawString("S", cx, cy + radius + 17);
-  g_radar_base.drawString("W", cx - radius - 20, cy);
-  g_radar_base.drawString("E", cx + radius + 20, cy);
+  g_radar_base.drawString("N", kMapX + 18, kMapY + 18);
   g_radar_cache_latitude_e7 = g_settings.latitude_e7;
   g_radar_cache_longitude_e7 = g_settings.longitude_e7;
   g_radar_cache_range_nm = g_settings.radar_range_nm;
@@ -415,9 +425,8 @@ void draw_selected_summary(int x, int y, int w, int h) {
 }
 
 void draw_radar() {
-  constexpr int cx = kRadarPanelX + kRadarPanelW / 2;
-  constexpr int cy = kRadarPanelY + kRadarPanelH / 2 + 4;
-  constexpr int radius = 180;
+  constexpr int cx = kRadarPanelX + kMapX + kMapW / 2;
+  constexpr int cy = kRadarPanelY + kMapY + kMapH / 2;
   card(14, 88, 210, 226);
   text("STATUS", 32, 113, TFT_WHITE, 2, middle_left);
   M5.Display.drawFastHLine(30, 137, 178, kBorder);
@@ -460,7 +469,8 @@ void draw_radar() {
              g_settings.radar_range_nm);
   else strlcpy(location, "RECEIVER LOCATION NOT SET", sizeof(location));
   text(location, kRadarPanelX + 22, kRadarPanelY + 54, kBlue, 1, middle_left);
-  M5.Display.fillCircle(cx, cy, 7, kGreen);
+  M5.Display.setClipRect(kRadarPanelX+kMapX,kRadarPanelY+kMapY,kMapW,kMapH);
+  if (g_settings.location_configured) M5.Display.fillCircle(cx, cy, 7, kGreen);
   for (size_t i = 0; i < g_aircraft_count; ++i) {
     if (!g_aircraft[i].has_position || !g_settings.location_configured) continue;
     int px=0,py=0;
@@ -469,8 +479,9 @@ void draw_radar() {
     text(g_aircraft[i].callsign, px + 18, py - 5,
          i == g_selected ? TFT_WHITE : TFT_LIGHTGREY, 1, middle_left);
   }
-  button("+", 830, 112, 38, 38, TFT_DARKCYAN);
-  button("-", 830, 158, 38, 38, TFT_DARKCYAN);
+  M5.Display.clearClipRect();
+  button("+", kZoomX, kZoomY, kZoomSize, kZoomSize, TFT_DARKCYAN);
+  button("-", kZoomX, kZoomY+kZoomStep, kZoomSize, kZoomSize, TFT_DARKCYAN);
 
   card(234, 488, 646, 136);
   text("SIGNAL LEVEL", 250, 512, TFT_WHITE, 1, middle_left);
@@ -1009,6 +1020,12 @@ Action handle_touch(int32_t x, int32_t y) {
       g_map_label_error=!maps::preferences::set_labels(Consumer::adsb,!maps::preferences::labels(Consumer::adsb));
       redraw_content();return Action::none;
     }
+    const bool zoom_in=hit(x,y,kZoomX,kZoomY,kZoomSize,kZoomSize);
+    if (zoom_in || hit(x,y,kZoomX,kZoomY+kZoomStep,kZoomSize,kZoomSize)) {
+      g_settings.radar_range_nm=zoomed_range(g_settings.radar_range_nm,zoom_in);
+      redraw();
+      return Action::settings_changed;
+    }
     for (size_t i = 0; i < g_aircraft_count; ++i) {
       if (!g_aircraft[i].has_position || !g_settings.location_configured) continue;
       int px=0,py=0;
@@ -1026,14 +1043,6 @@ Action handle_touch(int32_t x, int32_t y) {
         redraw_content();
         return Action::none;
       }
-    }
-    if (hit(x, y, 830, 112, 38, 38) || hit(x, y, 830, 158, 38, 38)) {
-      size_t index = 0;
-      while (index < std::size(kRanges) && kRanges[index] != g_settings.radar_range_nm) ++index;
-      const int delta = y < 158 ? 1 : static_cast<int>(std::size(kRanges)) - 1;
-      g_settings.radar_range_nm = kRanges[(index + delta) % std::size(kRanges)];
-      redraw();
-      return Action::settings_changed;
     }
   } else if (g_view == View::list) {
     for (size_t i = 0; i < g_aircraft_count; ++i) {

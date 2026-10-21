@@ -37,6 +37,19 @@ Checked items below close only their stated behavior/test scope, not an entire p
 
 ### October 20 runtime / visual follow-up
 
+- ADS-B fit is clarified: the map does not use its slot well. A source candidate
+  expands it from 360×360 to 622×302 below the panel heading, aligns the receiver
+  center, clips overlays, and shares 48-pixel zoom draw/hit regions. P4 syntax
+  passes; physical/native-link acceptance is open. COM17 remains available and
+  untouched. [Source scope and evidence](../../evidence/maps/2026-10-20-adsb-map-fit.md).
+- The shared paint-order candidate now passes focused composition/order tests,
+  allocator fault injection and sanitizer checks. Eight real-archive streamed
+  geometry frames match corrected batch rendering byte-for-byte. Queue capacity
+  reaches 522,240 bytes on the 64-bit host; P4 placement/pressure is unproven.
+  Engine evidence: `F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery/docs/evidence/2026-10-20-ordered-tile-rendering.md`.
+  The adapter source is prepared locally, but its dependency is not yet pushed,
+  pinned, native-linked or installed. Existing immediate/banded engine examples
+  still need deliberate ordered-consumer migration; no engine-wide claim yet.
 - Worldwide host previews now expose a shared paint-order blocker: the archive
   emits boundaries before opaque earth/landuse polygons, which cover the lines.
   A 64×64 production-renderer reproduction confirms zero boundary pixels in
@@ -48,9 +61,9 @@ Checked items below close only their stated behavior/test scope, not an entire p
 - FT8 candidate app-only flash and preservation checks pass on COM17. Initial
   runtime test returned unavailable under low memory; later screen changes mean
   follow-up ready frames are not FT8 acceptance. Controlled FT8 checks remain open.
-- ADS-B appearance is explicitly not accepted by the user. Await specifics before
-  changing its layout/style. Leave device navigation alone during assessment;
-  advance host-side quality work independently.
+- ADS-B appearance remains unaccepted until the clarified fit correction is
+  tested physically. Leave device navigation alone during assessment; advance
+  host-side quality work independently.
 - [Exact flash/runtime evidence and limitations](../../evidence/maps/2026-10-20-ft8-selective-integration.md).
 
 ### October 20 continuation checkpoint
