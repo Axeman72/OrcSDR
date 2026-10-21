@@ -35,6 +35,16 @@ not the current state.
 
 Checked items below close only their stated behavior/test scope, not an entire phase.
 
+### October 20 runtime / visual follow-up
+
+- FT8 candidate app-only flash and preservation checks pass on COM17. Initial
+  runtime test returned unavailable under low memory; later screen changes mean
+  follow-up ready frames are not FT8 acceptance. Controlled FT8 checks remain open.
+- ADS-B appearance is explicitly not accepted by the user. Await specifics before
+  changing its layout/style. Leave device navigation alone during assessment;
+  advance host-side quality work independently.
+- [Exact flash/runtime evidence and limitations](../../evidence/maps/2026-10-20-ft8-selective-integration.md).
+
 ### October 20 continuation checkpoint
 
 - `af877ed7` label candidate native-built and app-only flashed to COM17. Automated

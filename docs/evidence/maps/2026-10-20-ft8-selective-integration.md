@@ -57,3 +57,32 @@ FT8 firmware has NOT been flashed. COM17 remains on verified label candidate
 `af877ed7`, initial labels restored to on, Home graphics on, BROWSE 146.520 MHz
 streaming. Native compositor runtime, overlay acceptance, latency and loaded
 memory/reclaim behavior remain the next device gates.
+
+## COM17 flash / runtime attempt - October 20
+
+COM17 USB `30:ED:A0:E2:E6:95`, prior `af877ed7` app/boot/table verified before
+write. Fresh NVS, calibration, crash and embedded-world backups/readback PASS.
+`python .local/maps/flash_ft8_maps_20261020.py`: app-only write and full selected
+preservation verification PASS; logs `ft8-maps-{verify-previous,backup-*,verify-backups,app-write,preservation}-20261020.log`
+in integration root. No C6 update, SD pack modification or COM39 access.
+
+Native monitor from `apps/orcsdr-tab5`, no-reset entry, explicit Ctrl+T Ctrl+R
+startup and Ctrl+] exit: `ft8-maps-boot-native-monitor-20261020.log`. Boot reached
+SD/Wi-Fi/RTL ready; Wi-Fi connected on existing retry, no new panic observed.
+
+`python .local/maps/com17_label_bench.py ft8-maps-basic-plan-20261020.json ft8-maps-basic-20261020.log`
+STOPPED at expected-ready assertion: worker returned unavailable with very low
+free memory after FT8 startup alongside retained LoRa memory. This is NOT a
+runtime pass. No screenshot was written by that stopped plan.
+
+Follow-up `python .local/maps/com17_label_bench.py ft8-maps-memory-diagnostic-plan-20261020.json ft8-maps-memory-diagnostic-20261020.log`
+completed commands but does NOT establish FT8 success: the active screen changed
+to ADS-B during observation (`FT8 STATUS screen=0`, worker frame 360x360), so
+later ready frames are ADS-B evidence, not FT8. Explicit reclaim released
+15,840,000 B LoRa buffers and 518,400 B shared map frames. It does not establish
+FT8 recovery or demonstrate a leak. Further controlled FT8 checks are required.
+
+The user reported dissatisfaction with ADS-B appearance. Physical ADS-B visual
+acceptance is OPEN; clarification requested. Device navigation/reset/flash tests
+are held while the user assesses the screen; continue independent host work.
+FT8 candidate remains installed, but its runtime acceptance is unproven.
