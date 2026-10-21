@@ -37,3 +37,23 @@ Native linking, compositor speed/PSRAM reclaim and COM17 FT8/FT4/JS8 visual,
 overlay and radio checks remain OPEN. Host adapter is stubbed; these tests do
 not prove shared worker/native pixel conversion. The COM17 label firmware was
 sealed before importing FT8 and does NOT contain these FT8 changes.
+
+## Native build checkpoint
+
+`python .local/maps/build_ft8_maps_20261020.py` and
+`python .local/maps/inspect_ft8_maps_20261020.py`: PASS. Build source HEAD
+`05f25253` (implementation `89882f7a`); subsequent commits changed documentation
+only, verified by the inspection before sealing. Candidate:
+`.local/maps/ft8-maps-89882f7a-20261020/`, including rollback-independent app/ELF
+and manifest. App 5,125,504 B, factory headroom 1,165,952 B; SHA-256
+`ac87f59ee3af72e181a1a114c6185bc5f1d4ecf529b02571147c79d1e3677863`.
+Shared adapter symbol is linked; old `draw_world_compat`/FT8 world-data symbols
+are absent. Existing miniz and FT8 PCM scratch gates, 40 KiB DMA reserve, 1 KiB
+exception pool, unchanged lock/pin/C6 image, diagnostics OFF and map-state PSRAM
+placement checks pass. Logs in integration root:
+`ft8-maps-native-{build,inspection}-20261020.log`.
+
+FT8 firmware has NOT been flashed. COM17 remains on verified label candidate
+`af877ed7`, initial labels restored to on, Home graphics on, BROWSE 146.520 MHz
+streaming. Native compositor runtime, overlay acceptance, latency and loaded
+memory/reclaim behavior remain the next device gates.

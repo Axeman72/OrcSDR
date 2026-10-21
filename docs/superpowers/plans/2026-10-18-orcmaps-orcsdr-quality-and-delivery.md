@@ -44,7 +44,8 @@ Checked items below close only their stated behavior/test scope, not an entire p
 - Cloud FT8 branch `2e86835b` selectively incorporated in source, with matching
   whole-world projection and independent labels. A reviewed same-revision
   publication race reproduced and was fixed; optimized/sanitized dashboard,
-  full projection sweep and 2 P4 syntax checks pass. Native/device FT8 gates open.
+  full projection sweep and 2 P4 syntax checks pass. Native build/inspection now
+  pass (5,125,504 B app); COM17 FT8 flash, runtime and physical gates remain open.
 - [Label hardware evidence](../../evidence/maps/2026-10-19-geographic-label-controls.md)
   and [FT8 scope/tests](../../evidence/maps/2026-10-20-ft8-selective-integration.md).
 
