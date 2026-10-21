@@ -262,6 +262,28 @@ int main() {
   host_display::reset();
   da::update(snap);
   assert(!displayed("MIC LISTENING"));
+  // (i) popup: opens on every tab with that tab's text, pages, hides the body, and closes cleanly.
+  host_display::reset();
+  assert(da::handle_touch(396, 39, 8470).kind == da::ActionKind::none);
+  assert(displayed("ABOUT THIS PAGE  -  REVIEW") && displayed("SESSION ARCHIVE") && displayed("PAGE 1/2"));
+  validate_bounds();
+  host_display::reset();
+  da::handle_touch(425, 586, 8480);  // NEXT is at x 350..500
+  assert(displayed("PAGE 2/2") && displayed("Each replay is noted in the log"));
+  host_display::reset();
+  snap.revision = 400;
+  da::update(snap);  // a new snapshot while the popup is open must not paint over it
+  assert(!displayed("EVIDENCE REVIEW"));
+  assert(da::handle_touch(1000, 586, 8490).kind == da::ActionKind::none);  // CLOSE
+  assert(displayed("EVIDENCE REVIEW"));
+  da::handle_touch(396, 39, 8500);
+  da::handle_touch(50, 300, 8510);  // a tap outside the popup closes it
+  assert(displayed("EVIDENCE REVIEW"));
+  da::handle_touch(20 + 0 * 210 + 40, 673, 8520);  // Overview has its own text
+  da::handle_touch(396, 39, 8530);
+  assert(displayed("ABOUT THIS PAGE  -  OVERVIEW") && displayed("does not detect ghosts"));
+  da::handle_touch(1000, 586, 8540);
+  da::handle_touch(20 + 5 * 210 + 40, 673, 8550);
   da::handle_touch(20 + 1 * 210 + 40, 673, 8400);  // back to Spectrum
   // Once another screen takes the framebuffer, Dead Air must be silent.
   screen::begin_transition(screen::Id::home, 3000);

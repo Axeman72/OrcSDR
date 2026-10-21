@@ -1,4 +1,5 @@
 #include "dead_air_dashboard.hpp"
+#include "dead_air_info.hpp"
 #include "dashboard_audio_control.hpp"
 #include "screen_controller.hpp"
 #include <M5Unified.h>
@@ -256,6 +257,57 @@ void sanitize_snapshot() {
     g_snapshot->audio_envelope_valid = false;
   }
 }
+// The (i) button and its "about this page" popup, the same idea as the FT8 dashboard's. The popup covers the body
+// (below the header, above the tab bar); while it is open the body is not repainted underneath it.
+bool g_info_open = false;
+size_t g_info_page = 0;
+constexpr int kInfoBtnX = 374, kInfoBtnY = 17, kInfoBtnW = 44, kInfoBtnH = 44;
+constexpr int kInfoPanelX = 160, kInfoPanelY = 108, kInfoPanelW = 960, kInfoPanelH = 520;
+constexpr size_t kInfoLinesPerPage = 12;
+constexpr int kInfoPrevX = 180, kInfoNextX = 350, kInfoCloseX = 950, kInfoBtnRowY = 560, kInfoBtnRowW = 150;
+info::Topic info_topic() {
+  const size_t p = static_cast<size_t>(g_page);
+  return p < static_cast<size_t>(info::Topic::count) ? static_cast<info::Topic>(p) : info::Topic::overview;
+}
+size_t info_page_count() {
+  const info::Page p = info::page(info_topic());
+  return (p.line_count + kInfoLinesPerPage - 1) / kInfoLinesPerPage;
+}
+void draw_info_button() {
+  const int cx = kInfoBtnX + kInfoBtnW / 2, cy = kInfoBtnY + kInfoBtnH / 2;
+  const uint16_t c = g_info_open ? kGreen : kCyan;
+  M5.Display.fillCircle(cx, cy, 21, g_info_open ? kEdge : kPanel);
+  M5.Display.drawCircle(cx, cy, 21, c);
+  M5.Display.drawCircle(cx, cy, 20, c);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.setTextSize(3);
+  M5.Display.setTextColor(c);
+  M5.Display.drawString("i", cx, cy);
+}
+void draw_info_panel() {
+  g.t = &M5.Display;
+  g.oy = 0;
+  const info::Page p = info::page(info_topic());
+  const size_t pages = info_page_count();
+  if (g_info_page >= pages) g_info_page = pages ? pages - 1 : 0;
+  box(kInfoPanelX, kInfoPanelY, kInfoPanelW, kInfoPanelH, kCyan);
+  char heading[64];
+  snprintf(heading, sizeof(heading), "ABOUT THIS PAGE  -  %s", p.title);
+  label(heading, kInfoPanelX + 22, kInfoPanelY + 28, kCyan, 2);
+  divider(kInfoPanelX + 20, kInfoPanelY + 52, kInfoPanelW - 40);
+  for (size_t i = 0; i < kInfoLinesPerPage; ++i) {
+    const size_t index = g_info_page * kInfoLinesPerPage + i;
+    if (index >= p.line_count) break;
+    if (p.lines[index][0]) label(p.lines[index], kInfoPanelX + 24, kInfoPanelY + 78 + static_cast<int>(i) * 30, TFT_WHITE, 2);
+  }
+  char page_text[24];
+  snprintf(page_text, sizeof(page_text), "PAGE %u/%u", static_cast<unsigned>(g_info_page + 1), static_cast<unsigned>(pages ? pages : 1));
+  label(page_text, 560, kInfoBtnRowY + 26, kMuted, 2);
+  button("PREV", kInfoPrevX, kInfoBtnRowY, kInfoBtnRowW, kCyan, g_info_page > 0);
+  button("NEXT", kInfoNextX, kInfoBtnRowY, kInfoBtnRowW, kCyan, g_info_page + 1 < pages);
+  button("CLOSE", kInfoCloseX, kInfoBtnRowY, kInfoBtnRowW, kCyan, true);
+}
+
 // Always-visible state of the optional microphone. Blank while it is off.
 void mic_banner() {
   M5.Display.fillRect(420, 12, 446, 54, kBg);
@@ -277,6 +329,7 @@ void chrome() {
   audio_header::draw_visualizer_button(false);
   audio_header::draw_settings_button();
   mic_banner();
+  draw_info_button();
   nav();
 }
 void overview() {
@@ -566,6 +619,7 @@ void paint_direct() {
 }
 // page_change: another screen is replacing this one, so most pixels differ and tile pushes would not help.
 void draw_body(bool page_change = false) {
+  if (g_info_open) return;  // the popup owns the body until it is closed
   M5Canvas* canvas = body_canvas();
   if (!canvas) { paint_direct(); return; }
   const uint32_t t0 = now_us();
@@ -617,7 +671,7 @@ void draw_body(bool page_change = false) {
 } // namespace
 
 bool draw_spectrum_frame(const float* dbfs, size_t count, uint32_t epoch, uint32_t now_ms) {
-  if (!g_active || !g_scope || !g_snapshot || !dbfs || count < 2) return false;
+  if (g_info_open || !g_active || !g_scope || !g_snapshot || !dbfs || count < 2) return false;
   if (!screens::owns(screens::Id::dead_air) || g_page != Page::spectrum) return false;
   const uint32_t t0 = now_us();
   Scope& s = *g_scope;
@@ -712,7 +766,7 @@ void draw_audio_bar(const Scope& s, int x, float norm) {
 }
 
 bool draw_audio_frame(const AudioView& v, uint32_t now_ms) {
-  if (!g_active || !g_scope || !g_snapshot) return false;
+  if (g_info_open || !g_active || !g_scope || !g_snapshot) return false;
   if (!screens::owns(screens::Id::dead_air) || g_page != Page::audio) return false;
   const uint32_t t0 = now_us();
   Scope& s = *g_scope;
@@ -786,6 +840,7 @@ void enter(const Snapshot& snapshot) {
   *g_snapshot = snapshot;
   sanitize_snapshot();
   g_page = Page::overview;
+  g_info_open = false;
   g_active = true;
   scope_alloc();
   chrome();
@@ -811,15 +866,45 @@ void update(const Snapshot& snapshot) {
 }
 void leave() {
   g_active = false;
+  g_info_open = false;
   release_canvas();
   scope_release();
 }
 bool active() { return g_active; }
 PaintStats paint_stats() { return g_stats; }
 Page page() { return g_page; }
+void close_info() {
+  g_info_open = false;
+  if (g_scope) { g_scope->a_state = -1; g_scope->a_prev_n = 0; g_scope->prev_n = 0; }  // the plots repaint from scratch
+  draw_info_button();
+  draw_body(true);
+}
 Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
   if (!g_active || !screens::owns(screens::Id::dead_air)) return {};
   if (audio_header::home_hit(x, y)) return {ActionKind::close};
+  if (hit(x, y, kInfoBtnX, kInfoBtnY, kInfoBtnW, kInfoBtnH)) {  // the (i) button works on every tab and toggles the popup
+    if (g_info_open) close_info();
+    else {
+      g_info_open = true;
+      g_info_page = 0;
+      draw_info_button();
+      draw_info_panel();
+    }
+    return {};
+  }
+  if (g_info_open) {
+    if (hit(x, y, kInfoCloseX, kInfoBtnRowY, kInfoBtnRowW, 52) ||
+        !hit(x, y, kInfoPanelX, kInfoPanelY, kInfoPanelW, kInfoPanelH)) {
+      close_info();
+    } else if (hit(x, y, kInfoPrevX, kInfoBtnRowY, kInfoBtnRowW, 52) && g_info_page > 0) {
+      --g_info_page;
+      draw_info_panel();
+    } else if (hit(x, y, kInfoNextX, kInfoBtnRowY, kInfoBtnRowW, 52) && g_info_page + 1 < info_page_count()) {
+      ++g_info_page;
+      draw_info_panel();
+    }
+    return {};
+  }
   if (audio_header::mute_hit(x, y)) return {ActionKind::toggle_mute};
   if (audio_header::settings_hit(x, y)) return {ActionKind::open_settings};
   if (y >= kTabY && y < kTabY + kTabHeight) {
