@@ -92,3 +92,14 @@ Last health after visiting dashboards: free heap 4,235,520 B, internal free
 2,359,296 B; main-stack low-water 1,996 B. These are workload-specific point
 measurements, not a long soak or decoding-quality acceptance. Antenna suitability
 was not established. Physical button/marker acceptance requested, still pending.
+
+Retained-map follow-up from integration root:
+`python .local/maps/com17_label_bench.py map-labels-retained-plan-20261020.json map-labels-retained-20261020.log`
+PASS. Both map frames retained 2,835,456 B before/after stopped-radio SD read;
+8,192 B matched SHA-256
+`dc404a613fedaeb54034514bc6505f56b933caa5250299ba7d094377a51caa46`.
+No new SD write. Radio resumed at BROWSE 146.520 MHz, 2,399,491 SPS, zero observed
+drops/overruns, Home graphics=1, C6 3.0.6 match. After the LoRa/ADS-B/picker
+workload, free PSRAM was 1,870,944 B/largest 917,504 B. This leaves limited
+contiguous headroom for FT8 and requires its actual fallback/reclaim validation;
+no general memory-health acceptance is claimed.
