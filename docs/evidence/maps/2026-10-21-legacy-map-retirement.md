@@ -59,6 +59,61 @@ The rerun with the final neutral self-check is recorded in
 `map-view-retirement-{host-build,host-test,world-test}-20261021.log`.
 
 Native build, binary symbol removal, COM17 flash/preservation, serial catalog
-behavior and physical zoom acceptance are pending at this source checkpoint.
-COM39 is untouched. Next milestone: verify a single OrcMaps transition on COM17,
-then continue regional/global coverage and the broader product-default audit.
+behavior and physical zoom acceptance were pending at this source checkpoint.
+The continuation below records later gates. COM39 is untouched.
+
+## COM17 continuation — source `1308e5bd`
+
+Native build and artifact inspection PASS:
+
+```text
+python .local/maps/build_fit_order_20261020.py build orcmaps-only-20261021
+C:/Espressif/python_env/idf5.5_py3.14_env/Scripts/python.exe .local/maps/inspect_orcmaps_only_20261021.py
+```
+
+Logs in the invocation root: `fit-order-native-orcmaps-only-20261021-20261020.log`
+and `orcmaps-only-native-inspection-20261021.log`. Inspection confirms **no
+`orcsdr::offline_map::` symbols**, unchanged 40 KiB DMA reserve, unchanged engine
+pin and checked PSRAM placements, including the new preview metadata.
+App: 5,126,768 bytes, 4,208 fewer than the prior app; factory headroom 1,164,688
+bytes. SHA-256: `1ec2ebbafa5197517004c565ce6024d38afc18cc221f38acd5a97681e59cd3ad`.
+ELF SHA-256: `f29ca9a830e48c9ba95daa77d644017fed56cc1681b618e6c4d147dc4caa9156`.
+
+App-only flash on COM17, USB serial 30:ED:A0:E2:E6:95:
+
+```text
+python .local/maps/com17_label_bench.py logical-label-preflash-plan-20261021.json orcmaps-only-preflash-20261021.log
+python .local/maps/flash_orcmaps_only_20261021.py
+```
+
+Previous app, fresh non-app backups, write and post-write preservation verification
+all PASS. Logs: `orcmaps-only-{verify-previous,backup-*,verify-backups,app-write,preservation}-20261021.log`.
+Artifacts/backups: `.local/maps/orcmaps-only-1308e5bd-20261021/`.
+Boot, partition table, NVS, world and old core dump remain intact; SD files and
+C6 firmware are untouched. Rollback app is the saved `b694208a` candidate.
+
+Native monitor used `idf.py -B build-native-hosted3 -p COM17 monitor --no-reset`,
+then one explicit Ctrl-T/Ctrl-R reset. Log in its invocation directory:
+`apps/orcsdr-tab5/orcmaps-only-boot-native-monitor-20261021.log`.
+Boot reaches SD/Wi-Fi/RTL ready; ELF hash matches. The preserved core dump is
+historical, not a new crash.
+
+```text
+python .local/maps/com17_label_bench.py orcmaps-only-device-plan-20261021.json orcmaps-only-device-20261021.log
+python .local/maps/com17_label_bench.py orcmaps-only-zoom-plan-20261021.json orcmaps-only-zoom-20261021.log
+```
+
+Both return exit 0. Public catalog lists the four supported historical data
+entries and no regional map. `RTL_CATALOG_INSTALL lane_county_map` returns
+`unknown_or_unchecked_pack`, without a download or file removal.
+The initial navigation attempt did not produce zoom generation changes, so it
+is not zoom acceptance. The subsequent explicit Home→ADS-B→Radar sequence checks
+screen ownership, changes range 25→10→25, and produces two scaled-preview samples
+and ready generation 3 with zero missing/failed tiles. Sample paint calls are
+9,954 and 23,978 us; **two samples do not close the overall 33 ms target**.
+Physical no-flash acceptance remains pending.
+
+Bounded health snapshot: free PSRAM 20,697,576 bytes, largest DMA block 9,216
+bytes. Radio was streaming; this is not a controlled continuity/queue-loss soak.
+Next milestone: physical zoom confirmation, regional/global pack coverage and
+the broader product-default audit (including remaining documentation demos).
