@@ -34,8 +34,9 @@ A narrow read-only review found no additional concrete layout/hitbox defect.
 
 The same session prepared a shared ordered-rendering adapter in
 `map_pipeline.cpp/.hpp`, `map_service.cpp` and `map_pipeline_tests.cpp`.
-Those adapter changes remain uncommitted pending engine publication/pin update;
-they are not part of this standalone ADS-B layout commit. Engine evidence:
+At this standalone layout checkpoint those adapter changes were uncommitted;
+the subsequent [ordered integration checkpoint](2026-10-20-ordered-rendering-integration.md)
+records their pin/lock resolution and source integration. Engine evidence:
 `F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery/docs/evidence/2026-10-20-ordered-tile-rendering.md`.
 
 Native linking, real button interaction, physical fit/readability, aircraft

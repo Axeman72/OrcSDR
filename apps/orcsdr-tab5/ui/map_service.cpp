@@ -378,7 +378,8 @@ void worker(void*) {
     if(request.serial==g_serial.load()) {
       if(ok)publish_preview(request);
       g_frame.state=ok ? Frame::ready : Frame::unavailable;
-      text(g_frame.status,ok ? "LOCAL MAP" : g_frame.stats.out_of_memory ? "MAP UNAVAILABLE: LOW MEMORY" : "MAP UNAVAILABLE / NO MEMORY");
+      text(g_frame.status,ok ? "LOCAL MAP" : g_frame.stats.out_of_memory ? "MAP UNAVAILABLE: LOW MEMORY" :
+           g_frame.stats.deferred_capacity_failures ? "MAP UNAVAILABLE: TILE TOO DENSE" : "MAP UNAVAILABLE / NO MEMORY");
       if(ok && g_frame.stats.labels.unsupported_glyphs)
         std::snprintf(g_frame.status,sizeof(g_frame.status),"LOCAL MAP: %lu NAMES NEED FONT SUPPORT",
                       static_cast<unsigned long>(g_frame.stats.labels.unsupported_glyphs));
@@ -516,6 +517,10 @@ void report(void (*write)(const char*)) {
       static_cast<unsigned long>(stats.features),static_cast<unsigned long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
       static_cast<unsigned long long>(stats.lookup_us),static_cast<unsigned long long>(stats.stream_us),
       static_cast<unsigned long long>(stats.render_us),static_cast<unsigned long long>(stats.total_us),static_cast<unsigned long long>(stats.io_us));
+  write(line);
+  std::snprintf(line,sizeof(line),"ORC_MAP_DEFERRED peak_bytes=%u retained_bytes=%u capacity_failures=%lu\n",
+      static_cast<unsigned>(stats.deferred_peak_bytes),static_cast<unsigned>(stats.deferred_retained_bytes),
+      static_cast<unsigned long>(stats.deferred_capacity_failures));
   write(line);
   std::snprintf(line,sizeof(line),"ORC_MAP_LABELS offered=%lu drawn=%lu overlap=%lu offscreen=%lu unsupported=%lu overflow=%lu label_us=%llu layout_bytes=%u\n",
       static_cast<unsigned long>(stats.labels.offered),static_cast<unsigned long>(stats.labels.drawn),

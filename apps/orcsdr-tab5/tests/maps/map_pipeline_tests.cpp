@@ -83,6 +83,31 @@ void global_label_test(const char* archive) {
   std::printf("GLOBAL_STREAM_LABEL_PASS offered=%u drawn=%u\n",
               pipeline.stats().labels.offered,pipeline.stats().labels.drawn);
 }
+
+void global_order_test(const char* archive) {
+  orcmap::host::FileByteSource source(archive);
+  orcsdr::maps::Pipeline pipeline(source);
+  assert(pipeline.open("protomaps-v4"));
+  struct View { const char* id; double lat, lon; };
+  const View views[] = {{"eugene-springfield",44.05,-123.02},{"london",51.51,-0.13},
+    {"tokyo",35.68,139.69},{"nairobi",-1.29,36.82},{"sao-paulo",-23.55,-46.63},
+    {"delhi",28.61,77.21},{"sydney",-33.87,151.21},{"suva-antimeridian",-18.14,178.44}};
+  orcmap::Viewport view;
+  view.width_px=1280;view.height_px=720;view.zoom=8;
+  orcmap::host::FramebufferTarget frame(1280,720);
+  for (const auto& reference:views) {
+    view.center_lat_deg=reference.lat;view.center_lon_deg=reference.lon;
+    assert(pipeline.render(view,frame));
+    const auto& stats=pipeline.stats();
+    assert(stats.failed==0 && stats.missing==0 && stats.deferred_capacity_failures==0);
+    assert(stats.deferred_peak_bytes>0 && stats.deferred_retained_bytes>=stats.deferred_peak_bytes);
+    std::printf("GLOBAL_ORDER_PASS view=%s tiles=%u peak_bytes=%zu retained_bytes=%zu\n",
+      reference.id,stats.tiles,stats.deferred_peak_bytes,stats.deferred_retained_bytes);
+    if (const char* output=std::getenv("ORCSDR_ORDER_PREVIEW_DIR")) {
+      assert(frame.WritePpm(std::string(output)+"/"+reference.id+".ppm"));
+    }
+  }
+}
 void inventory_tests(const char*);
 void world_tests(const char*);
 void screen_tests();
@@ -176,5 +201,8 @@ int main(int argc, char** argv) {
   view.width_px=64;
   assert(!cancelled.render(view,frame) && cancelled.stats().cancelled);
   std::puts("MAP_PIPELINE_TEST_PASS");
-  if(const char* archive=std::getenv("ORCSDR_LABEL_TEST_ARCHIVE"))global_label_test(archive);
+  if(const char* archive=std::getenv("ORCSDR_LABEL_TEST_ARCHIVE")) {
+    global_label_test(archive);
+    global_order_test(archive);
+  }
 }

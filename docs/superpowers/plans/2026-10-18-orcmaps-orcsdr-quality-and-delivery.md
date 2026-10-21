@@ -37,6 +37,13 @@ Checked items below close only their stated behavior/test scope, not an entire p
 
 ### October 20 runtime / visual follow-up
 
+- OrcMaps `b59d478` subsequently passed the approved configured host regression
+  (8/8), was pushed to its development branch and verified remotely. OrcSDR's
+  official component-manager refresh now pins that SHA; only the OrcMaps resolved
+  dependency record changed. Existing Wi-Fi Remote/mDNS versions are preserved
+  explicitly after rejecting unrelated refresh drift. The shared ordered adapter
+  is integrated in source; combined native link and hardware gates remain open.
+  [Resolution, commands and evidence](../../evidence/maps/2026-10-20-ordered-rendering-integration.md).
 - ADS-B fit is clarified: the map does not use its slot well. A source candidate
   expands it from 360×360 to 622×302 below the panel heading, aligns the receiver
   center, clips overlays, and shares 48-pixel zoom draw/hit regions. P4 syntax
@@ -47,8 +54,7 @@ Checked items below close only their stated behavior/test scope, not an entire p
   geometry frames match corrected batch rendering byte-for-byte. Queue capacity
   reaches 522,240 bytes on the 64-bit host; P4 placement/pressure is unproven.
   Engine evidence: `F:/AI/OrcSDR-TEMP/orcmaps-quality-delivery/docs/evidence/2026-10-20-ordered-tile-rendering.md`.
-  The adapter source is prepared locally, but its dependency is not yet pushed,
-  pinned, native-linked or installed. Existing immediate/banded engine examples
+  Native linking and installation remain open. Existing immediate/banded engine examples
   still need deliberate ordered-consumer migration; no engine-wide claim yet.
 - Worldwide host previews now expose a shared paint-order blocker: the archive
   emits boundaries before opaque earth/landuse polygons, which cover the lines.

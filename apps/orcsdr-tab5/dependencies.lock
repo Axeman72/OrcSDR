@@ -134,7 +134,7 @@ dependencies:
       type: service
     version: 0.2.20
   orcmaps:
-    component_hash: d345fb8932af29d9f7777dbfde3cf04bde13a7b9fdebec14edc0a8e5c2485119
+    component_hash: 4c6bdc77250544fd19eecfb866104d6e81c836ace0421acd5ffe1b12c7bf15fc
     dependencies:
     - name: idf
       version: '>=5.0'
@@ -142,7 +142,7 @@ dependencies:
       git: https://github.com/hardcoreerik/OrcMaps.git
       path: .
       type: git
-    version: 722d0d382f99b2887694af333f85b1ee048f4208
+    version: b59d47819cc3b81c1bbe50ed75b775275bb0218e
 direct_dependencies:
 - esp_rtl_sdr
 - espressif/esp-dsp
@@ -153,6 +153,6 @@ direct_dependencies:
 - m5stack/m5gfx
 - m5stack/m5unified
 - orcmaps
-manifest_hash: c996920479bbea89380561f964858b44009b94dd83c45dfe475771cc51177afd
+manifest_hash: bd6ea0e7845ec91e84cdbf2807aae569822df83c114ae550a04f612ba0d4abb2
 target: esp32p4
 version: 2.0.0

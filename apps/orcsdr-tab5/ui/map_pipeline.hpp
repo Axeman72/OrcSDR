@@ -11,6 +11,7 @@
 #include "orcmap/viewport.hpp"
 #include "orcmap/location_picker.hpp"
 #include "orcmap/labels.hpp"
+#include "orcmap/renderer.hpp"
 
 namespace orcsdr::maps {
 
@@ -27,6 +28,8 @@ struct RenderStats {
   bool cancelled = false, out_of_memory = false;
   orcmap::LabelStats labels{};
   uint64_t label_us = 0;
+  size_t deferred_peak_bytes = 0, deferred_retained_bytes = 0;
+  uint32_t deferred_capacity_failures = 0;
 };
 
 // One source/reader/scratch per active archive. No display, radio, or network
@@ -65,6 +68,7 @@ class Pipeline {
   Source source_;
   orcmap::PmTilesReader reader_;
   orcmap::MvtStreamScratch scratch_;
+  orcmap::OrderedRenderScratch render_scratch_;
   bool ready_ = false;
   std::string_view profile_; // points only to a supported static literal
 };

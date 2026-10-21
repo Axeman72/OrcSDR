@@ -54,7 +54,7 @@ struct Pipeline::Context {
   const std::vector<orcmap::TilePlacement>& placements;
   orcmap::TileId tile;
   orcmap::LabelLayout* labels;
-  orcmap::RenderScratch scratch;
+  orcmap::OrderedRenderScratch& scratch;
 };
 
 bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
@@ -73,7 +73,7 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
   const uint64_t start = pipeline.now();
   for (const auto& placement : context.placements) {
     if (!(placement.tile == context.tile)) continue;
-    if (!orcmap::RenderFeatureAt(feature, placement, context.viewport,
+    if (!orcmap::RenderOrderedFeatureAt(feature, placement, context.viewport,
                                 orcmap::styles::OrcSdrDark(), &context.target,
                                 &context.scratch)) return false;
     if (context.labels && feature.geometry.type == orcmap::GeomType::kPoint) {
@@ -90,7 +90,7 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
 bool Pipeline::render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target,
                        orcmap::LabelLayout* labels, orcmap::LabelTextTarget* text) {
   try {return render_impl(viewport,target,labels,text);}
-  catch(const std::bad_alloc&) {ready_=false;stats_.out_of_memory=true;++stats_.failed;return false;}
+  catch(const std::bad_alloc&) {render_scratch_.Reset();ready_=false;stats_.out_of_memory=true;++stats_.failed;return false;}
 }
 bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget& target,
                             orcmap::LabelLayout* labels,orcmap::LabelTextTarget* text) {
@@ -113,8 +113,9 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     stats_.lookup_us += now() - lookup;
     if (!present) { ++stats_.missing; continue; }
     // Keep the world overview clear; place names begin at regional zoom.
+    render_scratch_.Reset();
     Context context{*this, viewport, target, placements, tile,
-                    viewport.zoom >= 6 ? labels : nullptr, {}};
+                    viewport.zoom >= 6 ? labels : nullptr, render_scratch_};
     orcmap::MvtStreamOptions options;
     options.include_layer = [](const char* name,size_t size,void* opaque) {
       const auto& ctx=*static_cast<Context*>(opaque);
@@ -126,8 +127,18 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     options.feature_sink = &Pipeline::feature;
     options.feature_sink_ctx = &context;
     const uint64_t stream = now(), render_before = stats_.render_us;
-    const bool ok = reader_.StreamTile(tile.z, tile.x, tile.y, options, &scratch_);
+    bool ok = reader_.StreamTile(tile.z, tile.x, tile.y, options, &scratch_);
     stats_.stream_us += now() - stream - (stats_.render_us - render_before);
+    if (ok) {
+      const uint64_t flush = now();
+      ok = orcmap::FinishOrderedTile(&render_scratch_, &target, hooks_.service, hooks_.context);
+      stats_.render_us += now() - flush;
+    }
+    if (render_scratch_.status == orcmap::OrderedRenderStatus::kCancelled) stats_.cancelled = true;
+    if (render_scratch_.status == orcmap::OrderedRenderStatus::kCapacityExceeded) ++stats_.deferred_capacity_failures;
+    stats_.deferred_peak_bytes = std::max(stats_.deferred_peak_bytes, render_scratch_.peak_bytes);
+    stats_.deferred_retained_bytes = render_scratch_.RetainedBytes();
+    render_scratch_.Reset(); // Discard pending strokes on decode failure too.
     if (ok) ++stats_.tiles;
     else ++stats_.failed;
     if (stats_.cancelled) break;
