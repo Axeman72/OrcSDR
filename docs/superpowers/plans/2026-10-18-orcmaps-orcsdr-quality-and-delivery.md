@@ -46,8 +46,11 @@ zero USB-driver drops alone does not close continuity acceptance.
 
 The Labels button changes its saved state, but the installed pipeline suppresses
 names using source zoom 4 instead of the requested camera zoom. The prepared
-correction passes focused actual-world-archive tests; native/device acceptance
-is pending. A closer 10 NM fresh-install default preserves existing saved ranges.
+correction passes focused actual-world-archive tests and was native-built and
+app-only flashed as `b694208a`. COM17 at 100 NM reports ON/OFF/ON drawing 2/0/2
+names; closer views lack embedded-overview points inside the panel. Physical
+confirmation and regional/global-pack coverage remain open. A closer 10 NM
+fresh-install default preserves existing valid saved ranges.
 [Current defect, commands and evidence](../../evidence/maps/2026-10-21-dashboard-label-zoom.md).
 COM39 remains reserved for the separate Dead Air work.
 
