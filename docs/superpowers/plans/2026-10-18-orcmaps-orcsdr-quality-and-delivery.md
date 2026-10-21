@@ -35,6 +35,19 @@ not the current state.
 
 Checked items below close only their stated behavior/test scope, not an entire phase.
 
+### October 20 continuation checkpoint
+
+- `af877ed7` label candidate native-built and app-only flashed to COM17. Automated
+  picker/LoRa/ADS-B independence and reboot persistence pass; initial choices
+  and BROWSE 146.520 MHz restored. Physical marker/readability acceptance remains
+  open. Boot USB enumeration needed existing recovery on one reboot, then passed.
+- Cloud FT8 branch `2e86835b` selectively incorporated in source, with matching
+  whole-world projection and independent labels. A reviewed same-revision
+  publication race reproduced and was fixed; optimized/sanitized dashboard,
+  full projection sweep and 2 P4 syntax checks pass. Native/device FT8 gates open.
+- [Label hardware evidence](../../evidence/maps/2026-10-19-geographic-label-controls.md)
+  and [FT8 scope/tests](../../evidence/maps/2026-10-20-ft8-selective-integration.md).
+
 ### Geographic label controls source checkpoint - October 19
 
 - Picker, LoRa and ADS-B now have independent persisted label controls in source.
@@ -42,8 +55,9 @@ Checked items below close only their stated behavior/test scope, not an entire p
   honor it too, retaining geometry, attribution and radio overlays.
 - Three focused host checks pass, including the real global archive, picker
   control and failed-save behavior; seven actual P4 syntax checks pass.
-- Native link/COM17 persistence and physical overlay checks remain open. FT8's
-  visible control is still paired with its unfinished basemap migration.
+- Subsequent native link/COM17 toggle/persistence checks passed October 20.
+  Physical overlay acceptance remains open. FT8 migration/control now has local
+  host/P4 syntax evidence, but native/device validation remains open.
 - [Exact tests, logs and limits](../../evidence/maps/2026-10-19-geographic-label-controls.md).
 
 ### Download flow source checkpoint - October 19

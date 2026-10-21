@@ -52,3 +52,43 @@ Native link and COM17 control/persistence/overlay/radio checks are next. Physica
 legacy-label and actual geographic-font acceptance remain open. FT8 basemap
 migration/control, global quality, real HTTPS delivery and 33 ms interaction
 remain open. COM39 is reserved for Dead Air and was not accessed.
+
+## October 20 native and COM17 checkpoint
+
+Firmware source `af877ed7`, app SHA-256
+`a1f4ad51c0dfea54917b8edbc194a643b602eb856f470212187229054b33a738`.
+The interrupted build had no live process; its existing log was preserved and
+incremental work resumed with identical saved configuration/lock/C6 inputs.
+Build and inspection PASS: 5,142,192-byte app, 1,149,264-byte partition headroom,
+40 KiB DMA reserve, 1 KiB exception reserve, existing miniz/FT8 symbol gates,
+PSRAM placements and unchanged component pin/lock. No production catalog input.
+
+Commands from integration root:
+
+- `python .local/maps/resume_map_labels_20261019.py`: PASS; appended to `map-labels-native-build-20261019.log`.
+- `python .local/maps/inspect_map_labels_20261019.py`: PASS; `map-labels-native-inspection-20261020.log`.
+- `python .local/maps/com17_label_bench.py map-labels-preflash-plan-20261020.json map-labels-preflash-20261020.log`: PASS, reception stopped before flash.
+- `python .local/maps/flash_map_labels_20261020.py`: prior app/boot/table verification, fresh non-app backup/readback, app-only write and preservation PASS. Logs `map-labels-{verify-previous,backup-*,verify-backups,app-write,preservation}-20261020.log`.
+- `python .local/maps/com17_label_bench.py map-labels-toggle-plan-20261020.json map-labels-toggle-20261020.log`: PASS; all three choices switched off independently, FT8 stayed on.
+- `python .local/maps/com17_label_bench.py map-labels-persistence-restore-plan-20261020.json map-labels-persistence-restore-20261020.log`: PASS; off choices survived reboot, all three then restored independently to on.
+
+COM17 identity `30:ED:A0:E2:E6:95`; prior firmware matched the saved download-flow
+candidate. All non-app bytes verified unchanged after flash. Existing SD packs,
+world partition, location and C6 were preserved. No COM39 access.
+Native `idf.py -p COM17 monitor --no-reset` wrapper invoked from
+`apps/orcsdr-tab5`, explicit Ctrl+T Ctrl+R reset and Ctrl+] exit, with logs saved
+there as `map-labels-{boot,persistence}-native-monitor-20261020.log`.
+
+Both boots reached SD/Wi-Fi/RTL ready. Wi-Fi first-attempt retries recovered;
+the persistence boot also had a USB short-descriptor enumeration failure,
+then the existing bounded dongle power-cycle recovery succeeded. This is a
+recovered startup error, not a clean first-attempt USB claim. Historical saved
+coredump was retained; no new panic observed in this bounded check.
+
+At completion, Home graphics=1, original BROWSE 146.520 MHz restored, driver
+STREAMING at 2,398,954 SPS with zero observed drops/overruns; C6/host 3.0.6 match.
+Last health after visiting dashboards: free heap 4,235,520 B, internal free
+15,287 B, largest internal/DMA block 9,216 B, PSRAM free 4,230,220 B/largest
+2,359,296 B; main-stack low-water 1,996 B. These are workload-specific point
+measurements, not a long soak or decoding-quality acceptance. Antenna suitability
+was not established. Physical button/marker acceptance requested, still pending.
