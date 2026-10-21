@@ -19,6 +19,7 @@
 #include "dead_air_clip.hpp"
 #include "dead_air_dashboard.hpp"
 #include "dead_air_journal.hpp"
+#include "dead_air_mic.hpp"
 #include "dead_air_model.hpp"
 #include "dead_air_sd_journal.hpp"
 #include "dead_air_sweep.hpp"
@@ -57,13 +58,16 @@ struct AudioRing {
   AudioBucket slots[kSize];
   std::atomic<uint32_t> head{0};
   AudioMeter meter;  // touched by the DSP thread only
-  // Rolling copy of the demodulated PCM for event clips (PSRAM). The DSP thread is the only writer.
+};
+
+// Rolling copy of one source's 48 kHz PCM for event clips (PSRAM). Exactly one thread writes a given ring.
+struct PcmRing {
   int16_t* pcm = nullptr;
   uint32_t capacity = 0;                 // samples
   std::atomic<uint64_t> written{0};      // total samples ever written
   std::atomic<uint64_t> run_start{0};    // first sample of the current uninterrupted run of audio
   std::atomic<bool> capture{false};
-  uint32_t last_write_ms = 0;            // DSP thread only
+  std::atomic<uint32_t> last_write_ms{0};
 };
 
 // Hand-off between the UI task (plans clips) and the SD worker (writes them).
@@ -100,6 +104,21 @@ struct ClipMail {
   int16_t chunk[4096];
 };
 
+// Everything one clip source needs: its PCM ring, planner and hand-off to the SD worker.
+struct ClipChannel {
+  PcmRing ring;
+  ClipPlanner planner;
+  ClipTicket pending_meta;               // receiver details captured when the current clip began
+  ClipMail mail;
+  bool enabled = true;
+  bool flowing = false;                  // PCM for this source is arriving
+  bool mic = false;
+  const char* source = "receiver_demod";
+  const char* tag = "";                  // file name suffix
+  std::atomic<uint32_t> saved{0}, failed{0};
+  uint32_t refused_no_audio = 0, refused_busy = 0, refused_limit = 0;
+};
+
 struct State {
   EventModel model;
   EventQueue queue;
@@ -120,12 +139,11 @@ struct State {
   bool last_level_valid = false;
   uint32_t last_total = 0;
   AudioRing audio;
-  ClipPlanner planner;
-  ClipTicket pending_meta;  // receiver details captured when the current clip began
-  ClipMail mail;
-  bool clips_enabled = true;
-  std::atomic<uint32_t> clips_saved{0}, clips_failed{0};
-  uint32_t clips_refused_no_audio = 0, clips_refused_busy = 0, clips_refused_limit = 0;
+  ClipChannel rx;                         // the receiver's demodulated audio
+  ClipChannel mic;                        // the Tab5 microphones: opt-in, off at every session start
+  uint8_t mic_state = 0;                  // 0 off, 1 listening, 2 paused (speaker on), 3 failed
+  const char* mic_error = nullptr;
+  bool mic_used = false;                  // the mic was started at least once this session
   ClipInfo recent[kClipInfoCount];
   char recent_sha[kClipInfoCount][65]{};  // full hashes, for re-checking
   uint8_t recent_count = 0;
@@ -151,6 +169,8 @@ Hooks g_hooks;
 State* g_state = nullptr;
 bool g_open = false;
 std::atomic<AudioRing*> g_ring{nullptr};
+std::atomic<PcmRing*> g_rx_ring{nullptr};   // DSP thread writes the receiver audio here
+std::atomic<PcmRing*> g_mic_ring{nullptr};  // the mic task writes room audio here
 std::atomic<bool> g_audio_wanted{false};
 uint8_t g_last_action = 0;     // diagnostic: last touch action kind seen by the app
 uint32_t g_touches = 0;
@@ -186,31 +206,31 @@ bool journal_line(State& s, const char* line, size_t len) {
 
 // Writes one clip as a WAV file plus one journal record. Every outcome is recorded: a clip that could not be written
 // leaves a clip_failed record naming the reason, never a missing or half-valid file.
-void write_clip(State& s) {
-  ClipMail& m = s.mail;
+void write_clip(State& s, ClipChannel& ch) {
+  ClipMail& m = ch.mail;
   const ClipTicket& t = m.ticket;
   ClipResult& r = m.result;
   r = ClipResult{};
-  char line[768];
+  char line[896];
   size_t len = 0;
   const auto fail = [&](const char* reason) {
     r.ok = false;
     r.abandoned = true;
     len = 0;
-    json_append(line, sizeof(line), len, "{\"v\":1,\"type\":\"clip_failed\",\"event_seqs\":");
+    json_append(line, sizeof(line), len, "{\"v\":1,\"type\":\"clip_failed\",\"source\":\"%s\",\"event_seqs\":", ch.source);
     json_seqs(line, sizeof(line), len, t.job);
     json_append(line, sizeof(line), len, ",\"trigger_count\":%lu,\"reason\":\"%s\"}\n", static_cast<unsigned long>(t.job.trigger_count), reason);
     (void)journal_line(s, line, len);
-    s.clips_failed.fetch_add(1, std::memory_order_relaxed);
+    ch.failed.fetch_add(1, std::memory_order_relaxed);
   };
   if (t.abandon) { fail(t.reason ? t.reason : "abandoned"); return; }
-  AudioRing& ring = s.audio;
+  PcmRing& ring = ch.ring;
   const ClipJob& job = t.job;
   const uint32_t samples = static_cast<uint32_t>(job.end - job.start);
   storage::FileSystem& fs = storage::filesystem();
   if (!ring.pcm || !(fs.exists("/orcsdr/dead_air/clips") || fs.mkdir("/orcsdr/dead_air/clips"))) { fail("no_clip_folder"); return; }
-  std::snprintf(r.name, sizeof(r.name), "s%010lu_e%lu.wav", static_cast<unsigned long>(s.sink.session_id()),
-                static_cast<unsigned long>(job.trigger_seqs[0]));
+  std::snprintf(r.name, sizeof(r.name), "s%010lu_e%lu%s.wav", static_cast<unsigned long>(s.sink.session_id()),
+                static_cast<unsigned long>(job.trigger_seqs[0]), ch.tag);
   char path[96];
   std::snprintf(path, sizeof(path), "/orcsdr/dead_air/clips/%s", r.name);
   storage::File file = fs.open(path, FILE_WRITE, true);
@@ -258,33 +278,36 @@ void write_clip(State& s) {
   r.speaker_on = t.speaker_on;
   r.seq_count = job.seq_count;
   std::memcpy(r.seqs, job.trigger_seqs, sizeof(r.seqs));
+  const char* processing = ch.mic ? "none by Dead Air; Tab5 built-in microphone, mono, M5Unified default gain; taken only while the speaker was silent"
+                                  : "none by Dead Air; receiver demodulator output";
   len = 0;
   json_append(line, sizeof(line), len, "{\"v\":1,\"type\":\"clip\",\"event_seqs\":");
   json_seqs(line, sizeof(line), len, job);
-  json_append(line, sizeof(line), len,
+  json_append(line, sizeof(line),
+              len,
               ",\"trigger_count\":%lu,\"file\":\"clips/%s\",\"bytes\":%lu,\"sha256\":\"%s\",\"format\":\"pcm_s16le\","
               "\"rate_hz\":%lu,\"channels\":1,\"samples\":%lu,\"duration_ms\":%lu,\"pre_ms\":%lu,\"post_ms\":%lu,"
-              "\"truncated\":%s,\"source\":\"receiver_demod\",\"demod\":\"%s\",\"frequency_hz\":%lu,\"speaker\":\"%s\","
-              "\"processing\":\"none by Dead Air; receiver demodulator output\",\"trigger_mono_ms\":%lu,\"unix_time\":",
+              "\"truncated\":%s,\"source\":\"%s\",\"demod\":\"%s\",\"frequency_hz\":%lu,\"speaker\":\"%s\","
+              "\"processing\":\"%s\",\"trigger_mono_ms\":%lu,\"unix_time\":",
               static_cast<unsigned long>(job.trigger_count), r.name, static_cast<unsigned long>(expected), r.sha,
               static_cast<unsigned long>(kClipSampleRate), static_cast<unsigned long>(samples),
               static_cast<unsigned long>(static_cast<uint64_t>(samples) * 1000u / kClipSampleRate),
               static_cast<unsigned long>(kClipPreMs), static_cast<unsigned long>(kClipPostMs), job.truncated ? "true" : "false",
-              t.demod, static_cast<unsigned long>(t.frequency_hz), t.speaker_on ? "on" : "muted",
+              ch.source, t.demod, static_cast<unsigned long>(t.frequency_hz), t.speaker_on ? "on" : "muted", processing,
               static_cast<unsigned long>(job.trigger_ms));
   if (job.unix_time) json_append(line, sizeof(line), len, "%lu}\n", static_cast<unsigned long>(job.unix_time));
   else json_append(line, sizeof(line), len, "null}\n");
   if (!journal_line(s, line, len)) {
     r.ok = false;  // the file exists on the card but the log could not say so: report it as failed rather than half-done
-    s.clips_failed.fetch_add(1, std::memory_order_relaxed);
+    ch.failed.fetch_add(1, std::memory_order_relaxed);
     return;
   }
-  s.clips_saved.fetch_add(1, std::memory_order_relaxed);
+  ch.saved.fetch_add(1, std::memory_order_relaxed);
 }
 
 // Re-reads a clip from the card and compares its SHA-256 with the one recorded when it was written.
 void verify_clip(State& s) {
-  ClipMail& m = s.mail;
+  ClipMail& m = s.rx.mail;
   ClipResult& r = m.result;
   r = ClipResult{};
   r.is_verify = true;
@@ -309,21 +332,33 @@ void verify_clip(State& s) {
   r.verify_result = ok && std::strcmp(hex, m.ticket.verify_sha) == 0 ? 2 : 3;
 }
 
-void run_ticket(State& s) {
-  if (s.mail.ticket.verify) verify_clip(s);
-  else write_clip(s);
+void run_ticket(State& s, ClipChannel& ch) {
+  if (ch.mail.ticket.verify) verify_clip(s);
+  else write_clip(s, ch);
+}
+
+// Runs whatever the UI task has handed over, for each source.
+void service_tickets(State& s) {
+  for (ClipChannel* ch : {&s.rx, &s.mic}) {
+    if (ch->mail.state.load(std::memory_order_acquire) != 1) continue;
+    ch->mail.state.store(2, std::memory_order_relaxed);
+    run_ticket(s, *ch);
+    ch->mail.state.store(3, std::memory_order_release);
+  }
 }
 
 void write_clip_summary(State& s) {
-  char line[200];
-  const int n = std::snprintf(line, sizeof(line),
-                              "{\"v\":1,\"type\":\"clip_summary\",\"enabled\":%s,\"saved\":%lu,\"failed\":%lu,"
-                              "\"refused_no_audio\":%lu,\"refused_busy\":%lu,\"refused_limit\":%lu}\n",
-                              s.clips_enabled ? "true" : "false", static_cast<unsigned long>(s.clips_saved.load()),
-                              static_cast<unsigned long>(s.clips_failed.load()),
-                              static_cast<unsigned long>(s.clips_refused_no_audio), static_cast<unsigned long>(s.clips_refused_busy),
-                              static_cast<unsigned long>(s.clips_refused_limit));
-  if (n > 0) (void)journal_line(s, line, static_cast<size_t>(n));
+  char line[240];
+  for (const ClipChannel* ch : {&s.rx, &s.mic}) {
+    if (ch->mic && !s.mic_used) continue;  // the mic was never started: nothing to say about it
+    const int n = std::snprintf(line, sizeof(line),
+                                "{\"v\":1,\"type\":\"clip_summary\",\"source\":\"%s\",\"enabled\":%s,\"saved\":%lu,\"failed\":%lu,"
+                                "\"refused_no_audio\":%lu,\"refused_busy\":%lu,\"refused_limit\":%lu}\n",
+                                ch->source, ch->enabled ? "true" : "false", static_cast<unsigned long>(ch->saved.load()),
+                                static_cast<unsigned long>(ch->failed.load()), static_cast<unsigned long>(ch->refused_no_audio),
+                                static_cast<unsigned long>(ch->refused_busy), static_cast<unsigned long>(ch->refused_limit));
+    if (n > 0) (void)journal_line(s, line, static_cast<size_t>(n));
+  }
 }
 
 // Dedicated, low-priority storage worker. It owns the SD sink and journal; the UI task only
@@ -348,11 +383,7 @@ void worker_main(void* arg) {
   }
   while (open && !w.stop.load(std::memory_order_acquire)) {
     s->journal.drain(s->queue, s->sink, 8);
-    if (s->mail.state.load(std::memory_order_acquire) == 1) {
-      s->mail.state.store(2, std::memory_order_relaxed);
-      run_ticket(*s);
-      s->mail.state.store(3, std::memory_order_release);
-    }
+    service_tickets(*s);
     w.saved.store(s->journal.saved(), std::memory_order_relaxed);
     w.missing.store(s->journal.missing(), std::memory_order_relaxed);
     w.dropped.store(s->queue.dropped(), std::memory_order_relaxed);
@@ -364,11 +395,7 @@ void worker_main(void* arg) {
     vTaskDelay(pdMS_TO_TICKS(100));
   }
   if (open) {
-    if (s->mail.state.load(std::memory_order_acquire) == 1) {  // a ticket posted just before the stop
-      s->mail.state.store(2, std::memory_order_relaxed);
-      run_ticket(*s);
-      s->mail.state.store(3, std::memory_order_release);
-    }
+    service_tickets(*s);  // a ticket posted just before the stop
     write_clip_summary(*s);
     const bool clean = s->journal.finish(s->queue, s->sink);
     const bool closed = s->sink.close();
@@ -423,44 +450,73 @@ bool start_sweep(State& s, uint32_t now) {
 }
 
 
-// ---- Clip planning (UI task) -------------------------------------------------------------------------------------
-void post_ticket(State& s, const ClipTicket& t) {
-  s.mail.ticket = t;
-  s.mail.state.store(1, std::memory_order_release);
+// ---- Clip planning and the optional microphone (UI task) ---------------------------------------------------------
+void post_ticket(ClipChannel& ch, const ClipTicket& t) {
+  ch.mail.ticket = t;
+  ch.mail.state.store(1, std::memory_order_release);
 }
 
-void fill_meta(ClipTicket& t) {
-  std::snprintf(t.demod, sizeof(t.demod), "%s", g_hooks.demod ? g_hooks.demod() : "--");
-  t.frequency_hz = g_hooks.frequency_hz ? g_hooks.frequency_hz() : 0;
+void fill_meta(const ClipChannel& ch, ClipTicket& t) {
+  if (ch.mic) std::snprintf(t.demod, sizeof(t.demod), "MIC");
+  else std::snprintf(t.demod, sizeof(t.demod), "%s", g_hooks.demod ? g_hooks.demod() : "--");
+  t.frequency_hz = !ch.mic && g_hooks.frequency_hz ? g_hooks.frequency_hz() : 0;
   t.speaker_on = g_hooks.sound_enabled ? g_hooks.sound_enabled() : false;
 }
 
+// Copies PCM into a ring. Called from exactly one thread per ring (the DSP thread, or the mic task).
+void ring_write(PcmRing& r, const int16_t* pcm, size_t count) {
+  if (!r.pcm || !r.capacity || !r.capture.load(std::memory_order_relaxed)) return;
+  const uint32_t now = millis();
+  uint64_t w = r.written.load(std::memory_order_relaxed);
+  if (w == 0 || now - r.last_write_ms.load(std::memory_order_relaxed) > 300) r.run_start.store(w, std::memory_order_relaxed);  // a new uninterrupted run
+  r.last_write_ms.store(now, std::memory_order_relaxed);
+  size_t done = 0;
+  while (done < count) {
+    const uint32_t from = static_cast<uint32_t>(w % r.capacity);
+    const size_t n = std::min<size_t>(count - done, r.capacity - from);
+    std::memcpy(r.pcm + from, pcm + done, n * sizeof(int16_t));
+    done += n;
+    w += n;
+  }
+  r.written.store(w, std::memory_order_release);
+}
+
+bool alloc_ring(PcmRing& r) {
+  if (r.pcm) return true;
+  const uint32_t cap = kClipSampleRate / 1000u * kClipRingMs;
+  r.pcm = static_cast<int16_t*>(heap_caps_malloc(static_cast<size_t>(cap) * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  r.capacity = r.pcm ? cap : 0;
+  return r.pcm != nullptr;
+}
+
 // Called for every event as it is logged. Only measured detections and investigator marks start a clip.
-void trigger_clip(State& s, const Event& e) {
-  if (!s.clips_enabled || !s.audio.pcm) return;
+void trigger_clip(State& s, ClipChannel& ch, const Event& e) {
+  (void)s;
+  if (!ch.enabled || !ch.ring.pcm) return;
   if (e.kind != Kind::rf_rise && e.kind != Kind::audio_burst && e.kind != Kind::manual_marker) return;
-  const bool was_idle = s.planner.state() == ClipState::idle;
-  if (was_idle && s.clips_saved.load(std::memory_order_relaxed) + s.clips_failed.load(std::memory_order_relaxed) >= kMaxClipsPerSession) {
-    ++s.clips_refused_limit;  // the event is still logged; only its clip is skipped
+  const bool was_idle = ch.planner.state() == ClipState::idle;
+  if (was_idle && ch.saved.load(std::memory_order_relaxed) + ch.failed.load(std::memory_order_relaxed) >= kMaxClipsPerSession) {
+    ++ch.refused_limit;  // the event is still logged; only its clip is skipped
     return;
   }
-  switch (s.planner.trigger(s.audio.written.load(std::memory_order_acquire), s.audio.run_start.load(std::memory_order_relaxed),
-                            s.audio_flowing, e.sequence, millis(), e.unix_time)) {
+  switch (ch.planner.trigger(ch.ring.written.load(std::memory_order_acquire), ch.ring.run_start.load(std::memory_order_relaxed),
+                             ch.flowing, e.sequence, millis(), e.unix_time)) {
     case ClipReject::none:
-      if (was_idle) fill_meta(s.pending_meta);  // what the receiver was doing when the clip began
+      if (was_idle) fill_meta(ch, ch.pending_meta);  // what the source was doing when the clip began
       break;
-    case ClipReject::no_audio: ++s.clips_refused_no_audio; break;
-    case ClipReject::busy: ++s.clips_refused_busy; break;
+    case ClipReject::no_audio: ++ch.refused_no_audio; break;
+    case ClipReject::busy: ++ch.refused_busy; break;
   }
 }
 
 void on_event(void* context, const Event& e) {
   State* s = static_cast<State*>(context);
   enqueue_event(&s->queue, e);  // the journal first: this never depends on audio
-  trigger_clip(*s, e);
+  trigger_clip(*s, s->rx, e);
+  trigger_clip(*s, s->mic, e);
 }
 
-void remember_clip(State& s, const ClipResult& r) {
+void remember_clip(State& s, const ClipChannel& ch, const ClipResult& r) {
   for (size_t i = kClipInfoCount - 1; i > 0; --i) {
     s.recent[i] = s.recent[i - 1];
     std::memcpy(s.recent_sha[i], s.recent_sha[i - 1], sizeof(s.recent_sha[i]));
@@ -475,6 +531,7 @@ void remember_clip(State& s, const ClipResult& r) {
   std::snprintf(c.demod, sizeof(c.demod), "%s", r.demod);
   c.frequency_hz = r.frequency_hz;
   c.speaker_on = r.speaker_on;
+  c.mic = ch.mic;
   s.recent_count = static_cast<uint8_t>(std::min<size_t>(kClipInfoCount, s.recent_count + 1u));
   s.verify_state = 0;  // the newest clip has changed, so it has not been re-checked
   // Remember which events have a clip (newest first, bounded).
@@ -485,44 +542,102 @@ void remember_clip(State& s, const ClipResult& r) {
 
 // Asks the SD worker to re-read the newest clip and compare its hash. Ignored while the worker is busy.
 void request_verify(State& s) {
-  if (!s.recent_count || s.verify_state == 1 || s.mail.state.load(std::memory_order_acquire) != 0) return;
+  if (!s.recent_count || s.verify_state == 1 || s.rx.mail.state.load(std::memory_order_acquire) != 0) return;
   ClipTicket t{};
   t.verify = true;
   std::snprintf(t.verify_name, sizeof(t.verify_name), "%s", s.recent[0].name);
   std::snprintf(t.verify_sha, sizeof(t.verify_sha), "%s", s.recent_sha[0]);
   s.verify_state = 1;
-  post_ticket(s, t);
+  post_ticket(s.rx, t);
 }
 
 // Collects a finished clip from the SD worker, then asks the planner whether another is ready to hand over.
-void service_clips(State& s, uint32_t now) {
-  if (s.mail.state.load(std::memory_order_acquire) == 3) {
-    const ClipResult r = s.mail.result;
+void service_clips(State& s, ClipChannel& ch, uint32_t now) {
+  if (ch.mail.state.load(std::memory_order_acquire) == 3) {
+    const ClipResult r = ch.mail.result;
     if (r.is_verify) s.verify_state = r.verify_result;
     else {
-      if (r.ok) remember_clip(s, r);
-      if (s.planner.state() == ClipState::writing) s.planner.finished();
+      if (r.ok) remember_clip(s, ch, r);
+      if (ch.planner.state() == ClipState::writing) ch.planner.finished();
     }
-    s.mail.state.store(0, std::memory_order_relaxed);
+    ch.mail.state.store(0, std::memory_order_relaxed);
   }
-  if (s.mail.state.load(std::memory_order_acquire) != 0) return;
+  if (ch.mail.state.load(std::memory_order_acquire) != 0) return;
   ClipJob job;
   ClipFail failure = ClipFail::none;
-  if (s.planner.poll(s.audio.written.load(std::memory_order_acquire), s.audio.run_start.load(std::memory_order_relaxed),
-                     s.audio_flowing, now, &job, &failure)) {
+  if (ch.planner.poll(ch.ring.written.load(std::memory_order_acquire), ch.ring.run_start.load(std::memory_order_relaxed),
+                      ch.flowing, now, &job, &failure)) {
     ClipTicket t{};
     t.job = job;
-    std::memcpy(t.demod, s.pending_meta.demod, sizeof(t.demod));
-    t.frequency_hz = s.pending_meta.frequency_hz;
-    t.speaker_on = s.pending_meta.speaker_on;
-    post_ticket(s, t);
+    std::memcpy(t.demod, ch.pending_meta.demod, sizeof(t.demod));
+    t.frequency_hz = ch.pending_meta.frequency_hz;
+    t.speaker_on = ch.pending_meta.speaker_on;
+    post_ticket(ch, t);
   } else if (failure != ClipFail::none) {
     ClipTicket t{};
     t.job = job;
     t.abandon = true;
     t.reason = "audio_stopped";
-    post_ticket(s, t);
+    post_ticket(ch, t);
   }
+}
+
+// A capture that can no longer complete is recorded as a failure with its reason, not silently dropped.
+void abandon_capture(ClipChannel& ch, const char* reason) {
+  if (ch.planner.state() == ClipState::capturing && ch.mail.state.load(std::memory_order_acquire) == 0) {
+    ClipTicket t{};
+    t.job = ch.planner.pending();
+    t.abandon = true;
+    t.reason = reason;
+    post_ticket(ch, t);
+  }
+  ch.planner.cancel();
+}
+
+// Mic task: the microphone only records while the speaker is silent. With radio audio playing it would just record the
+// speaker (measured at about -2 dBFS, against about -56 dBFS in a quiet room), so those blocks are dropped and the run
+// restarts when the speaker goes quiet.
+void mic_sink(const int16_t* pcm, size_t count) {
+  PcmRing* ring = g_mic_ring.load(std::memory_order_acquire);
+  if (!ring) return;
+  if (g_hooks.sound_enabled && g_hooks.sound_enabled()) return;
+  ring_write(*ring, pcm, count);
+}
+
+bool mic_start(State& s) {
+  if (s.mic.enabled) return true;
+  if (!alloc_ring(s.mic.ring)) { s.mic_error = "no memory"; s.mic_state = 3; return false; }
+  s.mic.ring.written.store(0, std::memory_order_relaxed);
+  s.mic.ring.run_start.store(0, std::memory_order_relaxed);
+  s.mic.ring.last_write_ms.store(0, std::memory_order_relaxed);
+  s.mic.planner.configure(kClipSampleRate, kClipPreMs, kClipPostMs);
+  s.mic.mail.state.store(0, std::memory_order_relaxed);
+  s.mic.flowing = false;
+  s.mic.ring.capture.store(true, std::memory_order_relaxed);
+  g_mic_ring.store(&s.mic.ring, std::memory_order_release);
+  if (!dead_air_mic::start(mic_sink)) {
+    g_mic_ring.store(nullptr, std::memory_order_release);
+    s.mic.ring.capture.store(false, std::memory_order_relaxed);
+    s.mic_error = dead_air_mic::stats().error ? dead_air_mic::stats().error : "mic failed";
+    s.mic_state = 3;
+    return false;
+  }
+  s.mic.enabled = true;
+  s.mic_used = true;
+  s.mic_error = nullptr;
+  s.mic_state = 1;
+  return true;
+}
+
+void mic_stop(State& s, const char* reason) {
+  if (!s.mic.enabled && !dead_air_mic::running()) { if (s.mic_state != 3) s.mic_state = 0; return; }
+  abandon_capture(s.mic, reason);
+  g_mic_ring.store(nullptr, std::memory_order_release);
+  s.mic.ring.capture.store(false, std::memory_order_relaxed);
+  dead_air_mic::stop();
+  s.mic.enabled = false;
+  s.mic.flowing = false;
+  s.mic_state = 0;
 }
 
 bool ensure_state() {
@@ -530,6 +645,10 @@ bool ensure_state() {
   void* memory = heap_caps_calloc(1, sizeof(State), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!memory) return false;
   g_state = new (memory) State();
+  g_state->mic.enabled = false;  // opt-in: never on until the owner starts it
+  g_state->mic.mic = true;
+  g_state->mic.source = "device_mic";
+  g_state->mic.tag = "_mic";
   return true;
 }
 
@@ -583,11 +702,17 @@ void build_snapshot(uint32_t now) {
     n.audio_level_dbfs.baseline = s.audio_detector.baseline();
   }
   n.audio_peak_dbfs = s.audio_peak;
-  n.clips_enabled = s.clips_enabled && s.audio.pcm != nullptr;
-  n.clip_state = static_cast<uint8_t>(s.planner.state());
-  n.clips_saved = s.clips_saved.load(std::memory_order_relaxed);
-  n.clips_failed = s.clips_failed.load(std::memory_order_relaxed);
-  n.clips_refused = s.clips_refused_no_audio + s.clips_refused_busy + s.clips_refused_limit;
+  n.clips_enabled = s.rx.enabled && s.rx.ring.pcm != nullptr;
+  n.clip_state = static_cast<uint8_t>(s.rx.planner.state());
+  n.clips_saved = s.rx.saved.load(std::memory_order_relaxed);
+  n.clips_failed = s.rx.failed.load(std::memory_order_relaxed);
+  n.clips_refused = s.rx.refused_no_audio + s.rx.refused_busy + s.rx.refused_limit;
+  n.mic_state = s.mic_state;
+  n.mic_clip_state = static_cast<uint8_t>(s.mic.planner.state());
+  n.mic_clips_saved = s.mic.saved.load(std::memory_order_relaxed);
+  n.mic_clips_failed = s.mic.failed.load(std::memory_order_relaxed);
+  n.mic_clips_refused = s.mic.refused_no_audio + s.mic.refused_busy + s.mic.refused_limit;
+  std::snprintf(n.mic_error, sizeof(n.mic_error), "%s", s.mic_error ? s.mic_error : "");
   for (size_t i = 0; i < kClipInfoCount; ++i) n.clips[i] = s.recent[i];
   n.clip_count = s.recent_count;
   n.verify_state = s.verify_state;
@@ -636,6 +761,8 @@ bool visibly_changed(const Snapshot& a, const Snapshot& b) {
          a.audio_available != b.audio_available || a.clips_enabled != b.clips_enabled || a.clip_state != b.clip_state ||
          a.verify_state != b.verify_state || a.clip_event_seq_count != b.clip_event_seq_count ||
          a.clips_saved != b.clips_saved || a.clips_failed != b.clips_failed || a.clips_refused != b.clips_refused ||
+         a.mic_state != b.mic_state || a.mic_clip_state != b.mic_clip_state || a.mic_clips_saved != b.mic_clips_saved ||
+         a.mic_clips_failed != b.mic_clips_failed || a.mic_clips_refused != b.mic_clips_refused ||
          a.sweeping != b.sweeping || a.sweep_hops != b.sweep_hops || a.sweep_preset != b.sweep_preset ||
          a.sweep_dwell_ms != b.sweep_dwell_ms ||
          a.spectrum_valid != b.spectrum_valid || std::strcmp(a.demod, b.demod) != 0;
@@ -668,20 +795,25 @@ void open() {
   s.last_total = 0;
   s.snapshot = Snapshot();
   s.audio.meter.configure(48000);
-  if (!s.audio.pcm) {  // the clip ring: 12 s of demodulated PCM in PSRAM, allocated once
-    const uint32_t cap = kClipSampleRate / 1000u * kClipRingMs;
-    s.audio.pcm = static_cast<int16_t*>(heap_caps_malloc(static_cast<size_t>(cap) * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    s.audio.capacity = s.audio.pcm ? cap : 0;
-  }
-  s.audio.written.store(0, std::memory_order_relaxed);
-  s.audio.run_start.store(0, std::memory_order_relaxed);
-  s.audio.last_write_ms = 0;
-  s.audio.capture.store(s.clips_enabled && s.audio.pcm != nullptr, std::memory_order_relaxed);
-  s.planner.configure(kClipSampleRate, kClipPreMs, kClipPostMs);
-  s.mail.state.store(0, std::memory_order_relaxed);
-  s.clips_saved.store(0, std::memory_order_relaxed);
-  s.clips_failed.store(0, std::memory_order_relaxed);
-  s.clips_refused_no_audio = s.clips_refused_busy = s.clips_refused_limit = 0;
+  (void)alloc_ring(s.rx.ring);  // the receiver clip ring: 12 s of demodulated PCM in PSRAM, allocated once
+  s.rx.ring.written.store(0, std::memory_order_relaxed);
+  s.rx.ring.run_start.store(0, std::memory_order_relaxed);
+  s.rx.ring.last_write_ms.store(0, std::memory_order_relaxed);
+  s.rx.ring.capture.store(s.rx.enabled && s.rx.ring.pcm != nullptr, std::memory_order_relaxed);
+  s.rx.planner.configure(kClipSampleRate, kClipPreMs, kClipPostMs);
+  s.rx.mail.state.store(0, std::memory_order_relaxed);
+  s.rx.saved.store(0, std::memory_order_relaxed);
+  s.rx.failed.store(0, std::memory_order_relaxed);
+  s.rx.refused_no_audio = s.rx.refused_busy = s.rx.refused_limit = 0;
+  // The microphone starts every session OFF; only an explicit tap turns it on.
+  s.mic.enabled = false;
+  s.mic.saved.store(0, std::memory_order_relaxed);
+  s.mic.failed.store(0, std::memory_order_relaxed);
+  s.mic.refused_no_audio = s.mic.refused_busy = s.mic.refused_limit = 0;
+  s.mic.mail.state.store(0, std::memory_order_relaxed);
+  s.mic_state = 0;
+  s.mic_error = nullptr;
+  s.mic_used = false;
   s.recent_count = 0;
   s.verify_state = 0;
   s.seq_hist_count = 0;
@@ -702,6 +834,7 @@ void open() {
   dead_air::enter(s.snapshot);
   screens::finish_transition();
   g_ring.store(&s.audio, std::memory_order_release);  // the DSP thread may now offer audio
+  g_rx_ring.store(&s.rx.ring, std::memory_order_release);
   g_open = true;
 }
 
@@ -709,15 +842,10 @@ void close() {
   if (!g_open || !g_state) return;
   g_open = false;
   g_ring.store(nullptr, std::memory_order_release);
-  g_state->audio.capture.store(false, std::memory_order_relaxed);
-  if (g_state->planner.state() == ClipState::capturing && g_state->mail.state.load(std::memory_order_acquire) == 0) {
-    ClipTicket t{};
-    t.job = g_state->planner.pending();
-    t.abandon = true;
-    t.reason = "session_closed";
-    post_ticket(*g_state, t);  // the worker records why this clip never happened
-  }
-  g_state->planner.cancel();
+  g_rx_ring.store(nullptr, std::memory_order_release);
+  g_state->rx.ring.capture.store(false, std::memory_order_relaxed);
+  abandon_capture(g_state->rx, "session_closed");  // the worker records why this clip never happened
+  mic_stop(*g_state, "session_closed");            // the microphone never outlives the screen
   g_audio_wanted.store(false, std::memory_order_relaxed);
   stop_sweep(*g_state, millis());  // logs the stop and puts the receiver back before the journal closes
   dead_air::leave();
@@ -737,7 +865,7 @@ void tick() {
     // A retune, gain/rate change or receiver (re)start invalidates the baseline and the settling window.
     if (!s.have_signature || signature != s.last_signature || s.last_level_valid) {
       ++s.config_revision;
-      if (s.audio.pcm) s.audio.run_start.store(s.audio.written.load(std::memory_order_relaxed), std::memory_order_relaxed);
+      if (s.rx.ring.pcm) s.rx.ring.run_start.store(s.rx.ring.written.load(std::memory_order_relaxed), std::memory_order_relaxed);
       s.settle_until_ms = now + (s.sweep.running() ? kSweepSettleMs : kSettleMs);
     }
     s.last_signature = signature;
@@ -781,7 +909,7 @@ void tick() {
   float fresh_bars[8];
   size_t fresh_count = 0;
   const bool on_audio_tab = screens::owns(screens::Id::dead_air) && dead_air::page() == Page::audio;
-  g_audio_wanted.store(on_audio_tab || (s.clips_enabled && s.audio.pcm && ready), std::memory_order_relaxed);
+  g_audio_wanted.store(on_audio_tab || (s.rx.enabled && s.rx.ring.pcm && ready), std::memory_order_relaxed);
   if (dead_air::page() != s.last_page) {
     s.last_page = dead_air::page();
     if (on_audio_tab) audio_changed = true;  // paint the live part of the tab right after it opens
@@ -830,7 +958,16 @@ void tick() {
       if (!flowing) s.audio_detector.reset();
     }
   }
-  service_clips(s, now);
+  s.rx.flowing = s.audio_flowing;
+  if (s.mic.enabled) {
+    const bool speaker_on = g_hooks.sound_enabled && g_hooks.sound_enabled();
+    const uint32_t last = s.mic.ring.last_write_ms.load(std::memory_order_relaxed);
+    s.mic.flowing = !speaker_on && last != 0 && now - last < 500;
+    if (!dead_air_mic::running()) { s.mic_error = "mic stopped"; mic_stop(s, "mic_failed"); s.mic_state = 3; }
+    else s.mic_state = speaker_on ? 2 : 1;  // paused while the speaker is audible, otherwise listening
+  }
+  service_clips(s, s.rx, now);
+  service_clips(s, s.mic, now);
   if (on_audio_tab && audio_changed) {
     AudioView v{};
     v.envelope = s.audio_env;
@@ -885,8 +1022,12 @@ void touch(int32_t x, int32_t y) {
     case ActionKind::open_settings: if (g_hooks.open_settings) g_hooks.open_settings(); break;
     case ActionKind::verify_clip: request_verify(*g_state); break;
     case ActionKind::toggle_clips:
-      g_state->clips_enabled = !g_state->clips_enabled;
-      g_state->audio.capture.store(g_state->clips_enabled && g_state->audio.pcm != nullptr, std::memory_order_relaxed);
+      g_state->rx.enabled = !g_state->rx.enabled;
+      g_state->rx.ring.capture.store(g_state->rx.enabled && g_state->rx.ring.pcm != nullptr, std::memory_order_relaxed);
+      break;
+    case ActionKind::toggle_mic:
+      if (g_state->mic.enabled) mic_stop(*g_state, "mic_stopped");
+      else (void)mic_start(*g_state);
       break;
     case ActionKind::start_scan: start_sweep(*g_state, millis()); break;
     case ActionKind::stop_scan: stop_sweep(*g_state, millis()); break;
@@ -921,21 +1062,7 @@ void touch(int32_t x, int32_t y) {
 void offer_audio(const int16_t* pcm, size_t count) {
   AudioRing* r = g_ring.load(std::memory_order_acquire);
   if (!r || !pcm || count == 0) return;
-  if (r->pcm && r->capacity && r->capture.load(std::memory_order_relaxed)) {
-    const uint32_t now = millis();
-    uint64_t w = r->written.load(std::memory_order_relaxed);
-    if (w == 0 || now - r->last_write_ms > 300) r->run_start.store(w, std::memory_order_relaxed);  // a new uninterrupted run
-    r->last_write_ms = now;
-    size_t done = 0;
-    while (done < count) {
-      const uint32_t from = static_cast<uint32_t>(w % r->capacity);
-      const size_t n = std::min<size_t>(count - done, r->capacity - from);
-      std::memcpy(r->pcm + from, pcm + done, n * sizeof(int16_t));
-      done += n;
-      w += n;
-    }
-    r->written.store(w, std::memory_order_release);
-  }
+  if (PcmRing* ring = g_rx_ring.load(std::memory_order_acquire)) ring_write(*ring, pcm, count);
   AudioBucket out[4];
   const size_t m = r->meter.feed(pcm, count, out, 4);
   for (size_t i = 0; i < m; ++i) {
@@ -994,7 +1121,7 @@ void describe(char* out, size_t size) {
   const Worker& w = g_state->worker;
   const PaintStats ps = dead_air::paint_stats();
   std::snprintf(out, size,
-                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu audio=%d rms=%.1f peak=%.1f abase=%d clip=%u cs=%lu cf=%lu cr=%lu",
+                "DEAD_AIR open=%d recorder=%u session=%lu saved=%lu missing=%lu dropped=%lu events=%lu baseline=%d level=%.1f base_dbfs=%.1f thr_db=%.0f hz=%lu mode=%s sweep=%d hops=%lu stalls=%lu unobs_ms=%lu touches=%lu last_action=%u resume=%lu spec_seq=%lu spec_valid=%d paint_us=%lu/%lu/%lu max_push_us=%lu px=%lu rects=%lu whole=%lu part=%lu frame_us=%lu max_frame_us=%lu frames=%lu audio=%d rms=%.1f peak=%.1f abase=%d clip=%u cs=%lu cf=%lu cr=%lu mic=%u ms=%lu mf=%lu mr=%lu mic_blocks=%lu",
                 g_open ? 1 : 0, static_cast<unsigned>(w.state.load()), static_cast<unsigned long>(w.session.load()),
                 static_cast<unsigned long>(w.saved.load()), static_cast<unsigned long>(w.missing.load()),
                 static_cast<unsigned long>(w.dropped.load()), static_cast<unsigned long>(g_state->model.total()),
@@ -1014,9 +1141,13 @@ void describe(char* out, size_t size) {
                 static_cast<unsigned long>(ps.frames),
                 g_state->audio_flowing ? 1 : 0, static_cast<double>(g_state->audio_rms), static_cast<double>(g_state->audio_peak),
                 g_state->audio_detector.baseline_ready() ? 1 : 0,
-                static_cast<unsigned>(g_state->planner.state()), static_cast<unsigned long>(g_state->clips_saved.load()),
-                static_cast<unsigned long>(g_state->clips_failed.load()),
-                static_cast<unsigned long>(g_state->clips_refused_no_audio + g_state->clips_refused_busy));
+                static_cast<unsigned>(g_state->rx.planner.state()), static_cast<unsigned long>(g_state->rx.saved.load()),
+                static_cast<unsigned long>(g_state->rx.failed.load()),
+                static_cast<unsigned long>(g_state->rx.refused_no_audio + g_state->rx.refused_busy),
+                static_cast<unsigned>(g_state->mic_state), static_cast<unsigned long>(g_state->mic.saved.load()),
+                static_cast<unsigned long>(g_state->mic.failed.load()),
+                static_cast<unsigned long>(g_state->mic.refused_no_audio + g_state->mic.refused_busy + g_state->mic.refused_limit),
+                static_cast<unsigned long>(dead_air_mic::stats().blocks));
 }
 
 }  // namespace orcsdr::dead_air_app

@@ -49,6 +49,7 @@ struct ClipInfo {
   char demod[8] = "";           // what the receiver was demodulating
   uint32_t frequency_hz = 0;
   bool speaker_on = false;      // the Tab5 speaker state when the clip was taken
+  bool mic = false;             // room audio from the Tab5 microphones, not the receiver
 };
 constexpr size_t kClipInfoCount = 4;
 
@@ -98,6 +99,11 @@ struct Snapshot {
   uint32_t clips_saved = 0, clips_failed = 0, clips_refused = 0;
   ClipInfo clips[kClipInfoCount];
   uint8_t clip_count = 0;
+  // Optional microphone clips (opt-in, separate files, paused while the speaker is audible).
+  uint8_t mic_state = 0;        // 0 off, 1 listening, 2 paused (speaker on), 3 failed
+  uint8_t mic_clip_state = 0;   // 0 idle, 1 capturing, 2 writing
+  uint32_t mic_clips_saved = 0, mic_clips_failed = 0, mic_clips_refused = 0;
+  char mic_error[24] = "";
   uint8_t verify_state = 0;     // newest clip re-checked against the card: 0 not yet, 1 running, 2 matches, 3 mismatch, 4 file missing
   uint32_t clip_event_seqs[16]{};  // events that have a clip, newest first
   uint8_t clip_event_seq_count = 0;

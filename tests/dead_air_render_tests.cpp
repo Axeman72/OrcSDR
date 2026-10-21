@@ -201,6 +201,35 @@ int main() {
   da::update(snap);
   assert(displayed("MISMATCH"));
   validate_bounds();
+  // Microphone: off by default, explicit start, always-visible banner, paused state is stated, mic clips are labelled.
+  assert(displayed("MICROPHONE CLIPS (ROOM AUDIO)") && displayed("START MIC") && !displayed("MIC LISTENING"));
+  assert(da::handle_touch(60, 570, 8450).kind == da::ActionKind::toggle_mic);
+  assert(da::handle_touch(60, 390, 8460).kind == da::ActionKind::toggle_clips);
+  snap.mic_state = 1; snap.revision = 35;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("MIC LISTENING") && displayed("STOP MIC") && displayed("LISTENING"));
+  validate_bounds();
+  snap.mic_state = 2; snap.revision = 36;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("MIC PAUSED: SOUND ON") && displayed("PAUSED: SOUND ON"));
+  snap.mic_state = 3; snap.revision = 37;
+  std::snprintf(snap.mic_error, sizeof(snap.mic_error), "mic_begin_failed");
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("MIC FAILED") && displayed("mic_begin_failed"));
+  snap.mic_state = 1; snap.mic_error[0] = 0;
+  snap.clips[0].mic = true; snap.clips[0].speaker_on = false;
+  snap.revision = 38;
+  host_display::reset();
+  da::update(snap);
+  assert(displayed("10.0 s  ROOM MIC  speaker MUTED") && !displayed("97.289 MHz"));
+  validate_bounds();
+  snap.mic_state = 0; snap.clips[0].mic = false; snap.revision = 39;
+  host_display::reset();
+  da::update(snap);
+  assert(!displayed("MIC LISTENING"));
   da::handle_touch(20 + 1 * 210 + 40, 673, 8400);  // back to Spectrum
   // Once another screen takes the framebuffer, Dead Air must be silent.
   screen::begin_transition(screen::Id::home, 3000);
