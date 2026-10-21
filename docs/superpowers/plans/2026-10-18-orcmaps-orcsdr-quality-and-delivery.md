@@ -4,6 +4,23 @@
 
 ## Current phase and handoff — October 19, 2026
 
+### Serial control requirement — October 21, 2026
+
+User requirement: every action a user can perform in OrcSDR must also be
+available through serial commands. Apply this across the application, including
+setup, navigation, map selection/downloads, pan/zoom, label controls and saving
+location. Serial actions must use the same behavior, validation, persistence and
+authentication protections as the screen controls, and report their result.
+Prefer named commands that do not depend on screen coordinates. Existing
+`RTL_UI TAP` remains useful for physical-control routing tests.
+
+For remaining maps work, inventory screen actions against their serial commands,
+add missing commands within the integration scope, document them, and verify
+equivalent results. Track gaps explicitly; serial parity is a completion gate,
+not a claim that all existing features already meet it. Application-wide gaps
+outside maps should be recorded separately without expanding this integration
+into an unrelated refactor.
+
 **Active delivery work: Phase 4; Phases 2 and 3 remain open.** Labels and cached
 gestures run on COM17. Delivery now has a signed catalog consumer and hidden
 resumable staging, connected worker/setup UI and bounded COM17 evidence. The
