@@ -121,6 +121,7 @@
 #include "navigation_service.hpp"
 #include "map_service.hpp"
 #include "map_screen.hpp"
+#include "map_serial.hpp"
 #include "location_store.hpp"
 #include "nvs_store.hpp"
 #include "p25_dashboard.hpp"
@@ -19318,6 +19319,7 @@ void process_command(char* command) {
   if (strcmp(command, "RTL_MAP_STATUS") == 0) {
     orcsdr::maps::report([](const char* line) { Serial.print(line); }); return;
   }
+  if(orcsdr::maps::serial_control::handle(command,authenticated,[](const char* line){Serial.print(line);}))return;
   if (strcmp(command, "RTL_HEALTH") == 0) {
     const uint32_t dma_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
     Serial.printf("RTL_HEALTH_STATUS uptime_ms=%u free_heap=%u min_free_heap=%u "
@@ -20877,6 +20879,7 @@ void process_command(char* command) {
     Serial.println("RTL_CATALOG_REMOVE <id> CONFIRM - remove installed pack (SD only)");
     Serial.println("RTL_CATALOG packs: faa_aircraft|faa_aviation|noaa_weather|fcc_broadcast");
     Serial.println("RTL_LOCATION STATUS|IP|LOOKUP <zip/address>|CONFIRM - resolve and save receiver location");
+    Serial.println("RTL_MAP HELP - named setup, picker, labels, pack and download controls (mutations require auth)");
     Serial.println("ORC_RTC_STATUS                 - trusted hardware UTC clock status");
     Serial.println("ORC_RTC_SET <unix_utc>         - establish hardware UTC clock (auth)");
     Serial.println("ORC_TZ_SET <minutes>           - UTC offset in minutes east of UTC, -720..840 (auth)");

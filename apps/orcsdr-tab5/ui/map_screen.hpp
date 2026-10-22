@@ -16,7 +16,18 @@ struct Hooks {
 void load(NvsStore&);
 bool first_run_pending();
 void configure(const Hooks&);
-void open(Mode,bool automatic = false);
+bool open(Mode,bool automatic = false);
+enum class Control {cancel,next,back,quick_start,finish,save,zoom_in,zoom_out,pan,set_proposal,select_pack};
+struct State {
+  bool active=false,proposal=false,editing=false;
+  Mode mode=Mode::inventory;
+  uint8_t step=0,zoom=0;
+  int32_t latitude_e7=0,longitude_e7=0;
+};
+State state();
+// UI-task only. Pan deltas move the camera east/south in screen pixels.
+bool control(Control,int32_t first=0,int32_t second=0,const char* identity=nullptr);
+void refresh();
 void draw();
 void tick();
 void touch(int x,int y,bool pressed,bool new_press);

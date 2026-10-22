@@ -139,6 +139,7 @@ idf_component_register(
         "../ui/map_view.cpp"
         "../ui/map_preferences.cpp"
         "../ui/map_screen.cpp"
+        "../ui/map_serial.cpp"
         "../ui/setup_ui.cpp"
         "../ui/navigation_service.cpp"
         "../ui/nvs_store.cpp"

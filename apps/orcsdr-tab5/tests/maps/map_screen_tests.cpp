@@ -1,5 +1,6 @@
 // Real picker/Settings UI and camera; only display, device storage and navigation hooks are faked.
 #include "map_screen.hpp"
+#include "map_serial.hpp"
 #include "map_service.hpp"
 #include "map_preferences.hpp"
 #include "map_downloads.hpp"
@@ -20,6 +21,16 @@
 namespace {
 std::map<std::string,std::vector<unsigned char>> nvs_data;
 bool write_ok=true;
+std::string serial_output;
+int rescans=0,invalidations=0,download_checks=0,download_installs=0,download_cancels=0;
+orcsdr::maps::downloads::Snapshot download_status;
+bool download_installed=false;
+void serial_command(const std::string& command,bool authenticated=true) {
+  serial_output.clear();
+  assert(orcsdr::maps::serial_control::handle(command.c_str(),authenticated,
+      +[](const char* text){serial_output+=text;}));
+}
+bool serial_ok(){return serial_output=="RTL_MAP_OK\n";}
 bool pause_ok=true,setup_paused=false;
 int pause_calls=0,resume_calls=0;
 bool setup_reception(bool pause) {
@@ -91,18 +102,20 @@ bool snapshot(MapSnapshot* out) {
   return true;
 }
 bool running() {return true;}
-void rescan() {}
+void rescan() {++rescans;}
+void invalidate() {++invalidations;}
+void report(void (*write)(const char*)) {write("MAP_REPORT\n");}
 Frame draw(const orcmap::Viewport& view,lgfx::LovyanGFX&,int,int,FrameInfo*,const char*,bool labels) {
   requested_labels=labels;requested=view;return map_result;
 }
 }
 namespace maps::downloads {
-bool snapshot(Snapshot* out){*out={};return true;}
-bool entry(size_t,Entry*){return false;}
-bool check_catalog(){return false;}
-bool request_install(size_t){return false;}
+bool snapshot(Snapshot* out){*out=download_status;return true;}
+bool entry(size_t index,Entry* out){if(index>=download_status.count)return false;*out={};out->installed=download_installed;return true;}
+bool check_catalog(){++download_checks;return true;}
+bool request_install(size_t){++download_installs;return true;}
 bool retry(){return false;}
-void cancel(){}
+void cancel(){++download_cancels;}
 }
 namespace audio_header {
 void draw_brand(const char*) {} void draw_battery(int32_t) {}
@@ -256,5 +269,69 @@ void screen_tests() {
   pause_ok=true;
   map_screen::open(map_screen::Mode::picker);
   assert(!setup_paused&&pause_calls==4); // Ordinary map use never pauses reception.
+  // Named serial controls exercise the same real UI, persistence and camera.
+  const auto before_serial=receiver_location::snapshot();
+  const auto opened=map_screen::state();
+  serial_command("RTL_MAP OPEN SETUP",false);
+  assert(serial_output=="RTL_MAP_ERROR auth_required\n"&&map_screen::state().mode==opened.mode);
+  serial_command("RTL_MAP STATUS",false);assert(serial_output.find("RTL_MAP_SAVED configured=1")!=std::string::npos);
+  serial_command("RTL_MAP "+std::string(400,'x'));assert(!serial_ok());
+  serial_command("RTL_MAP PICKER SET 900000001 0");assert(!serial_ok());
+  assert(receiver_location::snapshot().latitude_e7==before_serial.latitude_e7);
+  serial_command("RTL_MAP PICKER SET 100000000 200000000");assert(serial_ok());
+  assert(map_screen::state().latitude_e7==100000000&&receiver_location::snapshot().latitude_e7==before_serial.latitude_e7);
+  serial_command("RTL_MAP PICKER PAN 1290 0");assert(!serial_ok());
+  serial_command("RTL_MAP PICKER ZOOM IN trailing");assert(!serial_ok());
+  serial_command("RTL_MAP PICKER ZOOM IN");assert(serial_ok());
+  serial_command("RTL_MAP PICKER PAN 40 0");assert(serial_ok()&&map_screen::state().longitude_e7>200000000);
+  write_ok=false;serial_command("RTL_MAP PICKER SAVE");assert(!serial_ok()&&map_screen::state().active);
+  write_ok=true;serial_command("RTL_MAP CANCEL");assert(serial_ok());
+  assert(receiver_location::snapshot().latitude_e7==before_serial.latitude_e7);
+  serial_command("RTL_MAP PICKER SAVE");assert(!serial_ok()); // inactive owner
+  serial_command("RTL_MAP OPEN PICKER");assert(serial_ok());
+  serial_command("RTL_MAP PICKER SET 100000000 200000000");assert(serial_ok());
+  serial_command("RTL_MAP PICKER SAVE");assert(serial_ok());
+  assert(location_store::load(preferences).latitude==100000000&&!map_screen::state().active);
+  const bool lora_labels=maps::preferences::labels(maps::preferences::Consumer::lora);
+  serial_command("RTL_MAP LABELS ADSB OFF",false);assert(!serial_ok()&&invalidations==0);
+  write_ok=false;serial_command("RTL_MAP LABELS ADSB OFF");
+  assert(!serial_ok()&&invalidations==0&&maps::preferences::labels(maps::preferences::Consumer::adsb));write_ok=true;
+  serial_command("RTL_MAP LABELS ADSB OFF");assert(serial_ok()&&invalidations==1);
+  assert(!maps::preferences::labels(maps::preferences::Consumer::adsb)&&maps::preferences::labels(maps::preferences::Consumer::lora)==lora_labels);
+  serial_command("RTL_MAP LABELS ADSB ON");assert(serial_ok());
+  serial_command("RTL_MAP LABELS OTHER OFF");assert(!serial_ok());
+  serial_command("RTL_MAP LABELS ADSB OFF extra");assert(!serial_ok());
+  serial_command("RTL_MAP LIST",false);assert(serial_output.find("id=pack-5")!=std::string::npos);
+  serial_command("RTL_MAP OPEN LIST");assert(serial_ok());
+  serial_command("RTL_MAP SELECT no-such-pack");assert(!serial_ok());
+  serial_command("RTL_MAP SELECT pack-4");assert(serial_ok()&&chosen_pack=="pack-4");
+  const int prior_pauses=pause_calls,prior_resumes=resume_calls;
+  map_screen::configure({nullptr,save,select_pack,nullptr,setup_reception});
+  pause_ok=false;serial_command("RTL_MAP OPEN SETUP");assert(!serial_ok());pause_ok=true;
+  serial_command("RTL_MAP OPEN SETUP");assert(serial_ok()&&setup_paused&&pause_calls==prior_pauses+2);
+  serial_command("RTL_MAP SETUP FINISH");assert(!serial_ok()&&setup_paused);
+  serial_command("RTL_MAP SETUP NEXT");assert(serial_ok()&&map_screen::state().step==1);
+  serial_command("RTL_MAP SETUP BACK");assert(serial_ok()&&map_screen::state().step==0);
+  serial_command("RTL_MAP SETUP QUICK");assert(serial_ok()&&map_screen::state().step==4);
+  write_ok=false;serial_command("RTL_MAP SETUP FINISH");assert(!serial_ok()&&setup_paused);write_ok=true;
+  serial_command("RTL_MAP SETUP FINISH");assert(serial_ok()&&!setup_paused&&resume_calls==prior_resumes+1);
+  const auto completed_setup=nvs_data["maps_setup"];
+  nvs_data.erase("maps_setup");map_screen::load(preferences);
+  assert(map_screen::open(map_screen::Mode::setup,true));
+  write_ok=false;serial_command("RTL_MAP SETUP NEXT");
+  assert(!serial_ok()&&map_screen::state().step==0&&setup_paused);
+  write_ok=true;serial_command("RTL_MAP CANCEL");assert(serial_ok()&&!setup_paused);
+  nvs_data["maps_setup"]=completed_setup;map_screen::load(preferences);
+  serial_command("RTL_MAP DOWNLOAD CHECK");assert(!serial_ok()&&download_checks==0);
+  download_status.configured=true;download_status.connected=true;
+  serial_command("RTL_MAP DOWNLOAD CHECK");assert(serial_ok()&&download_checks==1);
+  download_status.catalog_ready=download_status.sd_available=true;download_status.count=1;
+  serial_command("RTL_MAP DOWNLOAD INSTALL 1");assert(!serial_ok()&&download_installs==0);
+  serial_command("RTL_MAP DOWNLOAD INSTALL 0",false);assert(!serial_ok()&&download_installs==0);
+  download_installed=true;serial_command("RTL_MAP DOWNLOAD INSTALL 0");assert(!serial_ok());download_installed=false;
+  serial_command("RTL_MAP DOWNLOAD INSTALL 0");assert(serial_ok()&&download_installs==1);
+  download_status.busy=true;serial_command("RTL_MAP DOWNLOAD CANCEL");assert(serial_ok()&&download_cancels==1);
+  download_status={};
+  std::puts("MAP_SERIAL_PASS authentication, parser, shared save/pan/zoom, setup pause/finish and installer gates");
   std::puts("MAP_SCREEN_TEST_PASS (changed-point save/return, failure, cancel, pan, zoom, Settings redraw)");
 }

@@ -39,6 +39,7 @@ bool running();
 bool snapshot(MapSnapshot*);
 void rescan();
 void cancel();
+void invalidate(); // UI-task preference changes: request a consumer repaint.
 uint32_t revision();
 bool installed(); // discovered availability, not a coverage or integrity claim
 Frame draw(const orcmap::Viewport&, lgfx::v1::LovyanGFX& target, int x, int y,

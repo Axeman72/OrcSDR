@@ -8,7 +8,7 @@ endif()
 set(ui "${CMAKE_CURRENT_SOURCE_DIR}/../../ui")
 set(engine "${ORCMAPS_ROOT}")
 add_executable(orcsdr_maps_tests
-  map_screen_tests.cpp "${ui}/map_preferences.cpp" "${ui}/text_editor.cpp" "${ui}/map_screen.cpp" "${ui}/setup_ui.cpp" "${ui}/settings_app.cpp"
+  map_screen_tests.cpp "${ui}/map_preferences.cpp" "${ui}/text_editor.cpp" "${ui}/map_screen.cpp" "${ui}/map_serial.cpp" "${ui}/setup_ui.cpp" "${ui}/settings_app.cpp"
   "${ui}/screen_controller.cpp" "${ui}/receiver_location.cpp"
   "${ui}/focus_nav.cpp" "${ui}/keyboard_input.cpp" "${ui}/clock_settings.cpp"
   map_pipeline_tests.cpp map_inventory_tests.cpp map_world_tests.cpp "${ui}/map_pipeline.cpp" "${ui}/map_inventory.cpp"

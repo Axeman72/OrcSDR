@@ -450,6 +450,7 @@ bool snapshot(MapSnapshot* out) {
 }
 void rescan() {g_scan.store(true);(void)downloads::retry_recovery();cancel();}
 void cancel() {g_preview_lifetime.fetch_add(1);g_serial.fetch_add(1);}
+void invalidate() {g_revision.fetch_add(1);}
 uint32_t revision() {return g_revision.load();}
 bool installed() {return g_installed.load();}
 bool frame_info(FrameInfo* out) {

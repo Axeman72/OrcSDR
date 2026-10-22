@@ -21,6 +21,15 @@ not a claim that all existing features already meet it. Application-wide gaps
 outside maps should be recorded separately without expanding this integration
 into an unrelated refactor.
 
+Named `RTL_MAP` controls now implement Help/Status/inventory, setup/picker/list
+opening, picker proposal/pan/zoom/save/cancel, setup navigation/completion,
+independent labels, local selection/rescan and map download list/check/install/
+cancel/retry. Shared-action host regressions and ASan/UBSan pass; corrected native
+build passes. COM17 command acceptance is pending at this source checkpoint.
+Dashboard-specific semantic controls and full HTTPS/device acceptance remain
+open. [Command reference](../../MAP_SERIAL_COMMANDS.md) and
+[implementation/test evidence](../../evidence/maps/2026-10-21-map-serial-controls.md).
+
 ### Worldwide shipping defaults and legacy retirement — October 21, 2026
 
 The user explicitly retires personal Lane County/Oregon setup from the shipping
