@@ -310,6 +310,9 @@ void discover() {
   g_installed.store(available);
   next.revision=g_snapshot.revision+1;g_snapshot=next;g_cached=false;
   g_pipeline.reset();g_source.reset();g_archive[0]=0;
+  // Metadata may select a different archive even for an unchanged camera.
+  // Invalidate queued requests/previews and notify cached dashboard consumers.
+  cancel();invalidate();
   xSemaphoreGive(g_lock);
 }
 
