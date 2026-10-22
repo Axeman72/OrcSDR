@@ -1,6 +1,7 @@
 #include "map_service.hpp"
 #include "map_timing.hpp"
 #include "map_preview.hpp"
+#include "map_scaled_preview.hpp"
 #include "map_inventory.hpp"
 #include "map_activation.hpp"
 #include "map_downloads.hpp"
@@ -54,13 +55,16 @@ EXT_RAM_BSS_ATTR FrameInfo g_preview_info;
 bool g_preview_valid=false;
 std::atomic<uint32_t> g_preview_lifetime{0};
 std::atomic<size_t> g_preview_bytes{0};
+EXT_RAM_BSS_ATTR uint16_t* g_preview_stripe=nullptr;
+std::atomic<size_t> g_preview_stripe_bytes{0};
+EXT_RAM_BSS_ATTR uint32_t g_preview_stripe_paints=0;
 EXT_RAM_BSS_ATTR orcmap::LabelLayout g_labels;
 EXT_RAM_BSS_ATTR UpdateTiming g_update_timing;
 // Ten bounded 256-sample rings, under 21 KiB including metadata; stage rings
 // add about 8 KiB of PSRAM and no internal/DMA allocation.
 EXT_RAM_BSS_ATTR PreviewTiming g_preview_pan_timing,g_preview_zoom_timing;
 struct PreviewFacts {
-  bool valid=false,display_target=false,copy_bbox_exact=false;
+  bool valid=false,display_target=false,copy_bbox_exact=false,stripe_backend=false;
   uint32_t request=0,source_depth=0,target_depth=0;
   int rotation=0,offset=0,derived_rotation=0,physical_w=0,physical_h=0;
   int logical_w=0,logical_h=0,source_w=0,source_h=0;
@@ -114,11 +118,17 @@ void publish_preview(const Request& request) {
   if(g_preview_bytes.load()) {
     g_canvas.pushSprite(&g_preview,0,0);
     g_preview_request=request;g_preview_info=g_frame;g_preview_valid=true;
+    if(!g_preview_stripe&&heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=
+        kPreviewStripePixels*sizeof(uint16_t)+128*1024) {
+      g_preview_stripe=static_cast<uint16_t*>(heap_caps_malloc(
+          kPreviewStripePixels*sizeof(uint16_t),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+      if(g_preview_stripe)g_preview_stripe_bytes.store(kPreviewStripePixels*sizeof(uint16_t));
+    }
   }
   xSemaphoreGive(g_preview_lock);
 }
 void capture_preview_facts(const Request& request,lgfx::v1::LovyanGFX& target,
-    const orcmap::FrameTransform& transform,int x,int y) {
+    const orcmap::FrameTransform& transform,int x,int y,bool stripe_backend) {
   auto& facts=g_preview_facts[transform.scale==1?0:1];facts=PreviewFacts{};
   facts.valid=true;facts.request=request.serial;
   facts.source_depth=static_cast<uint32_t>(g_preview.getColorDepth());
@@ -152,6 +162,8 @@ void capture_preview_facts(const Request& request,lgfx::v1::LovyanGFX& target,
       int64_t{y}+static_cast<int64_t>(std::ceil(transform.dy+facts.source_h*transform.scale));
   facts.copy_bbox_pixels=static_cast<uint64_t>(std::max<int64_t>(0,std::min(right,image_right)-std::max(left,image_left)))*
       std::max<int64_t>(0,std::min(bottom,image_bottom)-std::max(top,image_top));
+  facts.stripe_backend=stripe_backend;
+  if(stripe_backend){facts.copy_bbox_exact=true;facts.copy_bbox_pixels=facts.clipped_map_pixels;}
 }
 void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y,FrameInfo* info) {
   if(!g_preview_lock)return;
@@ -161,13 +173,27 @@ void draw_preview(const Request& request,lgfx::v1::LovyanGFX& target,int x,int y
   if(prepare_preview(source.view,request.view,source.preferred,request.preferred,
       source.lifetime,g_preview_lifetime.load(),g_preview_valid,&transform,source.labels,request.labels)) {
     const auto started=static_cast<uint64_t>(esp_timer_get_time());
-    const auto paint=paint_preview(g_preview,target,transform,x,y,request.view.width_px,request.view.height_px,
+    PreviewPaint paint;bool stripe_painted=false;
+    if(&target==&M5.Display&&g_preview_stripe&&
+       g_preview.getColorDepth()==lgfx::rgb565_nonswapped) {
+      int32_t cx,cy,cw,ch;target.getClipRect(&cx,&cy,&cw,&ch);
+      if(paint_scaled_rows(static_cast<const uint16_t*>(g_preview.getBuffer()),g_preview.width(),g_preview.height(),
+          transform,x,y,cx,cy,cw,ch,g_preview_stripe,g_preview_stripe_bytes.load()/sizeof(uint16_t),
+          [&](int left,int top,int width,int height,const uint16_t* pixels) {
+            target.pushImage(left,top,width,height,reinterpret_cast<const lgfx::rgb565_t*>(pixels));
+          })) {
+        paint={true,0,static_cast<uint64_t>(esp_timer_get_time())-started};
+        stripe_painted=true;
+        ++g_preview_stripe_paints;
+      }
+    }
+    if(!paint.painted)paint=paint_preview(g_preview,target,transform,x,y,request.view.width_px,request.view.height_px,
         +[]()->uint64_t{return static_cast<uint64_t>(esp_timer_get_time());});
     auto& timing=transform.scale==1?g_preview_pan_timing:g_preview_zoom_timing;
     if(paint.painted)timing.present(request.serial,request.requested_us,started,
         static_cast<uint64_t>(esp_timer_get_time()),paint.clear_us,paint.transfer_us);
     if(paint.painted) {
-      capture_preview_facts(request,target,transform,x,y);
+      capture_preview_facts(request,target,transform,x,y,stripe_painted);
       if(info){*info=g_preview_info;info->state=Frame::pending;}
     }
   }
@@ -410,11 +436,12 @@ void worker(void*) {
     }
   }
 }
-size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load(); }
+size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load()+g_preview_stripe_bytes.load(); }
 size_t release() {
   if(!g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return 0;
   if(g_preview_lock&&xSemaphoreTake(g_preview_lock,0)!=pdTRUE){xSemaphoreGive(g_lock);return 0;}
-  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0);
+  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0)+g_preview_stripe_bytes.exchange(0);
+  heap_caps_free(g_preview_stripe);g_preview_stripe=nullptr;
   g_canvas.deleteSprite();g_preview.deleteSprite();g_preview_valid=false;g_preview_lifetime.fetch_add(1);g_cached=false;
   if(g_preview_lock)xSemaphoreGive(g_preview_lock);
   g_serial.fetch_add(1); // the same camera must request a new frame after reclaim
@@ -475,6 +502,8 @@ void report(void (*write)(const char*)) {
   }
   // Keep preview diagnostics observable even while decoding holds the worker lock.
   if(g_preview_lock&&xSemaphoreTake(g_preview_lock,0)==pdTRUE) {
+    const auto stripe_bytes=g_preview_stripe_bytes.load();
+    const auto stripe_paints=g_preview_stripe_paints;
     const auto pan_paint=g_preview_pan_timing.paint(),zoom_paint=g_preview_zoom_timing.paint();
     const auto pan_feedback=g_preview_pan_timing.feedback(),zoom_feedback=g_preview_zoom_timing.feedback();
     const auto pan_intervals=g_preview_pan_timing.intervals(),zoom_intervals=g_preview_zoom_timing.intervals();
@@ -482,17 +511,20 @@ void report(void (*write)(const char*)) {
     const auto pan_transfer=g_preview_pan_timing.transfer(),zoom_transfer=g_preview_zoom_timing.transfer();
     const PreviewFacts facts[2]={g_preview_facts[0],g_preview_facts[1]};
     xSemaphoreGive(g_preview_lock);
+    std::snprintf(line,sizeof(line),"ORC_MAP_PREVIEW_BUFFER stripe_bytes=%u stripe_rows=%u stripe_paints=%lu\n",
+        static_cast<unsigned>(stripe_bytes),static_cast<unsigned>(kPreviewStripeRows),
+        static_cast<unsigned long>(stripe_paints));write(line);
     for(int mode=0;mode<2;++mode) {
       const auto& observed=facts[mode];
       if(observed.valid) {
-        std::snprintf(line,sizeof(line),"ORC_MAP_PREVIEW_FACTS mode=%s request=%lu display_target=%u rotation_raw=%d rotation_offset=%d derived_internal_rotation=%d physical=%dx%d logical=%dx%d source=%dx%d source_depth=%lu target_depth=%lu clip=%ld,%ld,%ld,%ld clipped_map_pixels=%llu copy_bbox_pixels=%llu copy_bbox_exact=%u\n",
+        std::snprintf(line,sizeof(line),"ORC_MAP_PREVIEW_FACTS mode=%s request=%lu display_target=%u rotation_raw=%d rotation_offset=%d derived_internal_rotation=%d physical=%dx%d logical=%dx%d source=%dx%d source_depth=%lu target_depth=%lu clip=%ld,%ld,%ld,%ld clipped_map_pixels=%llu copy_bbox_pixels=%llu copy_bbox_exact=%u stripe_backend=%u\n",
             mode==0?"same_scale":"scaled",static_cast<unsigned long>(observed.request),observed.display_target?1u:0u,
             observed.rotation,observed.offset,observed.derived_rotation,observed.physical_w,observed.physical_h,
             observed.logical_w,observed.logical_h,observed.source_w,observed.source_h,
             static_cast<unsigned long>(observed.source_depth),static_cast<unsigned long>(observed.target_depth),
             static_cast<long>(observed.clip_x),static_cast<long>(observed.clip_y),static_cast<long>(observed.clip_w),static_cast<long>(observed.clip_h),
             static_cast<unsigned long long>(observed.clipped_map_pixels),static_cast<unsigned long long>(observed.copy_bbox_pixels),
-            observed.copy_bbox_exact?1u:0u);
+            observed.copy_bbox_exact?1u:0u,observed.stripe_backend?1u:0u);
         write(line);
       }
       for(int metric=0;metric<5;++metric) {

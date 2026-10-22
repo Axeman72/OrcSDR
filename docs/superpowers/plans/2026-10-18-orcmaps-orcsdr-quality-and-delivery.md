@@ -55,6 +55,16 @@ and full RF/overlay acceptance remain open.
 
 ### October 22 approved download pilot and LoRa readability
 
+Prepared follow-on: a shared, reclaimable 40 KiB PSRAM row buffer batches enlarged
+cached previews through the public M5GFX image API. Pinned-panel probing confirms
+rotated scanline copy-call amplification; this is not a hardware speed claim.
+Normal preview/raster/format checks pass 3/3, raster sanitizer 1/1, production
+allocation/reclaim fault injection passes, and five P4 syntax checks pass.
+Actual pixel colours match the pinned raster in 720 enlarged-image cases;
+unsupported/shrinking scales preserve the original path. Native build/device
+performance and retained-map SD/reclaim acceptance remain open; COM17 is still
+on `9ab05c04`. [Row-batching evidence and limits](../../evidence/maps/2026-10-22-scaled-preview-stripes.md).
+
 Latest source checkpoint `9ab05c04`: scaled cached previews now preserve their
 guaranteed covered interior instead of clearing the whole map before zoom.
 The regression reproduces the original clear and passes after correction,
