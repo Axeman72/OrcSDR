@@ -86,7 +86,64 @@ A fresh read is still required before catalog acceptance. Never erase/reset trus
 record the accepted test revision and require a compatible later production
 revision/key-migration plan.
 
-Native build/inspection, fresh trust inspection, P4 catalog acceptance, actual
-543 MB transfer, cancel/resume, insufficient space, corruption/schema rejection,
-activation/recovery, offline use and global-pack native quality remain open.
-The full integration goal is not complete.
+### COM17 pilot firmware and initial delivery checks
+
+```text
+python .local/maps/build_pilot_20261022.py build test-pilot-627c9d86-20261022
+python .local/maps/inspect_test_pilot_20261022.py
+python .local/maps/flash_test_pilot_20261022.py
+python .local/maps/check_fresh_pilot_trust_20261022.py
+python .local/maps/com17_label_bench.py test-pilot-catalog-check-plan-20261022.json test-pilot-catalog-check-device-20261022.log
+python .local/maps/com17_label_bench.py test-pilot-first-cancel-plan-20261022.json test-pilot-first-cancel-device-20261022.log
+python .local/maps/com17_label_bench.py test-pilot-resume-cancel-plan-20261022.json test-pilot-resume-cancel-device-20261022.log
+```
+
+Native build and inspection pass. App 5,157,440 bytes, partition headroom
+1,134,016; SHA-256 `e435eef301ca9b284c2cf11907fff530a29ab84dc8cb4f0012f6d61738983127`.
+ELF SHA-256 `5f93611dc95a78a6cc37acdac5f7863caf2e8931f08f150ead94f0c7c7ad586b`.
+Exact pilot public key/URL, PSRAM placement, symbol gates, diagnostics OFF,
+existing C6 3.0.6 input, dependency pin and full 40 KiB DMA reserve pass.
+Artifact directory `.local/maps/pilot-627c9d86-20261022/` includes manifest and
+fresh non-app backups. Previous app `7c48e358` verifies; app-only write and
+bootloader/table/NVS/PHY/world/coredump preservation pass. COM39 untouched.
+
+Fresh NVS backup contains no map-delivery namespace; trust floor zero, verified
+without printing unrelated entries. No trust erase/reset. COM17 boots with
+matching ELF hash and SD/Wi-Fi/RTL Ready. Native boot log is saved in its invocation
+directory: `apps/orcsdr-tab5/test-pilot-boot-native-monitor-20261022.log`.
+
+Setup opens with reception IDLE and receiver location unchanged at E7
+`440628866,-1230160273`. Real HTTPS catalog check completes with phase 6,
+configured=1, ready=1, count=1; the global product is recommended and not installed.
+Given the compiled key and checked payload, the accepted revision is
+`20261022214257`; later direct trust readback remains a separate persistence gate.
+
+First install reaches 5,718,016 reported bytes, then cancellation finishes at
+phase 3/busy 0, installed=0. Retry progresses to 14,385,152 bytes; a second
+cancellation also finishes phase 3/busy 0, installed=0. No unexpected reset;
+setup remains responsive to authenticated status/actions. These checks establish
+bounded cancel/retry progress, not final archive integrity or activation.
+
+Logs in root: `test-pilot-{artifact-inspection,verify-previous,backup-*,verify-backups,app-write,preservation,preflash-device,catalog-check-device,first-cancel-device,resume-cancel-device}-20261022.log`;
+build log `fit-order-native-test-pilot-627c9d86-20261022-20261020.log`;
+`pilot-fresh-trust-inventory-20261022.log`. Shared recording-display changes also
+pass the real FT8 dashboard regression (`ft8-readable-stub-regression-20261022.log`).
+
+Full transfer is started with a bounded adaptive observer:
+
+```text
+python .local/maps/com17_pilot_download_watch_20261022.py test-pilot-full-download-plan-20261022.json test-pilot-full-download-device-20261022.log
+```
+
+At this documentation checkpoint the observer is live; no completed-download
+claim. It polls authenticated status every 30 seconds, records memory and fails
+on a terminal non-success state. Do not restart solely because an observation
+window expires: inspect the existing process/device first.
+
+## Remaining gates
+
+Complete 543 MB transfer, final hash/schema validation, activation/recovery,
+insufficient space, corrupted data rejection, trust persistence, offline use,
+physical larger-label acceptance and global-pack native quality remain open.
+The full integration goal is not complete. TEST-ONLY catalog configuration is
+local build input; do not accidentally inherit it into production/release builds.

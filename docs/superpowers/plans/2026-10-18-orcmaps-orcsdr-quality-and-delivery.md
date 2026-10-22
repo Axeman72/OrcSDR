@@ -53,6 +53,23 @@ follow is not accepted yet. Physical drag quality, representative 33 ms timing
 and full RF/overlay acceptance remain open.
 [LoRa implementation and test evidence](../../evidence/maps/2026-10-21-lora-map-controls.md).
 
+### October 22 approved download pilot and LoRa readability
+
+The user approved the GitHub TEST-ONLY pilot. Data and signed-catalog prereleases
+are published, verified against local hashes/signature, and the actual archive
+URL passes bounded HTTPS Range/If-Range checks. GitHub rejects pure-hex release
+tags; final data tag `sha256/<full hash>` preserves the existing exact-hash path
+contract. Existing draft world overview and production signing remain unchanged.
+
+COM17 app-only candidate `627c9d86` builds, passes artifact gates and boots with
+preserved NVS/SD/world/C6. It adds size-2 map node names and stable Follow identity
+(`c6ab1833`); physical readability and live reordered Follow acceptance remain open.
+The real TEST-ONLY HTTPS catalog is accepted, with one recommended global pack.
+Cancel/retry checks progress from 5.7 MB to 14.4 MB while setup keeps radio stopped.
+The full transfer is running at this checkpoint; final hash/activation/recovery,
+offline use, global-pack quality and performance are not accepted yet.
+[Actual endpoints, artifacts, commands and open gates](../../evidence/maps/2026-10-22-download-pilot-publication.md).
+
 ### October 22 LoRa worker startup and controlled reception
 
 `7c48e358` corrects decoder startup under retained map memory: the 12 KiB task
