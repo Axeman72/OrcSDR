@@ -46,9 +46,38 @@ void world_label_zoom_test(orcsdr::maps::Pipeline& pipeline) {
     assert(!pipeline.render(source,frame,&labels,&text,32));
   }
 }
+void source_camera_test() {
+  using orcsdr::maps::pack_source_view;
+  for(double longitude:{20.0,179.99,-179.99}) {
+    orcmap::Viewport requested;
+    requested.center_lat_deg=10;requested.center_lon_deg=longitude;
+    requested.width_px=622;requested.height_px=302;requested.tile_size_px=384;
+    for(uint8_t zoom:{uint8_t{6},uint8_t{8},uint8_t{12},uint8_t{20}}) {
+      requested.zoom=zoom;orcmap::Viewport source;
+      assert(pack_source_view(requested,0,8,&source));
+      assert(source.zoom==std::min<int>(zoom,8));
+      assert(source.tile_size_px==(requested.tile_size_px<<(zoom-source.zoom)));
+      for(const auto point:{orcmap::LatLon{10,longitude},orcmap::LatLon{10.01,longitude+.01}}) {
+        double ax,ay,bx,by;
+        assert(orcmap::ProjectLatLon(requested,point,&ax,&ay));
+        assert(orcmap::ProjectLatLon(source,point,&bx,&by));
+        assert(std::abs(ax-bx)<1e-7&&std::abs(ay-by)<1e-7);
+      }
+    }
+  }
+  orcmap::Viewport requested,source;requested.zoom=3;
+  assert(!pack_source_view(requested,5,8,&source));
+  assert(!pack_source_view(requested,9,8,&source));
+  assert(!pack_source_view(requested,0,32,&source));
+  assert(!pack_source_view(requested,0,8,nullptr));
+  requested.zoom=20;requested.tile_size_px=INT32_MAX;
+  assert(!pack_source_view(requested,0,8,&source));
+  std::puts("PACK_SOURCE_CAMERA_PASS projection retained through source z8, wrap and invalid bounds");
+}
 }
 
 void world_tests(const char* path) {
+  source_camera_test();
   orcmap::host::FileByteSource source(path);
   orcsdr::maps::Pipeline pipeline(source);
   assert(pipeline.open("orcmaps-overview-1"));

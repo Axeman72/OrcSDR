@@ -326,7 +326,9 @@ bool choose(const Request& request,orcmap::Viewport* view,char* path,size_t size
     pack=g_inventory.resolve(bounds,view->zoom,request.preferred);
   if(pack) {
     *info=info_for(pack->pack_id.c_str());
-    if(*info && (*info)->usable) {std::snprintf(path,size,"%s",pack->archive_path.c_str());return true;}
+    if(*info && (*info)->usable && pack_source_view(request.view,pack->min_zoom,pack->max_zoom,view)) {
+      std::snprintf(path,size,"%s",pack->archive_path.c_str());return true;
+    }
   }
   *info=info_for("firmware-world");
   if(!*info || !(*info)->usable)return false;
@@ -348,6 +350,7 @@ void worker(void*) {
     g_frame={};g_frame.state=Frame::unavailable;
     char path[256]{};orcmap::Viewport view;const PackInfo* info=nullptr;
     bool ok=choose(request,&view,path,sizeof(path),&info);
+    g_frame.camera_zoom=request.view.zoom;g_frame.source_zoom=view.zoom;
     if(info) {text(g_frame.title,info->title);text(g_frame.credit,info->credit);}
     if(ok && std::strcmp(path,g_archive)) {
       g_pipeline.reset();g_source.reset();g_archive[0]=0;
@@ -505,6 +508,8 @@ void report(void (*write)(const char*)) {
   FrameInfo frame;
   if(!frame_info(&frame)) {std::snprintf(line,sizeof(line),"ORC_MAP_STATUS busy=1 generation=%lu\n",static_cast<unsigned long>(g_serial.load()));write(line);return;}
   const auto& stats=frame.stats;
+  std::snprintf(line,sizeof(line),"ORC_MAP_SOURCE camera_zoom=%u source_zoom=%u title=\"%s\"\n",
+      frame.camera_zoom,frame.source_zoom,frame.title);write(line);
   // Read the rolling sample under the same lock used for presentation updates.
   if(xSemaphoreTake(g_lock,0)==pdTRUE) {
     const auto timing=g_update_timing.summary();

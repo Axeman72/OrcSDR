@@ -40,6 +40,17 @@ confirmed on COM17: "Old map flash is gone." This transition defect is closed;
 broader regional coverage and the product-default audit remain open.
 [Scope, commands and evidence](../../evidence/maps/2026-10-21-legacy-map-retirement.md).
 
+### October 21 installed coverage and source-camera follow-up
+
+The next confirmed gap is installed-pack selection above its stored maximum
+zoom, plus out-of-coverage preferred packs blocking other installed coverage.
+The shared adapter correction preserves camera projection while choosing stored
+source detail. Focused inventory/camera tests and six actual-global-candidate
+views (London/Tokyo/Nairobi at camera z9/z12, source z8) pass. Native/device gates
+remain open at this source checkpoint. Oregon documentation demos are now
+neutral in source; this is not a claim of a repository-wide release audit.
+[Commands, semantics and remaining gates](../../evidence/maps/2026-10-21-pack-source-camera.md).
+
 **Active delivery work: Phase 4; Phases 2 and 3 remain open.** Labels and cached
 gestures run on COM17. Delivery now has a signed catalog consumer and hidden
 resumable staging, connected worker/setup UI and bounded COM17 evidence. The

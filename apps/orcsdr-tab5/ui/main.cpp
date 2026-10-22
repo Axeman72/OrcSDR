@@ -699,7 +699,7 @@ constexpr uint32_t kPocsagFallbackHz = 152007500;
 // load_pocsag_scan_list() and docs/RADIO_CONFIGURATION.md), exactly like
 // P25 system profiles and FM presets are already SD-editable rather than
 // compiled in. A user who researches their own local paging licenses (as
-// was done for one reference deployment in Lane County, Oregon) adds them
+// was done for one reference deployment) adds them
 // to that file -- the firmware itself stays geography-neutral.
 constexpr uint32_t kPocsagDiscoveryDefaultChannelsHz[] = {
     152007500, 152240000, 152480000, 152840000,
@@ -17618,10 +17618,10 @@ orcsdr::settings::State ui_doc_settings_state() {
   strlcpy(state.profiles[0].ssid, "OrcSDR Demo", sizeof(state.profiles[0].ssid));
   state.profiles[0].connected = true;
   state.location_configured = true;
-  state.latitude_e7 = 455230640;
-  state.longitude_e7 = -1226764830;
-  strlcpy(state.location_label, "Portland, Oregon", sizeof(state.location_label));
-  strlcpy(state.map_pack, "Portland 10/25/50/100 NM", sizeof(state.map_pack));
+  state.latitude_e7 = 100000000;
+  state.longitude_e7 = 200000000;
+  strlcpy(state.location_label, "Example location", sizeof(state.location_label));
+  strlcpy(state.map_pack, "firmware-world", sizeof(state.map_pack));
   state.wifi_external_antenna = true;
   state.sd_ready = true;
   state.sd_total_bytes = 32ull * 1024 * 1024 * 1024;
@@ -17759,12 +17759,12 @@ bool ui_doc_render(const char* screen_id, bool demo) {
       lora_display_packets[0].destination = 0xFFFFFFFF;
       lora_display_packets[0].packet_id = 7;
       lora_display_packets[0].received_ms = millis();
-      lora_display_packets[0].latitude_e7 = 455230640;
-      lora_display_packets[0].longitude_e7 = -1226764830;
+      lora_display_packets[0].latitude_e7 = 100000000;
+      lora_display_packets[0].longitude_e7 = 200000000;
       lora_display_packets[0].snr_tenths = 94;
       lora_display_packets[0].signal_tenths = -720;
       lora_display_packets[0].port = 1;
-      lora_node_positions[0] = {0xA1B2C3D4, millis(), 455230640, -1226764830};
+      lora_node_positions[0] = {0xA1B2C3D4, millis(), 100000000, 200000000};
       lora_messages.store(1, std::memory_order_relaxed);
       lora_noise_dbfs.store(-80.0f, std::memory_order_relaxed);
       lora_trigger_dbfs.store(-71.0f, std::memory_order_relaxed);

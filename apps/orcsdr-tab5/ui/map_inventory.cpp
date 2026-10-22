@@ -43,10 +43,15 @@ const orcmap::PackManifest* Inventory::find(const char* identity) const {
 }
 const orcmap::PackManifest* Inventory::resolve(const orcmap::GeoBounds& bounds,uint8_t zoom,
                                               const char* preferred) const {
+  if(zoom>20)return nullptr;
   if (const auto* pack=find(preferred)) {
     orcmap::PackCatalog selected;
-    if (selected.Add(*pack)) return orcmap::ResolvePack(selected,bounds,zoom) ? pack : nullptr;
+    if (selected.Add(*pack) && orcmap::ResolvePack(selected,bounds,std::min(zoom,pack->max_zoom)))return pack;
   }
-  return orcmap::ResolvePack(catalog_,bounds,zoom);
+  // Prefer current-detail coverage, then the highest available source level.
+  // ResolvePack still enforces bounds, minimum zoom, priority and stable ties.
+  for(int source=zoom;source>=0;--source)
+    if(const auto* pack=orcmap::ResolvePack(catalog_,bounds,static_cast<uint8_t>(source)))return pack;
+  return nullptr;
 }
 } // namespace orcsdr::maps

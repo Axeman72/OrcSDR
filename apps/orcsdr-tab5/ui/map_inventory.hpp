@@ -11,6 +11,8 @@ class Inventory {
   const orcmap::PackCatalog& catalog() const { return catalog_; }
   const orcmap::DiscoveryReport& report() const { return report_; }
   const orcmap::PackManifest* find(const char* identity) const;
+  // May reuse an archive's maximum source zoom for a closer camera. Bounds
+  // remain mandatory; an out-of-coverage preference falls back to other packs.
   const orcmap::PackManifest* resolve(const orcmap::GeoBounds&, uint8_t zoom,
                                      const char* preferred = nullptr) const;
   bool sd_mounted() const { return sd_mounted_; }

@@ -82,6 +82,23 @@ void global_label_test(const char* archive) {
   assert(std::find(text.names.begin(),text.names.end(),"Eugene")==text.names.end());
   std::printf("GLOBAL_STREAM_LABEL_PASS offered=%u drawn=%u\n",
               pipeline.stats().labels.offered,pipeline.stats().labels.drawn);
+  for(const auto city:{orcmap::LatLon{51.51,-.13},orcmap::LatLon{35.68,139.69},orcmap::LatLon{-1.29,36.82}}) {
+    for(uint8_t zoom:{uint8_t{9},uint8_t{12}}) {
+      auto requested=view;requested.center_lat_deg=city.lat_deg;requested.center_lon_deg=city.lon_deg;requested.zoom=zoom;
+      orcmap::Viewport stored;
+      assert(pack_source_view(requested,pipeline.header().min_zoom,pipeline.header().max_zoom,&stored));
+      assert(stored.zoom==8);
+      text.names.clear();
+      assert(pipeline.render(stored,frame,&labels,&text,requested.zoom));
+      assert(pipeline.stats().missing==0&&pipeline.stats().failed==0);
+      assert(pipeline.stats().deferred_capacity_failures==0&&!text.names.empty());
+      double ax,ay,bx,by;
+      assert(orcmap::ProjectLatLon(requested,city,&ax,&ay)&&orcmap::ProjectLatLon(stored,city,&bx,&by));
+      assert(std::abs(ax-bx)<1e-7&&std::abs(ay-by)<1e-7);
+      std::printf("GLOBAL_OVERZOOM_PASS lat=%.2f lon=%.2f camera=%u source=%u drawn=%u\n",
+          city.lat_deg,city.lon_deg,requested.zoom,stored.zoom,pipeline.stats().labels.drawn);
+    }
+  }
 }
 
 void global_order_test(const char* archive) {

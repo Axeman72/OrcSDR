@@ -84,5 +84,8 @@ bool begin_location_picker(orcmap::LocationPicker& picker,int width,int height,
                            int32_t latitude_e7,int32_t longitude_e7);
 bool world_overview_view(const orcmap::Viewport& requested,uint8_t minimum,uint8_t maximum,
                          orcmap::Viewport* output);
+// Select stored tile detail while retaining the requested Mercator camera.
+bool pack_source_view(const orcmap::Viewport& requested,uint8_t minimum,uint8_t maximum,
+                      orcmap::Viewport* output);
 
 } // namespace orcsdr::maps
