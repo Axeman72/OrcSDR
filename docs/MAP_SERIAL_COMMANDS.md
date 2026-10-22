@@ -55,6 +55,44 @@ the configured value when `active=1`. `RTL_ADSB_RANGE_OK ... persistence=pending
 acknowledges the action, not a durable NVS write or a completed render. Observe
 the settings-save result and a fresh frame, then verify persistence separately.
 
+## LoRa dashboard map
+
+```text
+RTL_UI OPEN LORA
+RTL_UI ACTION LORA VIEW 3
+RTL_LORA_MAP HELP
+RTL_LORA_MAP STATUS
+RTL_LORA_MAP CENTER RECEIVER
+RTL_LORA_MAP CENTER NODE
+RTL_LORA_MAP FOLLOW ON
+RTL_LORA_MAP FOLLOW OFF
+RTL_LORA_MAP PAN 40 -20
+RTL_LORA_MAP ZOOM IN
+RTL_LORA_MAP ZOOM OUT
+```
+
+Help/Status are read-only. Mutations require authentication and the LoRa Map
+view to own the display. They return `RTL_LORA_MAP_OK`, or an error ending in
+`auth_required`, `invalid_command` or `rejected`. A result acknowledges the
+camera action, not a completed render or a saved receiver location.
+
+Pan values are camera pixels: positive east/south, bounded to ±842/±330.
+Physical dragging passes the opposite movement through the same handler and
+turns follow off. Touch-down alone leaves the camera unchanged. Zoom is bounded
+to 0–16 and retains the center; overzoom does not create additional map detail.
+
+The opening map prefers a configured receiver position, then the selected
+positioned node. Center Node and Follow require that actual selected node to
+have a mappable position; they never silently choose another node. Follow
+tracks later positions. The Mercator latitude limit is about ±85.05°; polar
+coordinates remain valid node data but cannot supply this regional basemap.
+With no mappable position, the dashboard explains the missing coverage.
+
+Status reports active ownership, camera readiness, follow intent, center E7
+coordinates and zoom. These describe the dashboard camera, not NVS receiver
+coordinates. No map movement changes the saved receiver location. Labels use
+the independent `RTL_MAP LABELS LORA ON|OFF` preference.
+
 ## Location picker
 
 ```text

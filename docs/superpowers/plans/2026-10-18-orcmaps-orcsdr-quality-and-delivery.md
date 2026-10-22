@@ -39,7 +39,15 @@ needed to synchronize the open dashboard. A shared setter and dedicated
 query/set command now pass focused host checks, P4 syntax and native linking.
 COM17 deployment is pending release of an occupied serial port; it still runs
 `ba0e7a92`. See [range evidence](../../evidence/maps/2026-10-21-adsb-range-controls.md).
-LoRa's fluid camera controls remain an implementation gap.
+LoRa camera checkpoint `050442b0`: touch/serial pan and zoom, receiver/selected-node
+centering, explicit follow, matching overlays and completed-frame UI refresh are
+implemented through the shared OrcMaps service. Focused real-dashboard host,
+ASan/UBSan, shared adapter and FT8 dashboard regressions pass; P4 syntax, native
+linking and artifact inspection pass. No device update occurred while COM17's
+serial port is occupied. Physical drag quality, 33 ms timing, active RF/SD/memory
+and device follow/overlay acceptance remain open. The combined candidate also
+contains `19856eea`; it can validate both milestones in one app-only update.
+[LoRa implementation and test evidence](../../evidence/maps/2026-10-21-lora-map-controls.md).
 
 ### Worldwide shipping defaults and legacy retirement — October 21, 2026
 

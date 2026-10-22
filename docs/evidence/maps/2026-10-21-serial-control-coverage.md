@@ -20,7 +20,7 @@ not a completed application-wide audit or a claim that every route was tested.
 | Select/rescan a local OrcMaps pack | `RTL_MAP SELECT <full-id>`; `RTL_MAP RESCAN` | Unsupported/unknown selection rejection passes on COM17. `ba0e7a92` rescan refresh advances displayed frame revision 2→4. Successful selection persistence remains a separate gate. |
 | Check/download/retry/cancel an OrcMaps catalog pack | `RTL_MAP DOWNLOAD CHECK\|INSTALL <index>\|RETRY\|CANCEL` | Shared worker/trust/journal gates; host coverage and unconfigured-catalog rejection on COM17. Actual HTTPS installation remains open. |
 | ADS-B map range | Existing `RTL_UI ACTION SETTINGS RANGE <nm>`; dedicated `RTL_ADSB_RANGE [nm]` in `19856eea` | Existing route saved the global value without updating the open dashboard. Shared setter and observable state now build; COM17 installation/testing pending port availability. |
-| LoRa follow/centering and pan/zoom | Existing `RTL_UI ACTION LORA FOLLOW`; UI centering | Follow route exists; explicit selected-node/receiver center and fluid pan/zoom controls remain incomplete. |
+| LoRa follow/centering and pan/zoom | `RTL_LORA_MAP STATUS`, `CENTER RECEIVER\|NODE`, `FOLLOW ON\|OFF`, `PAN east south`, `ZOOM IN\|OUT`; existing toggle route remains | `050442b0` shares touch/serial camera actions. Real-dashboard host, sanitizer and native build pass. COM17 installation, physical feel and radio/performance acceptance remain open. |
 
 The older `RTL_CATALOG_*` commands control generic signed data packs, not the
 OrcMaps download catalog. Do not claim these already provide map-install control.
