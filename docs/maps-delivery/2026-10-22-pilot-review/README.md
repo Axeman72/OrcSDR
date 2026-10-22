@@ -1,5 +1,12 @@
 # Global map download pilot — review package, October 22, 2026
 
+**Execution update:** the user approved this pilot; the candidate and TEST-ONLY
+signed catalog are now published as prereleases. GitHub rejected the proposed
+pure-hash tag, so the verified final data tag is `sha256/<full hash>`.
+The files below preserve the original review proposal; use the
+[execution record](../../evidence/maps/2026-10-22-download-pilot-publication.md)
+for actual URLs, revision, hashes, commands and still-open P4 acceptance gates.
+
 **Unpublished, unsigned candidate. Not a production catalog or enabled download.**
 This package makes the next delivery step concrete. It does not approve publishing
 or substitute for the remaining worldwide quality, ESP32-P4 and recovery gates.
