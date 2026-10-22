@@ -168,3 +168,18 @@ this as workload/reclaim evidence, not a leak diagnosis or a universal SD pass.
 FT8 with these retained allocations still needs its native fallback/reclaim test.
 Commands/logs and point-in-time DMA/stack measurements:
 [evidence](evidence/maps/2026-10-19-geographic-label-controls.md).
+
+## 2026-10-22 retained-map SD check and separate FT8 fault
+
+COM17 `30:ED:A0:E2:E6:95`, app `050442b0`: a uniquely named, absent-checked
+65,536-byte scratch write/readback passes with map memory 751,376 bytes and
+LoRa IQ memory 15,840,000 bytes retained. Matching SHA-256, memory readings and
+logs are in the [hardware checkpoint](evidence/maps/2026-10-22-map-dashboard-hardware-checkpoint.md).
+Reception was stopped for transfer; this is not an active-RF SD test.
+
+The subsequent return to FT8 caused a stack-protection fault during serial
+snapshot output. Thus the overall plan fails despite its passing SD substeps.
+The preserved dump does not establish SD corruption, an allocation root cause
+or an ordinary main-task stack overflow. COM17 was recovered and returned to
+FT8; investigate this retained-memory dashboard transition before claiming the
+combined workload reliable. No power-loss/card-removal acceptance is implied.

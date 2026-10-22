@@ -37,17 +37,39 @@ open. [Command reference](../../MAP_SERIAL_COMMANDS.md) and
 ADS-B range checkpoint `19856eea`: the pre-existing Settings serial action
 needed to synchronize the open dashboard. A shared setter and dedicated
 query/set command now pass focused host checks, P4 syntax and native linking.
-COM17 deployment is pending release of an occupied serial port; it still runs
-`ba0e7a92`. See [range evidence](../../evidence/maps/2026-10-21-adsb-range-controls.md).
+COM17 deployment and bounded range checks now pass in combined candidate
+`050442b0`; named and routed touch controls agree, and the original 100 NM
+setting survives reboot. See [range evidence](../../evidence/maps/2026-10-21-adsb-range-controls.md)
+and the [October 22 checkpoint](../../evidence/maps/2026-10-22-map-dashboard-hardware-checkpoint.md).
 LoRa camera checkpoint `050442b0`: touch/serial pan and zoom, receiver/selected-node
 centering, explicit follow, matching overlays and completed-frame UI refresh are
 implemented through the shared OrcMaps service. Focused real-dashboard host,
 ASan/UBSan, shared adapter and FT8 dashboard regressions pass; P4 syntax, native
-linking and artifact inspection pass. No device update occurred while COM17's
-serial port is occupied. Physical drag quality, 33 ms timing, active RF/SD/memory
-and device follow/overlay acceptance remain open. The combined candidate also
-contains `19856eea`; it can validate both milestones in one app-only update.
+linking and artifact inspection pass. The port subsequently became available
+without killing a process, and COM17 received the combined app-only update.
+Bounded serial pan/zoom/receiver centering and streaming checks pass. Follow
+correctly rejects a selected node without a usable position; positioned-node
+follow is not accepted yet. Physical drag quality, representative 33 ms timing
+and full RF/overlay acceptance remain open.
 [LoRa implementation and test evidence](../../evidence/maps/2026-10-21-lora-map-controls.md).
+
+### October 22 hardware checkpoint and open FT8 fault
+
+COM17 retained-map SD scratch write/readback passes with both the 751,376-byte
+map allocation and 15,840,000-byte LoRa IQ allocation retained. Reception was
+stopped for this transfer; this is not simultaneous RF/SD acceptance. The
+subsequent return to FT8 triggered a stack-protection fault during serial
+snapshot output with 416,052 bytes reported free. The full plan therefore
+failed even though its SD substeps passed. The core dump is preserved; available
+decoding identifies interrupt context without a proven application call chain.
+COM17 was recovered and returned to FT8 at 7.070 MHz. No fault fix is claimed.
+
+Next: investigate this transition using the saved dump and allocation/lifecycle
+evidence before repeating it. Keep the full global-pack, HTTPS, setup, dashboard
+and performance gates open. Production HTTP-adapter boundary tests added at
+`15f1f0bf` pass normally and under ASan/UBSan using a fake SDK boundary; no actual
+network exchange was tested. Exact artifacts, commands, results and limitations:
+[October 22 checkpoint](../../evidence/maps/2026-10-22-map-dashboard-hardware-checkpoint.md).
 
 ### Worldwide shipping defaults and legacy retirement — October 21, 2026
 
