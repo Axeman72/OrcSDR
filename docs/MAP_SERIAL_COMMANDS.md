@@ -5,6 +5,12 @@ status and lists do not require authentication. Every operation that changes
 state requires the existing authenticated serial session; this interface never
 pairs a new key. Responses end in a newline.
 
+Keep the session alive with `PING` at intervals shorter than five seconds,
+including while waiting for a command result. A location save can take several
+seconds; wait for its final result rather than assuming a short silence means
+failure. Reception restart after leaving setup is asynchronous: allow it to
+settle, then query `RTL_DRIVER STATUS`.
+
 Successful operations return `RTL_MAP_OK`. Errors are `auth_required`,
 `invalid_command`, `busy` or `rejected`. A rejected operation can mean the
 wrong screen/step, an active input editor, a camera limit, unavailable storage,

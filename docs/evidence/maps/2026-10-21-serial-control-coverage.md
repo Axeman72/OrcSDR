@@ -13,11 +13,12 @@ not a completed application-wide audit or a claim that every route was tested.
 | Resolve approximate network location | `RTL_LOCATION IP`, then `RTL_LOCATION CONFIRM` | Existing lookup/confirm route; persistence and failure gates remain scoped. |
 | Resolve an address or ZIP | `RTL_LOCATION LOOKUP <query>`, then `RTL_LOCATION CONFIRM` | Existing lookup/confirm route. |
 | Inspect lookup state | `RTL_LOCATION STATUS` | Reports lookup result; add a clear saved receiver/map-camera status if not already exposed elsewhere. |
-| Open setup / inventory / location picker | Settings action via UI tap/key | Named commands missing. Use the existing map-screen open lifecycle, including reception pause. |
-| Picker pan, zoom, recenter, proposed-coordinate entry, Save/Cancel | UI tap/key routing | Named commands and observable proposal/saved-state result needed. |
-| Per-consumer Labels ON/OFF | UI tap/key routing | Add a named command using map preferences and correct UI invalidation; preserve independent persistence. |
-| Select/rescan a local OrcMaps pack | UI tap/key routing | Named commands needed; unsupported legacy entries must stay unselectable. |
-| Check/download/retry/cancel an OrcMaps catalog pack | UI tap/key routing through existing download API | Named commands needed; use the same worker, trust, journal and scheduling gates. |
+| Open setup / inventory / location picker | `RTL_MAP OPEN SETUP\|LIST\|PICKER` | Shared screen lifecycle, including reception pause; bounded COM17 ownership checks pass. Full setup interruption/recovery remains open. |
+| Picker pan, zoom, proposed-coordinate entry, Save/Cancel | `RTL_MAP PICKER PAN`, `ZOOM`, `SET`, `SAVE`; `RTL_MAP CANCEL` | COM17 proposal/cancel and same-point save pass. Status distinguishes proposal from saved E7 coordinates. |
+| Setup Back, Next, Skip, Quick Start, Finish | `RTL_MAP SETUP BACK\|NEXT\|SKIP\|QUICK\|FINISH` | Focused host coverage; COM17 traversed all five steps with optional pages skipped. All-method setup acceptance remains open. |
+| Per-consumer Labels ON/OFF | `RTL_MAP LABELS PICKER\|LORA\|ADSB\|FT8 ON\|OFF` | Shared preferences and invalidation; independent persistence covered on host, ADS-B preference OFF/ON checked on COM17. Other physical consumer checks remain scoped. |
+| Select/rescan a local OrcMaps pack | `RTL_MAP SELECT <full-id>`; `RTL_MAP RESCAN` | Unsupported/unknown selection rejection passes on COM17. `ba0e7a92` rescan refresh advances displayed frame revision 2→4. Successful selection persistence remains a separate gate. |
+| Check/download/retry/cancel an OrcMaps catalog pack | `RTL_MAP DOWNLOAD CHECK\|INSTALL <index>\|RETRY\|CANCEL` | Shared worker/trust/journal gates; host coverage and unconfigured-catalog rejection on COM17. Actual HTTPS installation remains open. |
 | ADS-B map range and later LoRa follow/pan/zoom | UI tap/key routing | Named commands needed, shared with the physical control handlers. |
 
 The older `RTL_CATALOG_*` commands control generic signed data packs, not the
@@ -25,8 +26,9 @@ OrcMaps download catalog. Do not claim these already provide map-install control
 The retired regional ORCMAP1 entry is absent from their public listing and cannot
 be installed; existing SD data remains preserved.
 
-Next implementation milestone: a narrow map/setup command dispatcher connected
-to existing shared actions, with bounded parser/authentication tests and explicit
-status/error responses. Do not create parallel location, camera, download or
-reception state. Add each command to help and its user documentation, then verify
-physical/serial behavior against the same saved state on COM17.
+The dispatcher landed on the development branch in `1cd9b180`, with focused
+optimized and sanitizer checks passing. See [command reference](../../MAP_SERIAL_COMMANDS.md)
+and [device evidence](2026-10-21-map-serial-controls.md). This closes the named
+map/setup dispatcher implementation gap, not application-wide parity or all
+hardware acceptance. ADS-B range and future LoRa interactions still need shared
+semantic controls.

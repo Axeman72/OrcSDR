@@ -25,7 +25,11 @@ Named `RTL_MAP` controls now implement Help/Status/inventory, setup/picker/list
 opening, picker proposal/pan/zoom/save/cancel, setup navigation/completion,
 independent labels, local selection/rescan and map download list/check/install/
 cancel/retry. Shared-action host regressions and ASan/UBSan pass; corrected native
-build passes. COM17 command acceptance is pending at this source checkpoint.
+build passes. COM17 bounded checks pass for picker proposal/cancel, same-point
+save, inventory ownership/rejection, and ADS-B label counts 2→0→2. The rescan
+correction in `ba0e7a92` is app-only installed and verified: an unchanged camera
+gets a new displayed frame (revision 2→4). Optional setup pages were skipped in
+the first five-step traversal; full setup acceptance remains open.
 Dashboard-specific semantic controls and full HTTPS/device acceptance remain
 open. [Command reference](../../MAP_SERIAL_COMMANDS.md) and
 [implementation/test evidence](../../evidence/maps/2026-10-21-map-serial-controls.md).

@@ -128,8 +128,76 @@ python .local/maps/com17_label_bench.py map-serial-keepalive-plan-20261021.json 
 
 The follow-up source correction invalidates queued requests/preview lifetime
 and presentation when discovery publishes metadata. It uses the existing atomic
-cancel/invalidation operations while holding the publication lock. Native/device
-rescan verification remains open at this point. User data and COM39 are untouched.
+cancel/invalidation operations while holding the publication lock.
+
+### Rescan correction: COM17, `ba0e7a92`
+
+Native build and inspection PASS:
+
+```text
+python .local/maps/build_fit_order_20261020.py build map-serial-rescan-20261021
+C:/Espressif/python_env/idf5.5_py3.14_env/Scripts/python.exe .local/maps/inspect_map_serial_rescan_20261021.py
+C:/Espressif/python_env/idf5.5_py3.14_env/Scripts/python.exe .local/maps/flash_map_serial_rescan_20261021.py
+python .local/maps/com17_label_bench.py map-serial-rescan-plan-20261021.json map-serial-rescan-device-20261021.log
+```
+
+The app is 5,132,544 bytes, leaving 1,158,912 bytes in the factory partition.
+SHA-256: `c92c9e84885cb59ae7d826599bd3a2ea12ddf69dcc2ff6bee288accf775b68cf`.
+Inspection retains the 40 KiB DMA reserve, PSRAM placement and symbol gates.
+Artifact/recovery directory: `.local/maps/map-serial-rescan-ba0e7a92-20261021/`.
+Rollback app: `.local/maps/map-serial-1cd9b180-20261021/candidate.bin`.
+
+Before flashing, the installed app was verified and reception stopped. Fresh
+non-app partition backups were read and verified; post-write verification
+confirmed app, bootloader, partition table and all backed-up partitions. Only
+the P4 app was written. Native no-reset monitor captured one explicit USB reset
+and the matching ELF digest; the pre-existing 6,080-byte core dump was preserved.
+Wi-Fi initially retried, then connected and startup completed.
+
+The heartbeat-enabled controlled plan exits **0**. Rescan now advances the
+displayed frame revision **2 → 4** for the unchanged ADS-B camera. Labels OFF/ON
+produce rendered label counts **2 → 0 → 2**, not just preference acknowledgements.
+Inventory ownership, unsupported/unknown selection rejection, Cancel, return
+to ADS-B and STREAMING checks pass. This tests the embedded overview; it does
+not prove real global-pack installation or all dashboard consumers.
+
+Logs, relative to the integration worktree:
+
+- `fit-order-native-map-serial-rescan-20261021-20261020.log`
+- `map-serial-rescan-inspection-20261021.log`
+- `map-serial-rescan-preflash-20261021.log`
+- `map-serial-rescan-verify-previous-20261021.log`,
+  `map-serial-rescan-backup-*-20261021.log`,
+  `map-serial-rescan-verify-backups-20261021.log`,
+  `map-serial-rescan-app-write-20261021.log`,
+  `map-serial-rescan-preservation-20261021.log`
+- `apps/orcsdr-tab5/map-serial-rescan-boot-native-monitor-20261021.log`
+- `map-serial-rescan-device-20261021.log`
+
+During this bounded check, free PSRAM was 20,671,576 bytes, largest DMA block
+8,704 bytes, DMA minimum 7,583 bytes and main-task stack high-water margin
+3,996 bytes. These are observations, not sustained memory/RF acceptance.
+No COM39 access occurred.
+
+The corrected setup/save repeat also exits **0**:
+
+```text
+python .local/maps/com17_label_bench.py map-serial-rescan-setup-plan-20261021.json map-serial-rescan-setup-device-20261021.log
+python .local/maps/com17_label_bench.py map-serial-return-ft8-plan-20261021.json map-serial-return-ft8-device-20261021.log
+```
+
+Save verifies the original coordinates; setup reports steps 0–4, IDLE during
+setup and STREAMING after Finish settles. Optional network/location/maps pages
+are skipped. Inventory rejection/Cancel and persisted ADS-B OFF/ON repeat pass.
+COM17 returns to FT8, then the earlier 7,070,000 Hz tuning is restored and
+confirmed. No serial process remains owning the port.
+
+Final FT8 health reports 17,104,724 bytes free PSRAM, largest DMA block 8,704
+bytes and main-task stack margin 3,500 bytes. The save/setup run reaches a DMA
+minimum of **2,967 bytes**: this low transient margin remains an acceptance risk,
+not a closed memory gate. Driver counters show zero overruns/drops in the final
+short observation, which does not establish decoder/audio continuity or FT8 map
+projection acceptance. Physical appearance was not newly checked in this run.
 
 Remaining goal gates include actual global-pack/HTTPS delivery on device,
 complete setup interruption/recovery, LoRa interaction, dashboard-specific
