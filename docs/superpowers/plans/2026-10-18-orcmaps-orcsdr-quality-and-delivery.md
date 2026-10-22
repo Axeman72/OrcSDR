@@ -60,9 +60,15 @@ guaranteed covered interior instead of clearing the whole map before zoom.
 The regression reproduces the original clear and passes after correction,
 including 450 scaled/clipped combinations; focused sanitizer and five P4 syntax
 checks pass. Native build and artifact inspection pass (app 5,158,496 bytes,
-40 KiB DMA reserve unchanged); COM17 is still on `ef53789f`, and no
-flash is scheduled while physical availability is pending. Native edge appearance
-and speed remain unverified. [Correction evidence](../../evidence/maps/2026-10-22-scaled-preview-clearing.md).
+40 KiB DMA reserve unchanged). COM17 is app-only updated to `9ab05c04`, with
+fresh recovery and all non-app partitions preserved. All 40 pan and 16 zoom
+actions are acknowledged and previewed while receiving, no lock misses or
+reported driver drops/overruns. Pan paint p50/p95 is 23.0/29.7 ms; scaled is
+57.3/66.7 ms with clear cost only 29/50 us. Transfer remains the scaled bottleneck;
+physical touch/flicker acceptance and representative 33 ms interaction remain open.
+A native updating-view capture shows intact controls; clustered names still overlap.
+The optional pinned-M5GFX raster test passes 600 full-size cases and sanitizers.
+[Correction and device evidence](../../evidence/maps/2026-10-22-scaled-preview-clearing.md).
 The accumulated global-pack baseline has same-scale paint p50/p95 17.9/26.2 ms
 versus scaled 62.6/70.4 ms; it is not a controlled-gesture FPS result.
 [Baseline and its limits](../../evidence/maps/2026-10-22-global-preview-baseline.md).
@@ -73,7 +79,7 @@ URL passes bounded HTTPS Range/If-Range checks. GitHub rejects pure-hex release
 tags; final data tag `sha256/<full hash>` preserves the existing exact-hash path
 contract. Existing draft world overview and production signing remain unchanged.
 
-COM17 now runs app-only candidate `ef53789f`, with NVS/SD/world/C6 preserved.
+COM17 now runs app-only candidate `9ab05c04`, with NVS/SD/world/C6 preserved.
 The 543,380,195-byte TEST-ONLY HTTPS download completes through hash verification
 and activation. Cancel/retry, persisted catalog trust/ownership, reboot discovery
 and reselection pass. Verification/activation takes about 12 minutes after the

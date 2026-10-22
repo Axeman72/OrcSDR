@@ -32,7 +32,7 @@ Tests verify no stale uncovered pixels, no out-of-map writes, no double clears
 and preserved interior during zoom-in. Five P4 syntax checks pass with existing
 SDK header warnings. Logs: `global-scaled-preview-{red,host,asan,p4-syntax}-20261022.log`.
 
-## Native candidate, not flashed
+## Native candidate build
 
 Source commit `9ab05c04dc81f7ecc692040f8949016c291837ec` builds and passes artifact
 inspection. Commands from the integration root:
@@ -55,10 +55,9 @@ shared serial dispatcher, preserved wizard source hashes and embedded C6 image
 input 3.0.6. The build retains the approved TEST-ONLY pilot endpoint/public key;
 it is not a production-release artifact. No device or C6 write occurred.
 
-Scaled-edge appearance and performance comparison remain open. COM17's physical
-availability is pending; installed app remains `ef53789f`. COM39 is untouched.
-This does not claim the full 33 ms target: the previously measured scaled image
-transfer is still the dominant cost.
+This checkpoint originally stopped before flashing; subsequent authorized device
+execution is recorded below. Physical scaled-edge/flicker acceptance remains open.
+COM39 is untouched. The full 33 ms interaction target is not claimed.
 
 ## Pinned M5GFX scanline conformance
 
@@ -88,3 +87,77 @@ also passes ASan/UBSan 1/1. Logs `global-scaled-native-ctest-final-20261022.log`
 `global-scaled-native-asan-20261022.log`. Initial ad-hoc extraction needed explicit
 UTF-8 decoding for the upstream source; corrected generator uses UTF-8. No full
 test suite or additional firmware build was needed for this test-only addition.
+
+## COM17 installation and controlled pan/zoom
+
+The existing standing COM17 authorization covers the bounded app update; the
+optional availability question does not create a new flash approval requirement.
+Current firmware `ef53789f` matches the retained recovery app before the write.
+Fresh NVS/PHY/crash/world backups and readback verification pass. Only the P4 app
+is written; app, bootloader/table and all non-app partition comparisons pass.
+C6/SD files are preserved. Boot matches ELF `f65038b6c...` and reaches Ready.
+Wi-Fi initially retries reason 2, then connects; no related source is changed.
+
+Commands from the integration root:
+
+```text
+python .local/maps/com17_label_bench.py scaled-preview-preflash-plan-20261022.json scaled-preview-preflash-device-20261022.log
+python .local/maps/flash_scaled_preview_20261022.py
+python .local/maps/com17_label_bench.py scaled-preview-postflash-retry-plan-20261022.json scaled-preview-postflash-retry-device-20261022.log
+python .local/maps/com17_label_bench.py scaled-preview-controlled-plan-20261022.json scaled-preview-controlled-device-20261022.log
+python .local/maps/com17_label_bench.py scaled-preview-native-capture-plan-20261022.json scaled-preview-native-capture-device-20261022.log
+```
+
+All listed commands exit zero. The first post-flash plan (without `retry` in its
+name) fails a host expectation: Open returns `RTL_UI_OPEN_OK`, not `RTL_UI_OK`.
+The corrected plan expects Open and Action acknowledgements explicitly; the
+original failed log is preserved and does not count as a passing check.
+Boot observation uses `esp_idf_monitor` with the exact candidate ELF, 921600 baud,
+timestamps, coredump/panic decoding disabled and the matching RISC-V toolchain;
+it resets only for this approved post-flash startup capture, then exits normally.
+
+The controlled run starts with zero preview samples, sends 40 small pan steps
+(20 east then 20 west), then eight zoom-in/out pairs, all through authenticated
+shared controls. All 56 actions are acknowledged and previewed: 48 same-scale
+and eight scaled frames, zero preview-lock misses. Camera returns to zoom 9 and
+the original receiver centre; saved E7 remains `440628866,-1230160273`.
+
+| Controlled preview cost | Same scale, 48 samples | Scaled, eight samples |
+| --- | ---: | ---: |
+| Paint p50 / p95 | 23,021 / 29,686 us | 57,346 / 66,722 us |
+| Request feedback p50 / p95 | 23,410 / 30,386 us | 57,642 / 67,037 us |
+| Clear p50 / p95 | 334 / 865 us | 29 / 50 us |
+| Transfer p50 / p95 | 22,850 / 28,735 us | 57,280 / 66,672 us |
+
+Pan paint maximum is 33,308 us; feedback maximum 34,634 us. Serial pan ACK
+interval p50/p95 is 40/91 ms, including host PING/status/transport overhead.
+Neither this nor the raw preview intervals measures physical touch latency.
+This is not a matched old/new workload comparison; do not claim a percentage
+speedup against the earlier mixed baseline. Scaled image transfer remains the
+dominant measured cost and the representative 33 ms interaction gate stays open.
+
+Final completed zoom-9/source-8 frame: six tiles, no missing/failed, 5,763 features,
+4,476,567 us detailed redraw, 1,743,660 us IO, cached push 27,457 us. Driver stays
+streaming about 960 ksps with zero reported drops/overruns. No controlled RF packet
+is transmitted in this run, so this is not new packet-decoding acceptance.
+
+Screenshot is written while receiving, then reception pauses for hash-checked
+serial readback with map memory retained. LoRa resumes afterward. Capture:
+`.local/maps/scaled-preview-9ab05c04-20261022/zoom-preview.bmp`, 2,764,854 bytes,
+SHA-256 `8dbe7c1177b4f47dd6a9f378d8ab7d41e513132e2305a7f2f17fdaeb0432830d`.
+It shows the updating map and intact controls; clustered node names still overlap.
+A still capture cannot establish absence of physical flicker.
+
+After capture/readback/resume: free PSRAM 2,075,972 bytes, largest 1,966,080;
+internal free 13,911, largest DMA 7,424; main-stack high-water margin 1,016;
+reset reason unchanged, no observed crash. Earlier higher free PSRAM reflects
+decoder allocation state and is not a memory-saving claim.
+
+Logs in the integration root: `scaled-preview-{preflash-device,verify-previous,
+backup-*,verify-backups,app-write,preservation,postflash-retry-device,
+controlled-device,controlled-check,native-capture-device,native-final-check}-20261022.log`.
+Parsed controlled result: `scaled-preview-controlled-results-20261022.json`.
+Native boot log is in its invocation directory:
+`apps/orcsdr-tab5/scaled-preview-boot-native-monitor-20261022.log`.
+Artifact manifest records bounded boot/control success while keeping physical
+and representative-performance acceptance false. Installed candidate is `9ab05c04`.
