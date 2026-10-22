@@ -61,13 +61,27 @@ URL passes bounded HTTPS Range/If-Range checks. GitHub rejects pure-hex release
 tags; final data tag `sha256/<full hash>` preserves the existing exact-hash path
 contract. Existing draft world overview and production signing remain unchanged.
 
-COM17 app-only candidate `627c9d86` builds, passes artifact gates and boots with
-preserved NVS/SD/world/C6. It adds size-2 map node names and stable Follow identity
-(`c6ab1833`); physical readability and live reordered Follow acceptance remain open.
-The real TEST-ONLY HTTPS catalog is accepted, with one recommended global pack.
-Cancel/retry checks progress from 5.7 MB to 14.4 MB while setup keeps radio stopped.
-The full transfer is running at this checkpoint; final hash/activation/recovery,
-offline use, global-pack quality and performance are not accepted yet.
+COM17 now runs app-only candidate `ef53789f`, with NVS/SD/world/C6 preserved.
+The 543,380,195-byte TEST-ONLY HTTPS download completes through hash verification
+and activation. Cancel/retry, persisted catalog trust/ownership, reboot discovery
+and reselection pass. Verification/activation takes about 12 minutes after the
+last transfer bytes: a measured usability cost still requiring attention.
+
+The installed global pack renders in LoRa at camera zoom 9/source zoom 8, with
+six tiles and no missing/failed tiles. Two new frame generations also complete
+with Wi-Fi disconnected, proving SD rendering beyond a previously cached image;
+receiver coordinates are unchanged and saved Wi-Fi reconnects afterward.
+Radio remains streaming with zero reported driver drops/overruns in this bounded
+check. Detailed offline redraws take 7.25–7.52 seconds; cached transfers take
+26.6–27.9 ms. Neither proves the representative 33 ms interaction gate.
+
+Size-2 node names and stable Follow identity are installed. Clustered node labels
+still overlap in the native capture; physical readability and reordered Follow
+acceptance remain open. Maps progress now repaints only its status region instead
+of clearing the page; focused host/sanitizer tests pass, physical flicker acceptance
+is open. New/modified UI must follow `docs/UI_RENDERING_STANDARD.md` and the scoped
+UI `AGENTS.md`. Worldwide native quality, hardware failure/recovery gates, complete
+setup acceptance and representative performance remain open.
 [Actual endpoints, artifacts, commands and open gates](../../evidence/maps/2026-10-22-download-pilot-publication.md).
 
 ### October 22 LoRa worker startup and controlled reception
@@ -174,7 +188,7 @@ not the current state.
 | 1 — baseline | Candidate, hashes, reference views and bounded P4 measurements recorded. Full source/view acceptance and final budgets remain open. |
 | 2 — labels/style | Bounded labels and real-font adapters implemented; host and COM17 evidence recorded. Boundary hierarchy candidate 3d9d01c passes the approved configured host regression (7/7); reference renders and device acceptance remain open. Contrast and international coverage remain open. |
 | 3 — fluidity | Cached preview tested on COM17 and physically accepted: moves with the finger and feels noticeably better. Bounded RF, SD and memory-fallback checks passed. Latest native-order preview measurements show pan paint p50/p95 61/83 ms and zoom233 ms (three scaled samples). The 33 ms target is not met; continuous-motion consistency remains open. |
-| 4 — catalog/delivery | Global candidate preflight passes. Signed catalog, staging, activation/recovery, persistent trust/ownership and pending intent have focused host/P4 syntax evidence. Recovery precedes discovery; trust acceptance persists before exposing catalogs. Native build and COM17 normal boot/map/retained-SD/radio checks pass. Actual HTTPS install, physical NVS/activation recovery, transfer scheduling and physical wizard download validation remain open. No global-pack device installation or publication yet. |
+| 4 — catalog/delivery | TEST-ONLY GitHub pilot published with approval. COM17 completes real 543 MB HTTPS download, cancellation/retry, hash verification, activation, persisted trust/ownership and reboot discovery. Fresh installed-pack frames render while disconnected; receiver settings and streaming are preserved. Production delivery remains unconfigured. Hardware insufficient-space/corruption/interrupted-activation recovery, complete wizard acceptance and the roughly 12-minute verification/activation cost remain open. |
 | 5 — setup | Wizard-owned UI is committed at210002f4 and device-tested in bounded scopes. Complete flow, downloads, interruptions and physical acceptance are incomplete. |
 | 6 — integration | OrcMaps PR #6 merged and verified on origin/main at 722d0d3. OrcSDR source pin/lock updated with focused checks; merged pin native-built and app-only deployed on COM17; no OrcSDR main merge or release. |
 
@@ -639,14 +653,16 @@ Primary files: reviewed OrcMaps camera/cache APIs and OrcSDR ui/map_pipeline.cpp
 
 ## Phase 4 — Own the pack catalog and delivery pipeline
 
-October 22 concrete delivery review: a local package now includes the candidate
+October 22 concrete delivery review (historical, before the approved pilot): a local package includes the candidate
 manifest, proposed SHA-addressed GitHub prerelease URLs, producer input, canonical
 unsigned payload, provenance/terms, 20,000-user sizing and explicit pilot scope.
 No archive copy/upload, signature/key creation or device access occurred.
 The actual producer URL/encoding checks pass, and a 256-byte host GitHub probe
 passes HTTPS redirect, Range and If-Range/strong-ETag checks. Neither substitutes
-for an OrcMaps/P4 install. Pilot publication/signing approval is the next external
-gate; production keys and paid hosting are excluded.
+for an OrcMaps/P4 install. The user subsequently approved the TEST-ONLY pilot;
+publication, full COM17 install and offline SD rendering are now verified as
+recorded in the current October 22 checkpoint above. Production keys and paid
+hosting remain excluded. This historical review is not the current approval gate.
 [Review package](../../maps-delivery/2026-10-22-pilot-review/README.md).
 
 Primary files: existing OrcMaps pack builders/verification, a small catalog schema/publisher, and a shared OrcSDR map acquisition adapter with focused storage/download tests.

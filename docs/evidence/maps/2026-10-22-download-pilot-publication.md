@@ -207,8 +207,36 @@ build `fit-order-native-maps-progress-ef53789f-20261022-20261020.log`;
 native monitor in invocation directory
 `apps/orcsdr-tab5/maps-progress-boot-native-monitor-20261022.log`.
 
+### Fresh offline SD frames — COM17
+
+From the integration root:
+
+```text
+python .local/maps/com17_label_bench.py pilot-global-offline-render-plan-20261022.json pilot-global-offline-render-device-20261022.log
+python .local/maps/check_offline_evidence_20261022.py
+```
+
+Both exit zero. The checker verifies ordered Wi-Fi status, two distinct completed
+offline generations/revisions beyond the baseline, positive SD reads/bytes, zero
+missing/failed tiles, unchanged saved receiver coordinates, restored Wi-Fi and
+streaming with zero reported driver drops/overruns. Saved checker output:
+`pilot-global-offline-evidence-check-20261022.log`; device log and console companion
+are beside the invoked plan in the integration root.
+
+Generation 6/revision 4: 7,524,396 us detailed redraw, 2,322,085 us IO and 26,613 us
+cached push. Generation 7/revision 5: 7,248,452 us detailed redraw, 2,377,552 us IO
+and 27,945 us cached push. Both read 767,298 bytes in 400 reads with six tiles.
+The test disconnects Wi-Fi before zooming out/in and verifies it stays disconnected
+after both new frames, then reconnects the saved profile. This distinguishes
+offline source access from displaying a stale pre-disconnection image.
+
+Final health: free PSRAM 2,077,812 bytes, largest 1,966,080; internal free 19,631;
+largest DMA block 8,192; main-stack high-water margin 1,096. Final driver about
+960 ksps, no reported drops/overruns. This remains a bounded regional check, not
+worldwide quality acceptance, an overnight soak or a 33 ms interaction result.
+
 Controlled interrupted activation recovery, hardware insufficient-space/corruption
-rejection, disconnected-network rendering, physical flicker/larger-label acceptance,
+rejection, physical flicker/larger-label acceptance,
 clustered-node decluttering and worldwide global-pack native quality remain open.
 The full integration goal is not complete. TEST-ONLY catalog configuration is
 local build input; do not accidentally inherit it into production/release builds.
