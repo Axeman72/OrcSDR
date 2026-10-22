@@ -21,10 +21,15 @@ Normal 1/1 PASS and sanitizer PASS, logs `lora-label-readable-{red,host,asan}-20
 Initial P4 syntax fails on `std::max(int,long)` because native textWidth returns
 int32_t (long on this target). Explicit bounded width conversion corrects it;
 `lora-label-readable-p4-syntax-final-20261022.log` passes dashboard, adapter, main.
-No native build or physical acceptance yet; slated for TEST-ONLY pilot firmware.
+The subsequent TEST-ONLY native build and COM17 app-only update pass; size-2 names
+are installed in `ef53789f`. The native global-pack capture shows the enlarged
+names, but clustered nodes overlap. Physical readability acceptance and bounded
+decluttering remain open. See the actual install/capture evidence in
+[the pilot execution record](2026-10-22-download-pilot-publication.md).
 
-COM17's earlier native report explicitly uses Firmware world overview at stored
+COM17's earlier native report used Firmware world overview at stored
 source zoom 4 versus camera zoom 9. Increasing camera zoom cannot invent map
 detail. The approved 543 MB global regional-detail pack stores z0–8 and is the
-next native source-quality gate, not proof of parity with Meshtastic/Google maps.
+now renders from SD on COM17, including fresh frames with Wi-Fi disconnected.
+This is not proof of parity with Meshtastic/Google maps.
 Street names are not a requirement. Worldwide visual quality remains open.
