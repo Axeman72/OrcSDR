@@ -31,8 +31,10 @@ when the saved pack identity was `lane_county_map`.
 This does not remove user-installed regional PMTiles packs. Such packs are valid
 OrcMaps data; switching to them must follow coverage/selection policy, never
 temporary legacy fallback. This does not claim an application-wide product
-defaults audit. Remaining UI-document demo content includes an Oregon example;
-it is not a first-boot location, and needs separate cleanup before shipping.
+defaults audit. At this checkpoint UI-document demo content still included an
+Oregon example, separate from first-boot state. The subsequent
+[source-camera checkpoint](2026-10-21-pack-source-camera.md) neutralizes that
+demo and validates its combined native build on COM17.
 
 ## Focused regression
 

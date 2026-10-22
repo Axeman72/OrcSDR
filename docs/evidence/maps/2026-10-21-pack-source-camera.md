@@ -60,5 +60,54 @@ These are bounded host reads of existing data, not a new download, full engine
 suite or P4 timing measurement.
 
 Native build/inspection, app installation and the actual SD global-pack device
-test remain open at this source checkpoint. Production map delivery, full setup
+test were open at this source checkpoint. Production map delivery, full setup
 acceptance, LoRa interaction, FT8 runtime and the overall 33 ms gate remain open.
+
+## Native and COM17 continuation — source `b326a123`
+
+Executed from the OrcSDR worktree root:
+
+```text
+python .local/maps/build_fit_order_20261020.py build pack-overzoom-20261021
+C:/Espressif/python_env/idf5.5_py3.14_env/Scripts/python.exe .local/maps/inspect_pack_source_20261021.py
+python .local/maps/com17_label_bench.py logical-label-preflash-plan-20261021.json pack-source-preflash-20261021.log
+python .local/maps/flash_pack_source_20261021.py
+python .local/maps/com17_label_bench.py pack-source-device-plan-20261021.json pack-source-device-20261021.log
+```
+
+All return exit 0. Build and inspection logs:
+`fit-order-native-pack-overzoom-20261021-20261020.log`,
+`pack-source-native-inspection-20261021.log`.
+App size 5,126,928 bytes; factory headroom 1,164,528 bytes.
+App SHA-256: `ca8e2f97a4f2020860f580f4a4276a2b81b0b352f66006fd241a888b257d3842`.
+ELF SHA-256: `18646a38e1ddc834ed8fca24518ab89e9f4ba08f9a3ba66da578a13ef003d57d`.
+Inspection verifies existing symbol gates, unchanged 40 KiB DMA reserve,
+checked PSRAM placement and absence of legacy-renderer symbols.
+
+COM17 identity 30:ED:A0:E2:E6:95 is checked before every flash operation. Previous
+app verification, fresh non-app backups, app-only write and preservation checks
+PASS. Logs: `pack-source-{verify-previous,backup-*,verify-backups,app-write,preservation}-20261021.log`.
+Artifacts/backups: `.local/maps/pack-source-b326a123-20261021/`; rollback is the
+saved `1308e5bd` app. NVS, SD data, boot/table, world partition and C6 are preserved.
+COM39 is untouched.
+
+Native boot was captured with `idf.py -B build-native-hosted3 -p COM17 monitor
+--no-reset`, followed by one explicit Ctrl-T/Ctrl-R reset. Invocation-directory log:
+`apps/orcsdr-tab5/pack-source-boot-native-monitor-20261021.log`.
+The matching ELF reaches SD/Wi-Fi/RTL ready. The serial device plan confirms
+ADSB ownership, range changes 50→25→50, ready generation 3 and zero missing/failed
+tiles. The new diagnostic reports camera z7 / source z4 / Firmware world overview.
+
+This validates the installed embedded path and serial observability, **not** an
+installed global z8 archive. That archive has only the host evidence above.
+Bounded final snapshot: free PSRAM 20,694,612 bytes, largest DMA block 9,216 bytes,
+main stack high-water mark 3,468 bytes. Driver is STREAMING; this does not close
+the separately recorded decoder-queue-loss or sustained-radio acceptance gates.
+
+The targeted UI source search no longer finds Lane County, Oregon, Springfield,
+Portland, Eugene, Willamette or KEUG text. This excludes generated data, fixtures,
+other applications and historical compatibility identifiers; it is not a whole
+release-artifact audit. Existing user-installed regional packs are still valid.
+The next device milestone is a verified compatible global/reference pack on SD,
+followed by actual selection/overzoom under reception. Serial semantic-command
+gaps are recorded in [the coverage ledger](2026-10-21-serial-control-coverage.md).
