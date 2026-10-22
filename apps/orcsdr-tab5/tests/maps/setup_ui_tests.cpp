@@ -55,6 +55,11 @@ int main(){
   state.location_set=false;saved_ok=false;
   setup_ui::touch(setup_ui::Page::location,800,430);
   type("44.1");enter();type("-123.2");enter();
+  assert(saves==2&&!state.location_set&&!setup_ui::input_active());
+  M5.Display.strings.clear();setup_ui::draw(setup_ui::Page::location);
+  assert(visible("Latitude: 44.100000")&&visible("Longitude: -123.200000"));
+  assert(visible("SAVE LOCATION")&&!visible("SAVING..."));
+  setup_ui::touch(setup_ui::Page::location,800,530);
   assert(saves==3&&!state.location_set&&!setup_ui::input_active());
   M5.Display.strings.clear();setup_ui::draw(setup_ui::Page::location);
   assert(visible("SAVE LOCATION")&&visible("Location could not be saved. Retry or go Back."));
@@ -63,6 +68,12 @@ int main(){
   assert(saves==4&&state.location_set&&state.latitude_e7==441000000&&state.longitude_e7==-1232000000);
   M5.Display.strings.clear();setup_ui::draw(setup_ui::Page::location);
   assert(visible("Saved: 44.100000, -123.200000")&&!visible("SAVING..."));
+  // Abandon a second proposal without replacing the saved point.
+  setup_ui::touch(setup_ui::Page::location,800,430);
+  type("-33.9");enter();type("151.2");enter();
+  assert(saves==4&&state.latitude_e7==441000000&&state.longitude_e7==-1232000000);
+  assert(setup_ui::back());
+  assert(saves==4&&state.latitude_e7==441000000&&state.longitude_e7==-1232000000);
   // Delayed wizard teardown must not close a newer editor owned by Settings.
   setup_ui::reset();setup_ui::touch(setup_ui::Page::network,100,260);
   type("abandoned-password");

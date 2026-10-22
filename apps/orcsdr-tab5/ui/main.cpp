@@ -19939,6 +19939,7 @@ void process_command(char* command) {
     Serial.printf("RTL_ADSB_RANGE_OK range_nm=%u persistence=pending\n",range);return;
   }
   if (strncmp(command, "RTL_ADSB_LOCATION ", 18) == 0) {
+    if (!authenticated) { Serial.println("RTL_ADSB_LOCATION_ERROR auth_required"); return; }
     double latitude = 0, longitude = 0;
     char trailing = 0;
     if (sscanf(command + 18, "%lf %lf %c", &latitude, &longitude, &trailing) != 2 ||
@@ -19949,16 +19950,9 @@ void process_command(char* command) {
     }
     const int32_t latitude_e7 = static_cast<int32_t>(llround(latitude * 10000000.0));
     const int32_t longitude_e7 = static_cast<int32_t>(llround(longitude * 10000000.0));
-    if (!orcsdr::location_store::save(preferences,{true,latitude_e7,longitude_e7})) {
+    if (!save_map_receiver_location(latitude_e7,longitude_e7)) {
       Serial.println("RTL_ADSB_LOCATION_ERROR storage"); return;
     }
-    adsb_settings.location_configured = true;
-    adsb_settings.latitude_e7 = latitude_e7;
-    adsb_settings.longitude_e7 = longitude_e7;
-    orcsdr::receiver_location::set(
-        true, adsb_settings.latitude_e7, adsb_settings.longitude_e7,
-        settings_location_label, settings_map_pack);
-    refresh_adsb_atc_preset();
     if (orcsdr::adsb::active()) orcsdr::adsb::enter(adsb_settings);
     Serial.println("RTL_ADSB_LOCATION_OK");
     return;

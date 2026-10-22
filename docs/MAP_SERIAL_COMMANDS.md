@@ -159,6 +159,13 @@ Network provisioning and address/network location lookup keep their existing
 `RTL_WIFI_*` and `RTL_LOCATION IP|LOOKUP <query>|CONFIRM` commands. This document
 does not claim a complete application-wide command audit.
 
+Manual coordinate entry in the wizard displays a proposal after longitude;
+SAVE LOCATION explicitly commits it, while Back discards it. The existing
+`RTL_ADSB_LOCATION <latitude> <longitude>` decimal-degree command is an explicit
+save, now requires authentication, and uses the wizard/picker's verified save
+hook. Use `RTL_MAP STATUS` to inspect saved E7 coordinates. Picker `SET` followed
+by `SAVE` remains the named proposal/confirmation route.
+
 ## Map downloads
 
 ```text

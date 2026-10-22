@@ -82,7 +82,7 @@ void accepted(){
     }
     clear_editor();g_error[0]=0;
     if(input==Input::latitude){g_latitude=value;edit(Input::longitude,"SETUP: LONGITUDE (-180 TO 180)","",16);}
-    else {g_longitude=value;g_coordinates_ready=true;save(g_latitude,g_longitude);}
+    else {g_longitude=value;g_coordinates_ready=true;}
   }
 }
 void draw_methods(){
@@ -139,7 +139,15 @@ void draw(Page page){
     text("Enter your coordinates",32,122,5);
     text("Decimal degrees. South and west use minus (-).",32,190,3);
     button("ENTER COORDINATES",32,260,560);
-    if(g_coordinates_ready)button("SAVE LOCATION",680,520,560,80,true);
+    if(g_coordinates_ready){
+      char line[64];
+      std::snprintf(line,sizeof(line),"Latitude: %.6f",g_latitude/1e7);
+      text(line,32,370,4);
+      std::snprintf(line,sizeof(line),"Longitude: %.6f",g_longitude/1e7);
+      text(line,32,430,4);
+      text("Review this point, then save.",32,500,3);
+      button("SAVE LOCATION",680,520,560,80,true);
+    }
   } else {
     text("Confirm receiver location",32,122,5);
     text(g_state.lookup_busy?"Looking up location...":g_state.lookup_message,32,190,3);
