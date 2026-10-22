@@ -53,7 +53,25 @@ follow is not accepted yet. Physical drag quality, representative 33 ms timing
 and full RF/overlay acceptance remain open.
 [LoRa implementation and test evidence](../../evidence/maps/2026-10-21-lora-map-controls.md).
 
-### October 22 hardware checkpoint and open FT8 fault
+### October 22 LoRa worker startup and controlled reception
+
+`7c48e358` corrects decoder startup under retained map memory: the 12 KiB task
+stack now uses PSRAM, failed task creation releases its queue, and automatic
+capture admission waits for decoder readiness. The focused fault-injection test
+fails on the original cleanup defect and passes after correction; P4 syntax,
+native build/inspection and COM17 app-only preservation/boot pass. COM39 untouched.
+
+With the user's 915 MHz antenna and COM24 Heltec V4, controlled NODEINFO and text
+packet IDs match received SD records (`from_host=0`). Two other received position
+reports permit bounded Center Node/Follow/pan/Center Receiver checks. A hash-checked
+881-byte SD read passes with the 555,720-byte map frame retained, while reception
+is stopped; LoRa resumes afterward. Stable Follow identity while new packets
+reorder history is still open. Retained PSRAM (~553 KiB free) and main-stack margin
+(1,096 bytes) are tight; sustained stability and representative 33 ms performance
+remain unaccepted. No Heltec settings changed; its own position sharing stays off.
+[Commands, artifacts and limits](../../evidence/maps/2026-10-22-lora-worker-startup.md).
+
+### October 22 hardware checkpoint and resolved captured FT8 fault
 
 COM17 retained-map SD scratch write/readback passes with both the 751,376-byte
 map allocation and 15,840,000-byte LoRa IQ allocation retained. Reception was

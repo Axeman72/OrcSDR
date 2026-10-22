@@ -1,5 +1,13 @@
 # SD card reliability and regression checks
 
+October 22 LoRa/map follow-up: after correcting decoder task startup in
+`7c48e358`, COM17 successfully reads its 881-byte RF packet CSV with SHA-256
+verification while the completed 555,720-byte map frame remains retained.
+Reception is stopped for this read and resumes afterward; this does not establish
+simultaneous RF/SD behavior. Logging reports no error or dropped records. Free
+PSRAM remains tight, so the general pressure gate stays open.
+[Device identity, exact commands, hashes and logs](evidence/maps/2026-10-22-lora-worker-startup.md).
+
 This is the shared record for Tab5 SD changes. Map availability, successful
 stdio writes, filesystem durability, adequate DMA memory and RF continuity are
 separate checks. A passing screenshot download does not qualify the whole card.
