@@ -34,6 +34,13 @@ Dashboard-specific semantic controls and full HTTPS/device acceptance remain
 open. [Command reference](../../MAP_SERIAL_COMMANDS.md) and
 [implementation/test evidence](../../evidence/maps/2026-10-21-map-serial-controls.md).
 
+ADS-B range checkpoint `19856eea`: the pre-existing Settings serial action
+needed to synchronize the open dashboard. A shared setter and dedicated
+query/set command now pass focused host checks, P4 syntax and native linking.
+COM17 deployment is pending release of an occupied serial port; it still runs
+`ba0e7a92`. See [range evidence](../../evidence/maps/2026-10-21-adsb-range-controls.md).
+LoRa's fluid camera controls remain an implementation gap.
+
 ### Worldwide shipping defaults and legacy retirement — October 21, 2026
 
 The user explicitly retires personal Lane County/Oregon setup from the shipping

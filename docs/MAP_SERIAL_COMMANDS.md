@@ -35,6 +35,26 @@ Local pack listings include the full identity and usability. Preserved older
 ORCMAP1 files are unsupported and cannot be selected. Download lists describe
 the distinct OrcMaps catalog; `RTL_CATALOG_*` remains the generic data catalog.
 
+## ADS-B map range
+
+```text
+RTL_ADSB_RANGE
+RTL_ADSB_RANGE 25
+RTL_UI ACTION SETTINGS RANGE 50
+```
+
+The first command is read-only. Both setters require authentication and use the
+shared range action, including an open dashboard and deferred persistence.
+Supported radii are 10, 25, 50 and 100 nautical miles. The dedicated setter
+accepts exactly one of these numbers; it rejects extra tokens and malformed or
+overflowing numbers. This does not add radar rings or a crosshair.
+
+`RTL_ADSB_RANGE_STATUS` reports `range_nm`, `dashboard_range_nm`, `active` and
+`pending`. The dashboard value describes its retained state; compare it with
+the configured value when `active=1`. `RTL_ADSB_RANGE_OK ... persistence=pending`
+acknowledges the action, not a durable NVS write or a completed render. Observe
+the settings-save result and a fresh frame, then verify persistence separately.
+
 ## Location picker
 
 ```text

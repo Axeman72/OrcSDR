@@ -19,7 +19,8 @@ not a completed application-wide audit or a claim that every route was tested.
 | Per-consumer Labels ON/OFF | `RTL_MAP LABELS PICKER\|LORA\|ADSB\|FT8 ON\|OFF` | Shared preferences and invalidation; independent persistence covered on host, ADS-B preference OFF/ON checked on COM17. Other physical consumer checks remain scoped. |
 | Select/rescan a local OrcMaps pack | `RTL_MAP SELECT <full-id>`; `RTL_MAP RESCAN` | Unsupported/unknown selection rejection passes on COM17. `ba0e7a92` rescan refresh advances displayed frame revision 2→4. Successful selection persistence remains a separate gate. |
 | Check/download/retry/cancel an OrcMaps catalog pack | `RTL_MAP DOWNLOAD CHECK\|INSTALL <index>\|RETRY\|CANCEL` | Shared worker/trust/journal gates; host coverage and unconfigured-catalog rejection on COM17. Actual HTTPS installation remains open. |
-| ADS-B map range and later LoRa follow/pan/zoom | UI tap/key routing | Named commands needed, shared with the physical control handlers. |
+| ADS-B map range | Existing `RTL_UI ACTION SETTINGS RANGE <nm>`; dedicated `RTL_ADSB_RANGE [nm]` in `19856eea` | Existing route saved the global value without updating the open dashboard. Shared setter and observable state now build; COM17 installation/testing pending port availability. |
+| LoRa follow/centering and pan/zoom | Existing `RTL_UI ACTION LORA FOLLOW`; UI centering | Follow route exists; explicit selected-node/receiver center and fluid pan/zoom controls remain incomplete. |
 
 The older `RTL_CATALOG_*` commands control generic signed data packs, not the
 OrcMaps download catalog. Do not claim these already provide map-install control.
@@ -30,5 +31,5 @@ The dispatcher landed on the development branch in `1cd9b180`, with focused
 optimized and sanitizer checks passing. See [command reference](../../MAP_SERIAL_COMMANDS.md)
 and [device evidence](2026-10-21-map-serial-controls.md). This closes the named
 map/setup dispatcher implementation gap, not application-wide parity or all
-hardware acceptance. ADS-B range and future LoRa interactions still need shared
-semantic controls.
+hardware acceptance. ADS-B range device acceptance and remaining LoRa
+interactions are separate gates.
