@@ -55,6 +55,18 @@ and full RF/overlay acceptance remain open.
 
 ### October 22 approved download pilot and LoRa readability
 
+Latest source checkpoint `9ab05c04`: scaled cached previews now preserve their
+guaranteed covered interior instead of clearing the whole map before zoom.
+The regression reproduces the original clear and passes after correction,
+including 450 scaled/clipped combinations; focused sanitizer and five P4 syntax
+checks pass. Native build and artifact inspection pass (app 5,158,496 bytes,
+40 KiB DMA reserve unchanged); COM17 is still on `ef53789f`, and no
+flash is scheduled while physical availability is pending. Native edge appearance
+and speed remain unverified. [Correction evidence](../../evidence/maps/2026-10-22-scaled-preview-clearing.md).
+The accumulated global-pack baseline has same-scale paint p50/p95 17.9/26.2 ms
+versus scaled 62.6/70.4 ms; it is not a controlled-gesture FPS result.
+[Baseline and its limits](../../evidence/maps/2026-10-22-global-preview-baseline.md).
+
 The user approved the GitHub TEST-ONLY pilot. Data and signed-catalog prereleases
 are published, verified against local hashes/signature, and the actual archive
 URL passes bounded HTTPS Range/If-Range checks. GitHub rejects pure-hex release

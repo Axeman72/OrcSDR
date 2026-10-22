@@ -32,7 +32,30 @@ Tests verify no stale uncovered pixels, no out-of-map writes, no double clears
 and preserved interior during zoom-in. Five P4 syntax checks pass with existing
 SDK header warnings. Logs: `global-scaled-preview-{red,host,asan,p4-syntax}-20261022.log`.
 
-Native linking, scaled-edge appearance and performance comparison remain open.
-COM17's physical availability is pending; no device mutation occurred for these
-source checks. COM39 is untouched. This does not claim the full 33 ms target:
-the previously measured scaled image transfer is still the dominant cost.
+## Native candidate, not flashed
+
+Source commit `9ab05c04dc81f7ecc692040f8949016c291837ec` builds and passes artifact
+inspection. Commands from the integration root:
+
+```text
+python .local/maps/build_pilot_20261022.py build scaled-preview-20261022
+python .local/maps/inspect_scaled_preview_20261022.py
+```
+
+Both exit zero. Build log: `fit-order-native-scaled-preview-20261022-20261020.log`;
+inspection: `global-scaled-preview-artifact-inspection-20261022.log`. Artifact:
+`.local/maps/scaled-preview-9ab05c04-20261022/`, including candidate app/ELF,
+dependency lock and manifest. App 5,158,496 bytes, partition headroom 1,132,960;
+app SHA-256 `8afa5c0da9b730154d8f876c4b5a7680059ffb4fa9fd0368c71a1bee864eeb91`;
+ELF SHA-256 `f65038b6c5bc549dd56c9bba6dd1385bffb1fcdc25cb0603e0834819592c2f08`.
+
+Inspection verifies PSRAM placement, unchanged 40 KiB DMA reserve, explicit saved
+SDKCONFIG, diagnostics OFF, engine pin `b59d478`, no linked legacy map renderer,
+shared serial dispatcher, preserved wizard source hashes and embedded C6 image
+input 3.0.6. The build retains the approved TEST-ONLY pilot endpoint/public key;
+it is not a production-release artifact. No device or C6 write occurred.
+
+Scaled-edge appearance and performance comparison remain open. COM17's physical
+availability is pending; installed app remains `ef53789f`. COM39 is untouched.
+This does not claim the full 33 ms target: the previously measured scaled image
+transfer is still the dominant cost.
