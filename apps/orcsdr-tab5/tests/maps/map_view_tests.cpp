@@ -8,13 +8,16 @@ namespace orcsdr::maps {
 Frame next_frame=Frame::pending;
 bool preview=true;
 int service_calls=0;
+orcmap::Viewport last_camera;
+bool last_labels=true;
 bool regional_view(int32_t lat,int32_t lon,double,int width,int height,orcmap::Viewport* out) {
   out->center_lat_deg=lat/1e7;out->center_lon_deg=lon/1e7;
   out->width_px=width;out->height_px=height;out->zoom=8;return true;
 }
 bool project(const orcmap::Viewport&,int32_t,int32_t,int* x,int* y) {*x=5;*y=6;return true;}
-Frame draw(const orcmap::Viewport&,lgfx::LovyanGFX& target,int,int,FrameInfo* info,const char*,bool) {
+Frame draw(const orcmap::Viewport& camera,lgfx::LovyanGFX& target,int,int,FrameInfo* info,const char*,bool labels) {
   ++service_calls;
+  last_camera=camera;last_labels=labels;
   if(preview||next_frame==Frame::ready) {
     target.drawString("OrcMaps pixels",0,0);
     std::snprintf(info->credit,sizeof(info->credit),"Original pack attribution");
@@ -42,5 +45,13 @@ int main() {
   next_frame=Frame::pending;preview=false;
   const auto loading=draw_region(display,0,0,25,10,20,622,302,0,1,2);
   assert(std::strcmp(loading.frame.status,"LOADING LOCAL MAP")==0);
+  orcmap::Viewport camera;camera.width_px=842;camera.height_px=330;
+  camera.center_lat_deg=10;camera.center_lon_deg=-179.9;camera.zoom=12;camera.tile_size_px=310;
+  const auto moved=draw_camera(display,camera,50,182,0,1,2,nullptr,false);
+  assert(moved.valid&&!last_labels&&last_camera.zoom==12&&last_camera.tile_size_px==310);
+  assert(last_camera.center_lon_deg==camera.center_lon_deg&&last_camera.center_lat_deg==10);
+  assert(moved.camera.center_lon_deg==last_camera.center_lon_deg&&moved.x==50&&moved.y==182);
+  const auto calls=service_calls;camera.width_px=0;
+  assert(!draw_camera(display,camera,50,182,0,1,2).valid&&service_calls==calls);
   std::puts("MAP_VIEW_PASS pending/ready/unavailable use one engine and projection; pending credit retained");
 }

@@ -40,6 +40,19 @@ else()
   target_compile_options(orcsdr_adsb_map_range_tests PRIVATE -UNDEBUG)
 endif()
 add_test(NAME adsb_map_range COMMAND orcsdr_adsb_map_range_tests)
+add_executable(orcsdr_lora_map_tests
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../../tests/lora_map_controls_tests.cpp"
+  "${ui}/lora_dashboard.cpp" "${ui}/map_view.cpp" "${ui}/focus_nav.cpp" "${ui}/waterfall_style.cpp"
+  "${engine}/src/core/geo.cpp" "${engine}/src/core/viewport.cpp")
+target_include_directories(orcsdr_lora_map_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../../tests/ft8_ui_stubs"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ui_stubs" "${ui}" "${engine}/include")
+if(MSVC)
+  target_compile_options(orcsdr_lora_map_tests PRIVATE /UNDEBUG)
+else()
+  target_compile_options(orcsdr_lora_map_tests PRIVATE -UNDEBUG)
+endif()
+add_test(NAME lora_map_controls COMMAND orcsdr_lora_map_tests)
 add_executable(orcsdr_map_view_tests map_view_tests.cpp "${ui}/map_view.cpp")
 target_include_directories(orcsdr_map_view_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ui_stubs" "${ui}" "${engine}/include")
 if(MSVC)

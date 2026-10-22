@@ -9,6 +9,9 @@ struct RegionalView {
   FrameInfo frame{};
   bool valid = false;
 };
+RegionalView draw_camera(lgfx::v1::LovyanGFX&, const orcmap::Viewport&, int x, int y,
+                         uint16_t background, uint16_t grid, uint16_t ink,
+                         const char* preferred = nullptr, bool labels = true);
 RegionalView draw_region(lgfx::v1::LovyanGFX&, int32_t latitude_e7, int32_t longitude_e7,
                          double range_nm, int x, int y, int width, int height,
                          uint16_t background, uint16_t grid, uint16_t ink,

@@ -16742,6 +16742,10 @@ void poll_sdr_touch(bool from_stream) {
   // The LoRa dashboard owns its plot and controls. Generic SDR scope gestures
   // overlap the channel-picker arrows and must not turn those taps into retunes.
   if (rtl_ui_band == RtlBand::lora && orcsdr::lora::active()) {
+    orcsdr::lora::service_map();
+    if(orcsdr::lora::map_touch(touch.x,touch.y,pressed,pressed&&!was_pressed)) {
+      was_pressed=pressed;return;
+    }
     if (pressed && !was_pressed) handle_sdr_touch(touch.x, touch.y);
     was_pressed = pressed;
     return;
@@ -19321,6 +19325,7 @@ void process_command(char* command) {
   if (strcmp(command, "RTL_MAP_STATUS") == 0) {
     orcsdr::maps::report([](const char* line) { Serial.print(line); }); return;
   }
+  if(orcsdr::lora::handle_map_command(command,authenticated,[](const char* line){Serial.print(line);}))return;
   if(orcsdr::maps::serial_control::handle(command,authenticated,[](const char* line){Serial.print(line);}))return;
   if (strcmp(command, "RTL_HEALTH") == 0) {
     const uint32_t dma_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
@@ -20902,6 +20907,7 @@ void process_command(char* command) {
     Serial.println("RTL_LOCATION STATUS|IP|LOOKUP <zip/address>|CONFIRM - resolve and save receiver location");
     Serial.println("RTL_MAP HELP - named setup, picker, labels, pack and download controls (mutations require auth)");
     Serial.println("RTL_ADSB_RANGE [10|25|50|100] - query/set map radius in nautical miles (set requires auth)");
+    Serial.println("RTL_LORA_MAP HELP - map pan/zoom, receiver/node centering and follow (mutations require auth)");
     Serial.println("ORC_RTC_STATUS                 - trusted hardware UTC clock status");
     Serial.println("ORC_RTC_SET <unix_utc>         - establish hardware UTC clock (auth)");
     Serial.println("ORC_TZ_SET <minutes>           - UTC offset in minutes east of UTC, -720..840 (auth)");

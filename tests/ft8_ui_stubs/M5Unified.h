@@ -4,12 +4,21 @@
 #include <vector>
 #include <cstring>
 #include <cmath>
+#include <algorithm>
+#if !defined(__GLIBC__) || (__GLIBC__*100+__GLIBC_MINOR__<238)
+inline size_t strlcpy(char* out,const char* in,size_t capacity) {
+  const size_t size=std::strlen(in);
+  if(capacity){const auto count=std::min(size,capacity-1);std::memcpy(out,in,count);out[count]=0;}
+  return size;
+}
+#endif
 using textdatum_t = int;
 constexpr int middle_center = 0, middle_left = 1, middle_right = 2, top_left = 3, bottom_left = 4;
 constexpr uint16_t TFT_WHITE = 0xffff, TFT_BLACK = 0, TFT_RED = 0xf800, TFT_DARKGREY = 0x7bef;
 namespace fonts { inline int DejaVu24, DejaVu18; }
 namespace lgfx {
 inline namespace v1 {
+struct rgb565_t {uint16_t raw;};
 struct Paint { std::string text; int x, y; uint16_t color; };
 inline std::vector<Paint> paints;
 inline bool sprite_fail=false;
@@ -39,6 +48,9 @@ public:
   template<class... T> void scroll(T...) {}
   template<class... T> void setClipRect(T...) {}
   void clearClipRect() {}
+  void clearScrollRect() {}
+  void startWrite() {}
+  void endWrite() {}
   void drawString(const char* s, int x, int y) { paints.push_back({s, x, y, color_}); }
   int textWidth(const char* s) { return static_cast<int>(std::strlen(s)) * 12; }
 };
@@ -55,5 +67,9 @@ public:
   uint32_t readPixel(int,int) {++lgfx::sampled_pixels;return 0x1234;}
   void* createSprite(int, int) { return lgfx::sprite_fail ? nullptr : this; }
 };
-inline struct M5Stub { lgfx::LovyanGFX Display; } M5;
-inline uint32_t millis() { return 1000; }
+inline struct M5Stub {
+  lgfx::LovyanGFX Display;
+  struct {int getBatteryLevel(){return 100;}} Power;
+} M5;
+inline uint32_t test_millis=1000;
+inline uint32_t millis() { return test_millis; }

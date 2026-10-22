@@ -8,8 +8,15 @@ namespace orcsdr::maps {
 RegionalView draw_region(lgfx::v1::LovyanGFX& display,int32_t latitude,int32_t longitude,
                          double range,int x,int y,int width,int height,
                          uint16_t background,uint16_t grid,uint16_t ink,const char* preferred,bool labels) {
-  RegionalView result;
-  result.valid=regional_view(latitude,longitude,range,width,height,&result.camera);
+  orcmap::Viewport camera;
+  if(!regional_view(latitude,longitude,range,width,height,&camera))return {};
+  return draw_camera(display,camera,x,y,background,grid,ink,preferred,labels);
+}
+RegionalView draw_camera(lgfx::v1::LovyanGFX& display,const orcmap::Viewport& camera,int x,int y,
+                          uint16_t background,uint16_t grid,uint16_t ink,const char* preferred,bool labels) {
+  RegionalView result;result.camera=camera;
+  const int width=camera.width_px,height=camera.height_px;
+  result.valid=width>0&&height>0;
   if(!result.valid)return result;
   result.x=x;result.y=y;
   display.fillRect(x,y,width,height,background);

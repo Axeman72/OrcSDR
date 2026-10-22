@@ -5,6 +5,8 @@
 #include "map_view.hpp"
 #include "map_preferences.hpp"
 #include "receiver_location.hpp"
+#include "screen_controller.hpp"
+#include "setup_flow.hpp"
 #include "orc_badge.hpp"
 #include "lora_channel_control.hpp"
 #include "waterfall_style.hpp"
@@ -51,8 +53,12 @@ bool g_node_details = false;
 bool g_traffic_details = false;
 bool g_map_center_set = false;
 bool g_map_label_error = false;
-int32_t g_map_center_lat_e7 = INT32_MAX;
-int32_t g_map_center_lon_e7 = INT32_MAX;
+orcmap::Viewport g_map_camera;
+uint32_t g_map_revision_seen=0;
+bool g_map_drag=false,g_map_moved=false;
+int32_t g_map_start_x=0,g_map_start_y=0,g_map_last_x=0,g_map_last_y=0;
+constexpr int kMapX=50,kMapY=182,kMapW=842,kMapH=330;
+constexpr int kMapZoomX=828,kMapZoomY=194,kMapZoomSize=52,kMapZoomStep=60;
 uint8_t g_node_filter = 0;
 uint8_t g_traffic_filter = 0;
 size_t g_traffic_offset = 0;
@@ -77,7 +83,11 @@ bool hit(int32_t x, int32_t y, int bx, int by, int bw, int bh) {
 }
 
 bool has_position(const Node& node) {
-  return node.latitude_e7 != INT32_MAX && node.longitude_e7 != INT32_MAX;
+  return node.latitude_e7>=-900000000&&node.latitude_e7<=900000000&&
+         node.longitude_e7>=-1800000000&&node.longitude_e7<=1800000000;
+}
+bool has_map_position(const Node& node) {
+  return has_position(node)&&node.latitude_e7>=-850511287&&node.latitude_e7<=850511287;
 }
 
 bool supported_event(const Event& event) {
@@ -149,22 +159,25 @@ const Node* visible_node_at(size_t row, size_t* snapshot_index = nullptr) {
 }
 
 const Node* selected_positioned_node() {
-  if (g_snapshot.node_count) {
-    const Node& selected = g_snapshot.nodes[
-        std::min<size_t>(g_snapshot.selected_node, g_snapshot.node_count - 1)];
-    if (has_position(selected)) return &selected;
+  if (g_snapshot.node_count<=kNodeCapacity&&g_snapshot.selected_node<g_snapshot.node_count) {
+    const Node& selected = g_snapshot.nodes[g_snapshot.selected_node];
+    if (has_map_position(selected)) return &selected;
   }
-  for (size_t i = 0; i < g_snapshot.node_count; ++i)
-    if (has_position(g_snapshot.nodes[i])) return &g_snapshot.nodes[i];
   return nullptr;
+}
+
+bool center_map(int32_t latitude,int32_t longitude) {
+  if(latitude<-850511287||latitude>850511287||longitude<-1800000000||longitude>1800000000)return false;
+  if(!g_map_center_set)
+    g_map_center_set=maps::regional_view(latitude,longitude,15.0,kMapW,kMapH,&g_map_camera);
+  else return orcmap::SetCenter(&g_map_camera,latitude/1e7,longitude/1e7);
+  return g_map_center_set;
 }
 
 void follow_selected_position() {
   const Node* node = selected_positioned_node();
   if (!node) return;
-  g_map_center_lat_e7 = node->latitude_e7;
-  g_map_center_lon_e7 = node->longitude_e7;
-  g_map_center_set = true;
+  center_map(node->latitude_e7,node->longitude_e7);
 }
 
 void text(const char* value, int x, int y, uint16_t color = TFT_WHITE, int size = 2,
@@ -394,17 +407,20 @@ void draw_traffic_static() {
   button(902, 188, 270, 44, "CLEAR EVENTS", kCyan);
 }
 
+void draw_map_controls() {
+  button(26, 584, 190, 48, "NODE CENTER", kCyan);
+  button(228, 584, 190, 48, "FOLLOW NODE", kCyan, g_follow_node);
+  button(430,584,220,48,g_map_label_error?"SAVE FAILED":
+      maps::preferences::labels(maps::preferences::Consumer::lora)?"LABELS ON":"LABELS OFF",kCyan);
+  button(664,584,200,48,"RECEIVER",kCyan);
+  text("VERIFIED POSITIONS ONLY", 1060, 625, kMuted, 1);
+}
 void draw_map_static() {
   card(24, 138, 896, 452);
   text("GEOGRAPHIC MAP", 48, 165, kCyan, 2, middle_left);
   card(942, 138, 306, 452);
   text("SELECTED NODE", 966, 165, kCyan, 2, middle_left);
-  button(26, 604, 210, 42, "CENTER MAP", kCyan);
-  button(252, 604, 210, 42, "FOLLOW NODE", kCyan, g_follow_node);
-  button(478,604,220,42,g_map_label_error?"SAVE FAILED":
-      maps::preferences::labels(maps::preferences::Consumer::lora)?"LABELS ON":"LABELS OFF",kCyan);
-  text("VERIFIED POSITIONS ONLY", 1060, 625, kMuted, 1);
-  text("15 NM", 870, 625, kMuted, 1);
+  draw_map_controls();
 }
 
 void draw_health_static() {
@@ -679,22 +695,35 @@ void draw_traffic_dynamic() {
   }
 }
 
-void draw_map_dynamic() {
+void draw_map_dynamic(bool details=true) {
   static EXT_RAM_BSS_ATTR maps::FrameInfo map_info;
-  M5.Display.fillRect(50, 182, 842, 330, kBg);
+  g_map_revision_seen=maps::revision();
   const Node* center = g_snapshot.node_count ? &g_snapshot.nodes[
       std::min<size_t>(g_snapshot.selected_node, g_snapshot.node_count - 1)] : nullptr;
-  if (g_follow_node || !g_map_center_set) follow_selected_position();
+  if(!g_map_center_set) {
+    const auto location=receiver_location::snapshot();
+    if(location.configured)center_map(location.latitude_e7,location.longitude_e7);
+    if(!g_map_center_set)follow_selected_position();
+  }
+  if (g_follow_node) follow_selected_position();
   if (!g_map_center_set) {
-    text("WAITING FOR VERIFIED POSITION", 470, 350, kMuted, 2);
+    M5.Display.fillRect(kMapX,kMapY,kMapW,kMapH,kBg);
+    text("NO MAPPABLE POSITION", 470, 350, kMuted, 2);
+    text("Set receiver location or select a positioned node.",470,390,kMuted,1);
   } else {
     const auto location=receiver_location::snapshot();
-    const auto map=maps::draw_region(M5.Display,g_map_center_lat_e7,g_map_center_lon_e7,
-        15.0,50,182,842,330,kBg,kGrid,kMuted,location.map_pack,maps::preferences::labels(maps::preferences::Consumer::lora));
+    const auto map=maps::draw_camera(M5.Display,g_map_camera,kMapX,kMapY,
+        kBg,kGrid,kMuted,location.map_pack,maps::preferences::labels(maps::preferences::Consumer::lora));
     map_info=map.frame;
+    M5.Display.setClipRect(kMapX,kMapY,kMapW,kMapH-24);
+    int receiver_x=0,receiver_y=0;
+    if(location.configured&&maps::project(map,location.latitude_e7,location.longitude_e7,&receiver_x,&receiver_y)) {
+      M5.Display.drawCircle(receiver_x,receiver_y,8,kYellow);
+      text("RX",receiver_x+10,receiver_y+12,kYellow,1,middle_left);
+    }
     for (size_t i = 0; i < g_snapshot.node_count; ++i) {
       const Node& node = g_snapshot.nodes[i];
-      if (!has_position(node)) continue;
+      if (!has_map_position(node)) continue;
       int x = 0, y = 0;
       if (!maps::project(map,node.latitude_e7,node.longitude_e7,&x,&y))continue;
       const uint16_t color = i == g_snapshot.selected_node ? kGreen : kCyan;
@@ -703,7 +732,11 @@ void draw_map_dynamic() {
       char value[32]; node_name(node, value, sizeof(value));
       text(value, x + 14, y - 6, color, 1, middle_left);
     }
+    M5.Display.clearClipRect();
+    button(kMapZoomX,kMapZoomY,kMapZoomSize,kMapZoomSize,"+",kCyan);
+    button(kMapZoomX,kMapZoomY+kMapZoomStep,kMapZoomSize,kMapZoomSize,"-",kCyan);
   }
+  if(!details)return;
   M5.Display.fillRect(960, 190, 270, 370, kPanel);
   char value[64];
   if (center) {
@@ -711,11 +744,13 @@ void draw_map_dynamic() {
     format_coord(value, sizeof(value), center->latitude_e7); text(value, 970, 252, TFT_WHITE, 1, middle_left);
     format_coord(value, sizeof(value), center->longitude_e7); text(value, 970, 284, TFT_WHITE, 1, middle_left);
   } else text("NO NODE SELECTED", 1095, 320, kMuted, 2);
-  text(g_follow_node ? "FOLLOWING" : "CENTERED", 970, 350,
+  text(g_follow_node ? (center&&has_map_position(*center)?"FOLLOWING":"WAITING POSITION") : "FREE MAP", 970, 350,
        g_follow_node ? kGreen : kCyan, 2, middle_left);
   text("OFFLINE MAP", 970, 390, kMuted, 1, middle_left);
   text(g_map_center_set ? map_info.title : "NO VERIFIED CENTER",970,420,kMuted,1,middle_left);
   text(g_map_center_set ? map_info.status : "",970,450,kMuted,1,middle_left);
+  std::snprintf(value,sizeof(value),"ZOOM %u",g_map_camera.zoom);
+  text(g_map_center_set?value:"",970,500,kMuted,2,middle_left);
 }
 
 void draw_health_dynamic() {
@@ -816,6 +851,10 @@ void enter(const Snapshot& snapshot) {
   g_active = true;
   g_channels_open = false;
   g_map_center_set = false;
+  g_map_drag=false;g_follow_node=false;
+  const auto location=receiver_location::snapshot();
+  if(location.configured)center_map(location.latitude_e7,location.longitude_e7);
+  if(!g_map_center_set)follow_selected_position();
   g_last_dynamic_ms = 0;
   g_last_spectrum_ms = 0;
   g_previous_spectrum_bins = 0;
@@ -825,6 +864,7 @@ void enter(const Snapshot& snapshot) {
 }
 
 void leave() {
+  g_map_drag=false;
   g_channels_open = false;
   if (!g_active) return;
   M5.Display.clearScrollRect();
@@ -849,7 +889,8 @@ void update(const Snapshot& snapshot) {
   }
   const uint32_t now = millis();
   const bool needs_age_refresh = g_view != View::traffic || g_traffic_details;
-  if (!content_changed &&
+  const bool map_changed=g_view==View::map&&g_map_revision_seen!=maps::revision();
+  if (!map_changed&&!content_changed &&
       (!needs_age_refresh || now - g_last_dynamic_ms < kDynamicRefreshIntervalMs)) return;
   g_last_dynamic_ms = now;
   M5.Display.startWrite();
@@ -1004,13 +1045,16 @@ Action handle_touch(int32_t x, int32_t y) {
     if (hit(x, y, 618, 188, 270, 44)) return {ActionKind::filter_next};
     if (hit(x, y, 902, 188, 270, 44)) return {ActionKind::clear_events};
   } else if (g_view == View::map) {
-    if(hit(x,y,478,604,220,42)) {
+    if(hit(x,y,kMapZoomX,kMapZoomY,kMapZoomSize,kMapZoomSize)) {map_control(MapControl::zoom_in);return {};}
+    if(hit(x,y,kMapZoomX,kMapZoomY+kMapZoomStep,kMapZoomSize,kMapZoomSize)) {map_control(MapControl::zoom_out);return {};}
+    if(hit(x,y,430,584,220,48)) {
       using maps::preferences::Consumer;
       g_map_label_error=!maps::preferences::set_labels(Consumer::lora,!maps::preferences::labels(Consumer::lora));
       draw_static();return {};
     }
-    if (hit(x, y, 26, 604, 210, 42)) return {ActionKind::center_map};
-    if (hit(x, y, 252, 604, 210, 42)) return {ActionKind::follow_node};
+    if (hit(x, y, 26, 584, 190, 48)) return {ActionKind::center_map};
+    if (hit(x, y, 228, 584, 190, 48)) return {ActionKind::follow_node};
+    if (hit(x,y,664,584,200,48)) {map_control(MapControl::receiver);return {};}
   } else {
     if (hit(x, y, 24, 578, 242, 48)) return {ActionKind::scan_toggle};
     if (hit(x, y, 284, 578, 242, 48)) return {ActionKind::record_iq_toggle};
@@ -1052,15 +1096,123 @@ void toggle_packet_details() {
 }
 
 void center_on_selected() {
-  g_follow_node = false;
-  follow_selected_position();
-  if (g_active) draw_static();
+  map_control(MapControl::node);
 }
 
 void toggle_follow_node() {
-  g_follow_node = !g_follow_node;
-  if (g_follow_node) follow_selected_position();
-  if (g_active) draw_static();
+  map_control(g_follow_node?MapControl::follow_off:MapControl::follow_on);
+}
+
+MapState map_state() {
+  MapState state;state.ready=g_map_center_set;state.following=g_follow_node;
+  if(state.ready) {
+    state.latitude_e7=static_cast<int32_t>(std::llround(g_map_camera.center_lat_deg*1e7));
+    state.longitude_e7=static_cast<int32_t>(std::llround(g_map_camera.center_lon_deg*1e7));
+    state.zoom=g_map_camera.zoom;
+  }
+  return state;
+}
+
+void service_map() {
+  if(g_active&&g_view==View::map&&!g_channels_open&&screens::owns(screens::Id::lora)&&
+     g_map_revision_seen!=maps::revision()) {
+    M5.Display.startWrite();draw_map_dynamic();M5.Display.endWrite();
+  }
+}
+
+bool map_control(MapControl control,int east,int south) {
+  if(!g_active||g_view!=View::map||g_channels_open||!screens::owns(screens::Id::lora))return false;
+  const bool was_following=g_follow_node;
+  bool changed=false;
+  switch(control) {
+    case MapControl::pan:
+      if(!g_map_center_set||east<-kMapW||east>kMapW||south<-kMapH||south>kMapH||(!east&&!south))return false;
+      changed=orcmap::PanByPixels(&g_map_camera,east,south);
+      if(changed)g_follow_node=false;
+      break;
+    case MapControl::zoom_in:
+    case MapControl::zoom_out:
+      if(!g_map_center_set)return false;
+      if(control==MapControl::zoom_in&&g_map_camera.zoom<16)changed=orcmap::ZoomIn(&g_map_camera);
+      if(control==MapControl::zoom_out&&g_map_camera.zoom>0)changed=orcmap::ZoomOut(&g_map_camera);
+      break;
+    case MapControl::receiver: {
+      const auto location=receiver_location::snapshot();
+      if(location.configured)changed=center_map(location.latitude_e7,location.longitude_e7);
+      if(changed)g_follow_node=false;
+      break;
+    }
+    case MapControl::node:
+    case MapControl::follow_on: {
+      const auto* node=selected_positioned_node();
+      if(node)changed=center_map(node->latitude_e7,node->longitude_e7);
+      if(changed)g_follow_node=control==MapControl::follow_on;
+      break;
+    }
+    case MapControl::follow_off: g_follow_node=false;changed=true;break;
+    default:return false;
+  }
+  if(!changed)return false;
+  M5.Display.startWrite();
+  draw_map_dynamic(control!=MapControl::pan||was_following!=g_follow_node);
+  if(was_following!=g_follow_node)draw_map_controls();
+  M5.Display.endWrite();
+  return true;
+}
+
+bool map_touch(int32_t x,int32_t y,bool pressed,bool new_press) {
+  if(!g_active||g_view!=View::map||g_channels_open||!screens::owns(screens::Id::lora)) {
+    g_map_drag=false;return false;
+  }
+  if(new_press) {
+    g_map_drag=false;
+    if(!hit(x,y,kMapX,kMapY,kMapW,kMapH)||
+       hit(x,y,kMapZoomX,kMapZoomY,kMapZoomSize,kMapZoomSize)||
+       hit(x,y,kMapZoomX,kMapZoomY+kMapZoomStep,kMapZoomSize,kMapZoomSize))return false;
+    g_map_drag=true;g_map_moved=false;
+    g_map_start_x=g_map_last_x=x;g_map_start_y=g_map_last_y=y;
+  }
+  if(!g_map_drag)return false;
+  if(!pressed){g_map_drag=false;return true;}
+  x=std::clamp<int32_t>(x,kMapX,kMapX+kMapW-1);y=std::clamp<int32_t>(y,kMapY,kMapY+kMapH-1);
+  if(!g_map_moved&&std::abs(x-g_map_start_x)+std::abs(y-g_map_start_y)<6)return true;
+  g_map_moved=true;
+  map_control(MapControl::pan,g_map_last_x-x,g_map_last_y-y);
+  g_map_last_x=x;g_map_last_y=y;return true;
+}
+
+bool handle_map_command(const char* command,bool authenticated,void (*write)(const char*)) {
+  if(!command||std::strncmp(command,"RTL_LORA_MAP ",13))return false;
+  if(!write)return true;
+  if(std::strlen(command)>127){write("RTL_LORA_MAP_ERROR invalid_command\n");return true;}
+  char op[16]{},arg[32]{},value[32]{},extra=0;
+  const int count=std::sscanf(command+13,"%15s %31s %31s %c",op,arg,value,&extra);
+  const auto same=[](const char* a,const char* b){return std::strcmp(a,b)==0;};
+  if(count==1&&same(op,"HELP")) {
+    write("RTL_LORA_MAP STATUS|ZOOM IN|OUT|PAN <east_px> <south_px>|CENTER RECEIVER|NODE|FOLLOW ON|OFF\n");return true;
+  }
+  if(count==1&&same(op,"STATUS")) {
+    const auto state=map_state();char line[192];
+    std::snprintf(line,sizeof(line),"RTL_LORA_MAP_STATUS active=%u ready=%u following=%u latitude_e7=%ld longitude_e7=%ld zoom=%u\n",
+        g_active&&g_view==View::map&&screens::owns(screens::Id::lora),state.ready,state.following,
+        static_cast<long>(state.latitude_e7),static_cast<long>(state.longitude_e7),state.zoom);
+    write(line);return true;
+  }
+  if(!authenticated){write("RTL_LORA_MAP_ERROR auth_required\n");return true;}
+  bool valid=true,ok=false;
+  if(count==2&&same(op,"ZOOM")&&(same(arg,"IN")||same(arg,"OUT")))
+    ok=map_control(same(arg,"IN")?MapControl::zoom_in:MapControl::zoom_out);
+  else if(count==2&&same(op,"CENTER")&&(same(arg,"RECEIVER")||same(arg,"NODE")))
+    ok=map_control(same(arg,"RECEIVER")?MapControl::receiver:MapControl::node);
+  else if(count==2&&same(op,"FOLLOW")&&(same(arg,"ON")||same(arg,"OFF")))
+    ok=map_control(same(arg,"ON")?MapControl::follow_on:MapControl::follow_off);
+  else if(count==3&&same(op,"PAN")) {
+    int32_t east=0,south=0;
+    valid=setup::parse_e7(arg,false,&east)&&setup::parse_e7(value,false,&south);
+    if(valid)ok=map_control(MapControl::pan,east,south);
+  } else valid=false;
+  write(!valid?"RTL_LORA_MAP_ERROR invalid_command\n":ok?"RTL_LORA_MAP_OK\n":"RTL_LORA_MAP_ERROR rejected\n");
+  return true;
 }
 
 bool self_check() {
