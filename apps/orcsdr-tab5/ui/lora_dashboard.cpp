@@ -739,7 +739,11 @@ void draw_map_dynamic(bool details=true) {
       M5.Display.drawCircle(x, y, selected ? 13 : 9, color);
       M5.Display.fillCircle(x, y, 3, color);
       char value[32]; node_name(node, value, sizeof(value));
-      text(value, x + 14, y - 6, color, 1, middle_left);
+      M5.Display.setTextSize(2);
+      const int label_x=std::clamp(x+14,kMapX+4,
+          std::max(kMapX+4,kMapX+kMapW-4-static_cast<int>(M5.Display.textWidth(value))));
+      const int label_y=std::clamp(y-6,kMapY+12,kMapY+kMapH-24-12);
+      text(value,label_x,label_y,color,2,middle_left);
     }
     M5.Display.clearClipRect();
     button(kMapZoomX,kMapZoomY,kMapZoomSize,kMapZoomSize,"+",kCyan);

@@ -133,7 +133,10 @@ int main() {
   lgfx::paints.clear();ok("RTL_LORA_MAP CENTER NODE");assert(painted("NODE A")&&painted("RX"));
   double px=0,py=0;assert(orcmap::ProjectLatLon(painted_camera,{10,179.95},&px,&py));
   bool aligned=false;
-  for(const auto& p:lgfx::paints)if(p.text=="NODE A")aligned|=p.x==50+std::lround(px)+14&&p.y==182+std::lround(py)-6;
+  for(const auto& p:lgfx::paints)if(p.text=="NODE A") {
+    aligned|=p.x==50+std::lround(px)+14&&p.y==182+std::lround(py)-6;
+    assert(p.text_size==2);
+  }
   assert(aligned);
   // A completed worker frame repaints even without a new radio snapshot.
   const auto before_publication=frames;++map_revision;service_map();assert(frames==before_publication+1);

@@ -19,15 +19,16 @@ namespace fonts { inline int DejaVu24, DejaVu18; }
 namespace lgfx {
 inline namespace v1 {
 struct rgb565_t {uint16_t raw;};
-struct Paint { std::string text; int x, y; uint16_t color; };
+struct Paint { std::string text; int x, y; uint16_t color; int text_size=1; };
 inline std::vector<Paint> paints;
 inline bool sprite_fail=false;
 inline int sampled_pixels=0, drawn_pixels=0;
 class LovyanGFX {
   uint16_t color_ = 0;
+  int text_size_ = 1;
 public:
   template<class... T> void setTextDatum(T...) {}
-  template<class... T> void setTextSize(T...) {}
+  void setTextSize(int size) { text_size_=size; }
   template<class... T> void setFont(T...) {}
   void setTextColor(uint16_t c, uint16_t = 0) { color_ = c; }
   template<class... T> void fillRoundRect(T...) {}
@@ -51,7 +52,7 @@ public:
   void clearScrollRect() {}
   void startWrite() {}
   void endWrite() {}
-  void drawString(const char* s, int x, int y) { paints.push_back({s, x, y, color_}); }
+  void drawString(const char* s, int x, int y) { paints.push_back({s, x, y, color_, text_size_}); }
   int textWidth(const char* s) { return static_cast<int>(std::strlen(s)) * 12; }
 };
 }
