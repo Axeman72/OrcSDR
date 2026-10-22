@@ -64,8 +64,13 @@ failed even though its SD substeps passed. The core dump is preserved; available
 decoding identifies interrupt context without a proven application call chain.
 COM17 was recovered and returned to FT8 at 7.070 MHz. No fault fix is claimed.
 
-Next: investigate this transition using the saved dump and allocation/lifecycle
-evidence before repeating it. Keep the full global-pack, HTTPS, setup, dashboard
+Follow-up reconstruction of the saved main-task frame now establishes FT8
+waterfall drawing inside serial retune with only 56 bytes above the main stack
+lower bound. Its update function's automatic previous-snapshot copy contributes
+a 6,928-byte frame. A narrow source correction puts the 6,840-byte comparison
+snapshot in PSRAM; focused normal/sanitized dashboard tests pass and P4 compile
+reports an 80-byte update frame. Native link/placement and COM17 regression are
+next; the device crash remains open until tested. Keep global-pack, HTTPS, setup, dashboard
 and performance gates open. Production HTTP-adapter boundary tests added at
 `15f1f0bf` pass normally and under ASan/UBSan using a fake SDK boundary; no actual
 network exchange was tested. Exact artifacts, commands, results and limitations:

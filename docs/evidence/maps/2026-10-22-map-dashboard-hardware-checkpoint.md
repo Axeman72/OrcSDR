@@ -126,3 +126,59 @@ Investigate the FT8 transition using the preserved dump and allocation evidence;
 do not assume a stack-size change fixes it. Full global-pack device quality,
 positioned overlays/follow, setup recovery, actual HTTPS delivery and sustained
 RF/performance acceptance remain open. No main merge or publication occurred.
+
+## Follow-up: interrupted task context recovered
+
+The matching ELF places `xIsrStack` at `0x4ff4bfb0`, the reported lower bound;
+the configured ISR stack is 2,096 bytes. The original converted core lacks useful
+values for some scheduler globals. Direct inspection of the saved main TCB at
+`0x4ff31558` instead recovers `pxTopOfStack=0x4ff2d190`,
+`pxStack=0x4ff2d1d8`, and `pxEndOfStack=0x4ff31350`. Its saved exception frame
+contains PC `0x481596f4`, RA `0x481596d8`, and pre-interrupt SP `0x4ff2d210`:
+only 56 bytes above the main stack's lower bound, with the interrupt frame
+extending below that bound.
+
+An explicitly derived core substitutes the saved main-task register frame into
+the first PRSTATUS note; the original dump and converted core remain unchanged.
+Reconstruction script: `.local/maps/reconstruct_interrupted_main_20261022.py`;
+derived artifact: `.local/maps/lora-ft8-stack-crash-20261022/interrupted-main.elf`.
+The script asserts both original and replacement PC/RA/SP before writing a new
+file and refuses overwrite. This is offline reconstruction, not a new crash.
+
+GDB then unwinds the main task through framebuffer `writeImage`, `pushImage`,
+FT8 `scroll_waterfall`, `paced_waterfall_step`, `update`,
+`request_hot_retune_for`, `process_command`, `poll_serial`, `loop`, and `app_main`.
+This establishes that the failure occurred during synchronous FT8 drawing from
+the serial retune path; interleaved serial snapshot output did not identify the
+faulting call. Saved logs in the worktree root:
+
+- `lora-ft8-coredump-stack-context-20261022.log` (missing scheduler globals).
+- `lora-ft8-coredump-task-context-20261022.log` (direct saved TCB/frame fields).
+- `lora-ft8-coredump-reconstructed-main-20261022.log` (reconstructed backtrace).
+- `lora-ft8-coredump-main-frame-sizes-20261022.log` (frame addresses).
+
+The installed ELF reserves 6,928 stack bytes in FT8 `update`, including its
+6,840-byte automatic `Snapshot previous` copy. The prepared correction stores
+that single-owner comparison snapshot in PSRAM and leaves the task stack and
+DMA reserve unchanged. No managed component or receiver/DSP code is edited.
+
+Focused checks:
+
+```text
+wsl bash -lc 'cd /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion && g++ -std=c++17 -Wall -Wextra -Werror -pedantic -O2 -Iapps/orcsdr-tab5/ui -Itests/ft8_ui_stubs tests/ft8_dashboard_tests.cpp apps/orcsdr-tab5/ui/{ft8_dashboard,ft8_model,ft8_conditions,ft8_hunter,ft8_tuning,ft8_info_text,focus_nav}.cpp -o .local/maps/ft8-stack-dashboard-20261022 && .local/maps/ft8-stack-dashboard-20261022 > ft8-stack-dashboard-test-20261022.log 2>&1'
+python .local/maps/check_ft8_stack_20261022.py
+```
+
+The dashboard test exits 0, `ft8_dashboard_tests: PASS`; repeating with
+`-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer` and
+`ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1` also
+exits 0 (`ft8-stack-dashboard-asan-test-20261022.log`). The P4 compile reuses the
+native compile database, adds `-fstack-usage`, and asserts the update frame is
+below 1,024 bytes: actual **80 bytes, static**. Compile log:
+`ft8-stack-p4-compile-20261022.log`; usage file:
+`.local/maps/ft8-stack-20261022.su`. P4 object symbol inspection confirms
+`g_previous_snapshot` is 6,840 bytes in `.ext_ram.bss.0`.
+
+These results support a narrow stack-pressure correction. Native linking,
+final placement and COM17 regression of the captured transition are the next
+gates; the crash is not yet closed by a passing device test.

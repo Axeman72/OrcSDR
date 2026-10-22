@@ -12,6 +12,9 @@
 
 #include <M5Unified.h>
 #include <esp_heap_caps.h>
+#ifdef ESP_PLATFORM
+#include <esp_attr.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -45,6 +48,11 @@ constexpr Rect kOlder{922, 556, 150, 46};
 constexpr size_t kDecodePageSize = 8;
 
 Snapshot g_snapshot{};
+// UI updates are single-owner; keep the full comparison copy off the main stack.
+#ifdef ESP_PLATFORM
+EXT_RAM_BSS_ATTR
+#endif
+Snapshot g_previous_snapshot;
 bool g_active = false;
 bool g_sprite_ready = false;
 void (*g_header_hook)() = nullptr;
@@ -1663,7 +1671,8 @@ void enter(const Snapshot& snapshot_value) {
 // small regions, so the screen never flashes.
 void update(const Snapshot& snapshot_value) {
   if (!g_active) return;
-  const Snapshot previous = g_snapshot;
+  g_previous_snapshot = g_snapshot;
+  const Snapshot& previous = g_previous_snapshot;
   g_snapshot = snapshot_value;
   g_snapshot.decode_count = std::min(g_snapshot.decode_count, kDecodeCapacity);
   g_snapshot.selected_band = std::min(g_snapshot.selected_band, band_count() - 1);
