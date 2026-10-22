@@ -4677,7 +4677,8 @@ bool p25_iq_rec_start() {
 }
 
 bool queue_lora_auto_decode() {
-  if (!g_iq_rec_ready.load(std::memory_order_acquire) ||
+  if (!lora_native_decoder_ready.load(std::memory_order_acquire) ||
+      !g_iq_rec_ready.load(std::memory_order_acquire) ||
       !g_iq_rec_auto_triggered.load(std::memory_order_acquire) ||
       g_lora_decode_buf == nullptr || lora_native_decode_queue == nullptr) return false;
   bool expected = false;
@@ -4972,8 +4973,13 @@ bool lora_native_decoder_start() {
   }
   lora_native_decode_queue = xQueueCreate(1, sizeof(LoraNativeDecodeWork));
   if (lora_native_decode_queue == nullptr ||
-      xTaskCreatePinnedToCore(lora_native_decode_task, "lora_native", 12288, nullptr, 1,
-                              &lora_native_decode_task_handle, 0) != pdPASS) {
+      xTaskCreatePinnedToCoreWithCaps(lora_native_decode_task, "lora_native", 12288, nullptr, 1,
+                                     &lora_native_decode_task_handle, 0,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+    // A queue without a worker would accept one capture and stay busy forever.
+    if (lora_native_decode_queue != nullptr) vQueueDelete(lora_native_decode_queue);
+    lora_native_decode_queue = nullptr;
+    lora_native_decode_task_handle = nullptr;
     Serial.println("RTL_LORA_NATIVE_INIT_FAIL stage=task");
     return false;
   }
