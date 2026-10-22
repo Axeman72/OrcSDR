@@ -19,7 +19,15 @@ struct Image {
   int w=10,h=8,pushes=0,scales=0;
   void pushSprite(Target* target,int x,int y){++pushes;target->mark(x,y,w,h,target->covered);}
   void setPivot(int x,int y){assert(x==0&&y==0);}
-  void pushRotateZoom(Target*,double,double,int angle,double,double){++scales;assert(angle==0);}
+  void pushRotateZoom(Target* target,double dx,double dy,int angle,double sx,double sy){
+    ++scales;assert(angle==0);
+    // Independent inverse nearest-neighbour sampling about pixel centres.
+    for(int y=0;y<Target::height;++y)for(int x=0;x<Target::width;++x) {
+      const double source_x=(x-dx)/sx+0.5,source_y=(y-dy)/sy+0.5;
+      if(source_x>=0&&source_x<w&&source_y>=0&&source_y<h)
+        target->mark(x,y,1,1,target->covered);
+    }
+  }
 };
 uint64_t tick=0;
 uint64_t clock_tick(){tick+=7;return tick;}
@@ -42,6 +50,23 @@ void pan_case(double dx,double dy,int cx,int cy,int cw,int ch) {
   assert(result.painted==any&&result.clear_us==0&&result.transfer_us==0);
   assert(image.pushes==int(any)&&image.scales==0);
   if(dx==0&&dy==0)assert(target.fills==0);
+}
+void scaled_case(double scale,double dx,double dy,int cx,int cy,int cw,int ch) {
+  using namespace orcsdr::maps;
+  Target target;target.setClipRect(cx,cy,cw,ch);Image image;
+  paint_preview(image,target,{scale,dx,dy},3,4,image.w,image.h);
+  assert(target.x==cx&&target.y==cy&&target.w==cw&&target.h==ch);
+  bool retained_interior=false;
+  for(int y=0;y<Target::height;++y)for(int x=0;x<Target::width;++x) {
+    const bool visible=x>=3&&x<13&&y>=4&&y<12&&x>=cx&&x<cx+cw&&y>=cy&&y<cy+ch;
+    const auto index=y*Target::width+x;
+    // Every old pixel is either overwritten by the image or explicitly cleared.
+    assert(!visible||target.cleared[index]||target.covered[index]);
+    assert(visible||(!target.cleared[index]&&!target.covered[index]));
+    assert(target.cleared[index]<=1);
+    retained_interior|=visible&&target.covered[index]&&!target.cleared[index];
+  }
+  if(scale>=2&&dx==0&&dy==0&&cx==0)assert(retained_interior);
 }
 int main() {
   using namespace orcsdr::maps;
@@ -67,12 +92,20 @@ int main() {
     pan_case(dx,dy,20,20,5,5); // Fully clipped out.
   }
   pan_case(1,1,3,4,0,8);pan_case(1,1,3,4,10,0);
+  for(double scale:{0.25,0.5,1.25,2.,4.})
+    for(double dx:{-20.,-3.75,0.,0.25,4.5,20.})
+      for(double dy:{-12.,-1.25,0.,0.75,12.}) {
+        scaled_case(scale,dx,dy,0,0,40,30);
+        scaled_case(scale,dx,dy,5,6,5,4);
+        scaled_case(scale,dx,dy,20,20,5,5);
+      }
   Target target;Image image;tick=0;
   const auto scaled=paint_preview(image,target,{2,0,0},3,4,10,8,clock_tick);
   assert(scaled.painted&&scaled.clear_us==7&&scaled.transfer_us==7&&tick==21);
   assert(image.scales==1&&image.pushes==0);
+  // Zoom-in covers this viewport except for the conservative raster edge margin.
   for(int y=0;y<Target::height;++y)for(int x=0;x<Target::width;++x)
-    assert(target.cleared[y*Target::width+x]==unsigned(x>=3&&x<13&&y>=4&&y<12));
+    assert(target.cleared[y*Target::width+x]==unsigned((x==3&&y>=4&&y<12)||(y==4&&x>=3&&x<13)));
   assert(target.x==0&&target.y==0&&target.w==40&&target.h==30);
   const auto before=tick;
   const auto clipped=paint_preview(image,target,{1,0,0},100,100,10,8,clock_tick);

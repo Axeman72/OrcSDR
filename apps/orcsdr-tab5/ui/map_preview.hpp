@@ -34,17 +34,27 @@ PreviewPaint paint_preview(Image& image,Target& target,const orcmap::FrameTransf
   };
   const auto dx=transform.scale==1?std::lround(transform.dx):0;
   const auto dy=transform.scale==1?std::lround(transform.dy):0;
-  if(transform.scale==1) {
-    // The opaque snapshot overwrites the covered intersection. Clear only
-    // exposed strips; top/bottom and the two middle sides never overlap.
-    const int64_t il=std::max(left,int64_t{x}+dx),it=std::max(top,int64_t{y}+dy);
-    const int64_t ir=std::min(right,int64_t{x}+dx+width),ib=std::min(bottom,int64_t{y}+dy+height);
-    if(ir<=il||ib<=it)clear(left,top,right,bottom);
-    else {
-      clear(left,top,right,it);clear(left,ib,right,bottom);
-      clear(left,it,il,ib);clear(ir,it,right,ib);
-    }
-  } else clear(left,top,right,bottom);
+  int64_t il=int64_t{x}+dx,it=int64_t{y}+dy;
+  int64_t ir=il+width,ib=it+height;
+  if(transform.scale!=1) {
+    // M5GFX scales about pixel centres. Keep a one-pixel safety margin around
+    // the guaranteed opaque interior for float/fixed-point raster rounding.
+    const double scale=static_cast<float>(transform.scale);
+    const double sx=static_cast<float>(x+transform.dx)+(1-scale)*0.5;
+    const double sy=static_cast<float>(y+transform.dy)+(1-scale)*0.5;
+    il=static_cast<int64_t>(std::ceil(sx+1));it=static_cast<int64_t>(std::ceil(sy+1));
+    ir=static_cast<int64_t>(std::floor(sx+width*scale-1));
+    ib=static_cast<int64_t>(std::floor(sy+height*scale-1));
+  }
+  // The opaque snapshot overwrites the covered intersection. Clear only
+  // exposed strips; top/bottom and the two middle sides never overlap.
+  il=std::max(left,il);it=std::max(top,it);
+  ir=std::min(right,ir);ib=std::min(bottom,ib);
+  if(ir<=il||ib<=it)clear(left,top,right,bottom);
+  else {
+    clear(left,top,right,it);clear(left,ib,right,bottom);
+    clear(left,it,il,ib);clear(ir,it,right,ib);
+  }
   const auto cleared=clock?clock():0;
   if(transform.scale==1)image.pushSprite(&target,x+dx,y+dy);
   else {
