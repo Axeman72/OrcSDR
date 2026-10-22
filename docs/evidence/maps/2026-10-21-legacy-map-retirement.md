@@ -111,9 +111,11 @@ is not zoom acceptance. The subsequent explicit Home→ADS-B→Radar sequence ch
 screen ownership, changes range 25→10→25, and produces two scaled-preview samples
 and ready generation 3 with zero missing/failed tiles. Sample paint calls are
 9,954 and 23,978 us; **two samples do not close the overall 33 ms target**.
-Physical no-flash acceptance remains pending.
+Physical no-flash acceptance PASS: on October 21, the user confirmed on COM17,
+"Old map flash is gone." This closes the reported legacy-map zoom flash for
+installed source `1308e5bd`; it does not close other map-quality gates.
 
 Bounded health snapshot: free PSRAM 20,697,576 bytes, largest DMA block 9,216
 bytes. Radio was streaming; this is not a controlled continuity/queue-loss soak.
-Next milestone: physical zoom confirmation, regional/global pack coverage and
+Next milestone: regional/global pack coverage and
 the broader product-default audit (including remaining documentation demos).

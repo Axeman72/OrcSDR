@@ -35,8 +35,9 @@ The pending ADS-B zoom defect is confirmed: the shared regional adapter paints
 ORCMAP1 over the cached OrcMaps preview. Removal and catalog retirement are
 committed as `1308e5bd`, pass focused host checks and native symbol inspection,
 and are app-only installed on COM17 with preservation verification. Serial
-catalog retirement and two real zoom transitions pass. Physical no-flash
-acceptance, broader regional coverage and product-default audit remain open.
+catalog retirement and two real zoom transitions pass. The user physically
+confirmed on COM17: "Old map flash is gone." This transition defect is closed;
+broader regional coverage and the product-default audit remain open.
 [Scope, commands and evidence](../../evidence/maps/2026-10-21-legacy-map-retirement.md).
 
 **Active delivery work: Phase 4; Phases 2 and 3 remain open.** Labels and cached
