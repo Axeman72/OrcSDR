@@ -39,7 +39,7 @@ constexpr int kZoomY = kRadarPanelY + kMapY + 12;
 constexpr int kZoomSize = 48, kZoomStep = 56;
 static_assert(kMapW == 622 && kMapH == 302);
 static_assert(kZoomY + kZoomStep + kZoomSize < kRadarPanelY + kMapY + kMapH);
-constexpr uint16_t kRanges[] = {10, 25, 50, 100};
+constexpr auto& kRanges = kMapRangesNm;
 constexpr uint16_t zoomed_range(uint16_t current, bool zoom_in) {
   size_t index = 0;
   while (index + 1 < std::size(kRanges) && kRanges[index] < current) ++index;
@@ -1007,6 +1007,15 @@ void set_atc_listening(bool listening, uint32_t frequency_hz) {
 
 uint32_t atc_frequency_hz() { return g_settings.atc_frequency_hz; }
 
+bool set_map_range(uint16_t range_nm) {
+  if(!valid_map_range(range_nm))return false;
+  if(g_settings.radar_range_nm!=range_nm) {
+    g_settings.radar_range_nm=range_nm;
+    maps::invalidate();
+  }
+  return true;
+}
+
 Action handle_touch(int32_t x, int32_t y) {
   if (!g_active) return Action::none;
   if (g_edit != EditField::none) return handle_keypad(x, y);
@@ -1024,7 +1033,7 @@ Action handle_touch(int32_t x, int32_t y) {
     }
     const bool zoom_in=hit(x,y,kZoomX,kZoomY,kZoomSize,kZoomSize);
     if (zoom_in || hit(x,y,kZoomX,kZoomY+kZoomStep,kZoomSize,kZoomSize)) {
-      g_settings.radar_range_nm=zoomed_range(g_settings.radar_range_nm,zoom_in);
+      set_map_range(zoomed_range(g_settings.radar_range_nm,zoom_in));
       redraw();
       return Action::settings_changed;
     }
@@ -1077,7 +1086,7 @@ Action handle_touch(int32_t x, int32_t y) {
     else if (hit(x, y, 225, 322, 225, 52)) {
       size_t index = 0;
       while (index < std::size(kRanges) && kRanges[index] != g_settings.radar_range_nm) ++index;
-      g_settings.radar_range_nm = kRanges[(index + 1) % std::size(kRanges)];
+      set_map_range(kRanges[(index + 1) % std::size(kRanges)]);
       redraw();
       return Action::settings_changed;
     } else if (hit(x, y, 38, 430, 112, 48) && g_settings.gain_auto_supported) {

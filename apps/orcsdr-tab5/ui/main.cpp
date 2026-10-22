@@ -14611,7 +14611,9 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       break;
     }
     case orcsdr::settings::ActionKind::range_changed:
+      if(!orcsdr::adsb::valid_map_range(action.value))break;
       adsb_settings.radar_range_nm = static_cast<uint16_t>(action.value);
+      if(orcsdr::adsb::active())orcsdr::adsb::set_map_range(adsb_settings.radar_range_nm);
       adsb_settings_persist_pending.store(true, std::memory_order_release);
       break;
     case orcsdr::settings::ActionKind::brightness_changed:
@@ -19661,6 +19663,10 @@ void process_command(char* command) {
         Serial.println("RTL_UI_ACTION_INVALID profile_move");
         return;
       }
+      if(kind==K::range_changed&&(fields!=3||
+          (value!=10&&value!=25&&value!=50&&value!=100))) {
+        Serial.println("RTL_UI_ACTION_INVALID range_must_be_10_25_50_100");return;
+      }
       if (kind != K::none) { handle_global_settings_action({kind, static_cast<int32_t>(value)}); Serial.println("RTL_UI_ACTION_OK"); return; }
     }
     Serial.println("RTL_UI_ACTION_INVALID unknown_action");
@@ -19911,6 +19917,21 @@ void process_command(char* command) {
     Serial.printf("RTL_LOCATION_%s_%s\n", query ? "LOOKUP" : "IP",
                   queued ? "QUEUED" : "REJECTED");
     return;
+  }
+  if(strcmp(command,"RTL_ADSB_RANGE")==0) {
+    Serial.printf("RTL_ADSB_RANGE_STATUS range_nm=%u dashboard_range_nm=%u active=%u pending=%u\n",
+        adsb_settings.radar_range_nm,orcsdr::adsb::settings().radar_range_nm,
+        orcsdr::adsb::active(),adsb_settings_persist_pending.load(std::memory_order_acquire));
+    return;
+  }
+  if(strncmp(command,"RTL_ADSB_RANGE ",15)==0) {
+    if(!authenticated){Serial.println("RTL_ADSB_RANGE_ERROR auth_required");return;}
+    uint16_t range=0;
+    if(!orcsdr::adsb::parse_map_range(command+15,&range)) {
+      Serial.println("RTL_ADSB_RANGE_ERROR invalid_range");return;
+    }
+    handle_global_settings_action({orcsdr::settings::ActionKind::range_changed,range});
+    Serial.printf("RTL_ADSB_RANGE_OK range_nm=%u persistence=pending\n",range);return;
   }
   if (strncmp(command, "RTL_ADSB_LOCATION ", 18) == 0) {
     double latitude = 0, longitude = 0;
@@ -20880,6 +20901,7 @@ void process_command(char* command) {
     Serial.println("RTL_CATALOG packs: faa_aircraft|faa_aviation|noaa_weather|fcc_broadcast");
     Serial.println("RTL_LOCATION STATUS|IP|LOOKUP <zip/address>|CONFIRM - resolve and save receiver location");
     Serial.println("RTL_MAP HELP - named setup, picker, labels, pack and download controls (mutations require auth)");
+    Serial.println("RTL_ADSB_RANGE [10|25|50|100] - query/set map radius in nautical miles (set requires auth)");
     Serial.println("ORC_RTC_STATUS                 - trusted hardware UTC clock status");
     Serial.println("ORC_RTC_SET <unix_utc>         - establish hardware UTC clock (auth)");
     Serial.println("ORC_TZ_SET <minutes>           - UTC offset in minutes east of UTC, -720..840 (auth)");
