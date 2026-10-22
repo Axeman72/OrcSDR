@@ -604,6 +604,16 @@ Primary files: reviewed OrcMaps camera/cache APIs and OrcSDR ui/map_pipeline.cpp
 
 ## Phase 4 — Own the pack catalog and delivery pipeline
 
+October 22 concrete delivery review: a local package now includes the candidate
+manifest, proposed SHA-addressed GitHub prerelease URLs, producer input, canonical
+unsigned payload, provenance/terms, 20,000-user sizing and explicit pilot scope.
+No archive copy/upload, signature/key creation or device access occurred.
+The actual producer URL/encoding checks pass, and a 256-byte host GitHub probe
+passes HTTPS redirect, Range and If-Range/strong-ETag checks. Neither substitutes
+for an OrcMaps/P4 install. Pilot publication/signing approval is the next external
+gate; production keys and paid hosting are excluded.
+[Review package](../../maps-delivery/2026-10-22-pilot-review/README.md).
+
 Primary files: existing OrcMaps pack builders/verification, a small catalog schema/publisher, and a shared OrcSDR map acquisition adapter with focused storage/download tests.
 
 October 19 continuation: the existing 543,380,195-byte z0–8 candidate now has
