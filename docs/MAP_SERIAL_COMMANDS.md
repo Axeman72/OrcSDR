@@ -84,7 +84,10 @@ to 0–16 and retains the center; overzoom does not create additional map detail
 The opening map prefers a configured receiver position, then the selected
 positioned node. Center Node and Follow require that actual selected node to
 have a mappable position; they never silently choose another node. Follow
-tracks later positions. The Mercator latitude limit is about ±85.05°; polar
+tracks later positions by node ID even when new traffic reorders the list.
+Status appends `following_node=<8-digit-hex-id>` (zero when Follow is off).
+If that device disappears or lacks a mappable position, the camera stays put
+and shows Waiting Position until the same device returns. The Mercator latitude limit is about ±85.05°; polar
 coordinates remain valid node data but cannot supply this regional basemap.
 With no mappable position, the dashboard explains the missing coverage.
 

@@ -49,6 +49,7 @@ View g_view = View::overview;
 bool g_active = false;
 bool g_channels_open = false;
 bool g_follow_node = false;
+uint32_t g_follow_node_id = 0;
 bool g_node_details = false;
 bool g_traffic_details = false;
 bool g_map_center_set = false;
@@ -166,6 +167,13 @@ const Node* selected_positioned_node() {
   return nullptr;
 }
 
+const Node* followed_node() {
+  if (g_snapshot.node_count > kNodeCapacity) return nullptr;
+  for (size_t i=0;i<g_snapshot.node_count;++i)
+    if (g_snapshot.nodes[i].id==g_follow_node_id) return &g_snapshot.nodes[i];
+  return nullptr;
+}
+
 bool center_map(int32_t latitude,int32_t longitude) {
   if(latitude<-850511287||latitude>850511287||longitude<-1800000000||longitude>1800000000)return false;
   if(!g_map_center_set)
@@ -175,8 +183,8 @@ bool center_map(int32_t latitude,int32_t longitude) {
 }
 
 void follow_selected_position() {
-  const Node* node = selected_positioned_node();
-  if (!node) return;
+  const Node* node = g_follow_node ? followed_node() : selected_positioned_node();
+  if (!node || !has_map_position(*node)) return;
   center_map(node->latitude_e7,node->longitude_e7);
 }
 
@@ -698,7 +706,7 @@ void draw_traffic_dynamic() {
 void draw_map_dynamic(bool details=true) {
   static EXT_RAM_BSS_ATTR maps::FrameInfo map_info;
   g_map_revision_seen=maps::revision();
-  const Node* center = g_snapshot.node_count ? &g_snapshot.nodes[
+  const Node* center = g_follow_node ? followed_node() : g_snapshot.node_count ? &g_snapshot.nodes[
       std::min<size_t>(g_snapshot.selected_node, g_snapshot.node_count - 1)] : nullptr;
   if(!g_map_center_set) {
     const auto location=receiver_location::snapshot();
@@ -726,8 +734,9 @@ void draw_map_dynamic(bool details=true) {
       if (!has_map_position(node)) continue;
       int x = 0, y = 0;
       if (!maps::project(map,node.latitude_e7,node.longitude_e7,&x,&y))continue;
-      const uint16_t color = i == g_snapshot.selected_node ? kGreen : kCyan;
-      M5.Display.drawCircle(x, y, i == g_snapshot.selected_node ? 13 : 9, color);
+      const bool selected = g_follow_node ? node.id==g_follow_node_id : i==g_snapshot.selected_node;
+      const uint16_t color = selected ? kGreen : kCyan;
+      M5.Display.drawCircle(x, y, selected ? 13 : 9, color);
       M5.Display.fillCircle(x, y, 3, color);
       char value[32]; node_name(node, value, sizeof(value));
       text(value, x + 14, y - 6, color, 1, middle_left);
@@ -851,7 +860,7 @@ void enter(const Snapshot& snapshot) {
   g_active = true;
   g_channels_open = false;
   g_map_center_set = false;
-  g_map_drag=false;g_follow_node=false;
+  g_map_drag=false;g_follow_node=false;g_follow_node_id=0;
   const auto location=receiver_location::snapshot();
   if(location.configured)center_map(location.latitude_e7,location.longitude_e7);
   if(!g_map_center_set)follow_selected_position();
@@ -1105,6 +1114,7 @@ void toggle_follow_node() {
 
 MapState map_state() {
   MapState state;state.ready=g_map_center_set;state.following=g_follow_node;
+  state.following_node_id=g_follow_node?g_follow_node_id:0;
   if(state.ready) {
     state.latitude_e7=static_cast<int32_t>(std::llround(g_map_camera.center_lat_deg*1e7));
     state.longitude_e7=static_cast<int32_t>(std::llround(g_map_camera.center_lon_deg*1e7));
@@ -1146,13 +1156,17 @@ bool map_control(MapControl control,int east,int south) {
     case MapControl::follow_on: {
       const auto* node=selected_positioned_node();
       if(node)changed=center_map(node->latitude_e7,node->longitude_e7);
-      if(changed)g_follow_node=control==MapControl::follow_on;
+      if(changed) {
+        g_follow_node=control==MapControl::follow_on;
+        g_follow_node_id=g_follow_node?node->id:0;
+      }
       break;
     }
     case MapControl::follow_off: g_follow_node=false;changed=true;break;
     default:return false;
   }
   if(!changed)return false;
+  if(!g_follow_node)g_follow_node_id=0;
   M5.Display.startWrite();
   draw_map_dynamic(control!=MapControl::pan||was_following!=g_follow_node);
   if(was_following!=g_follow_node)draw_map_controls();
@@ -1193,9 +1207,10 @@ bool handle_map_command(const char* command,bool authenticated,void (*write)(con
   }
   if(count==1&&same(op,"STATUS")) {
     const auto state=map_state();char line[192];
-    std::snprintf(line,sizeof(line),"RTL_LORA_MAP_STATUS active=%u ready=%u following=%u latitude_e7=%ld longitude_e7=%ld zoom=%u\n",
+    std::snprintf(line,sizeof(line),"RTL_LORA_MAP_STATUS active=%u ready=%u following=%u latitude_e7=%ld longitude_e7=%ld zoom=%u following_node=%08lx\n",
         g_active&&g_view==View::map&&screens::owns(screens::Id::lora),state.ready,state.following,
-        static_cast<long>(state.latitude_e7),static_cast<long>(state.longitude_e7),state.zoom);
+        static_cast<long>(state.latitude_e7),static_cast<long>(state.longitude_e7),state.zoom,
+        static_cast<unsigned long>(state.following_node_id));
     write(line);return true;
   }
   if(!authenticated){write("RTL_LORA_MAP_ERROR auth_required\n");return true;}

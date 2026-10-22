@@ -146,6 +146,7 @@ void toggle_follow_node();
 enum class MapControl : uint8_t { pan, zoom_in, zoom_out, receiver, node, follow_on, follow_off };
 struct MapState {
   bool ready=false,following=false;
+  uint32_t following_node_id=0;
   int32_t latitude_e7=0,longitude_e7=0;
   uint8_t zoom=0;
 };

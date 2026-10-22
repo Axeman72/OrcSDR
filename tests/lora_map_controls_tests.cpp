@@ -63,6 +63,7 @@ Frame draw(const orcmap::Viewport& camera,lgfx::LovyanGFX&,int x,int y,FrameInfo
 int main() {
   using namespace orcsdr::lora;
   Snapshot snapshot;snapshot.node_count=2;snapshot.selected_node=0;
+  snapshot.nodes[0].id=0x11111111;snapshot.nodes[1].id=0x22222222;
   snapshot.nodes[0].latitude_e7=100000000;snapshot.nodes[0].longitude_e7=1799000000;
   std::strcpy(snapshot.nodes[0].name,"NODE A");
   snapshot.nodes[1].latitude_e7=INT32_MAX;snapshot.nodes[1].longitude_e7=INT32_MAX;
@@ -79,13 +80,39 @@ int main() {
   owner=false;command("RTL_LORA_MAP CENTER NODE");assert(reply.find("rejected")!=std::string::npos);
   assert(!map_touch(400,300,true,true));owner=true;
   ok("RTL_LORA_MAP CENTER NODE");assert(map_state().longitude_e7==1799000000);
-  ok("RTL_LORA_MAP FOLLOW ON");assert(map_state().following);
+  ok("RTL_LORA_MAP FOLLOW ON");assert(map_state().following&&map_state().following_node_id==0x11111111);
+  command("RTL_LORA_MAP STATUS",false);assert(reply.find("following_node=11111111")!=std::string::npos);
   ++snapshot.revision;snapshot.nodes[0].longitude_e7=1799500000;test_millis+=1000;update(snapshot);
   assert(map_state().longitude_e7==1799500000&&map_state().following);
+  // New traffic moves rows: Follow must retain device identity, not row zero.
+  snapshot.nodes[1].latitude_e7=200000000;snapshot.nodes[1].longitude_e7=300000000;
+  std::swap(snapshot.nodes[0],snapshot.nodes[1]);
+  ++snapshot.revision;test_millis+=1000;update(snapshot);
+  assert(map_state().longitude_e7==1799500000&&map_state().following);
+  snapshot.nodes[1].longitude_e7=1799600000;
+  ++snapshot.revision;test_millis+=1000;update(snapshot);
+  assert(map_state().longitude_e7==1799600000);
+  snapshot.node_count=1;lgfx::paints.clear();
+  ++snapshot.revision;test_millis+=1000;update(snapshot);
+  assert(map_state().longitude_e7==1799600000&&map_state().following);
+  assert(map_state().following_node_id==0x11111111);
+  assert(painted("WAITING POSITION"));
+  snapshot.node_count=2;snapshot.nodes[1].longitude_e7=1799700000;
+  ++snapshot.revision;test_millis+=1000;update(snapshot);
+  assert(map_state().longitude_e7==1799700000);
+  snapshot.nodes[1].latitude_e7=INT32_MAX;lgfx::paints.clear();
+  ++snapshot.revision;test_millis+=1000;update(snapshot);
+  assert(map_state().longitude_e7==1799700000&&painted("WAITING POSITION"));
+  snapshot.nodes[1].latitude_e7=100000000;
+  // Restore the original row/position fixture for the drag/parity checks.
+  std::swap(snapshot.nodes[0],snapshot.nodes[1]);
+  snapshot.nodes[0].longitude_e7=1799500000;
+  snapshot.nodes[1].latitude_e7=INT32_MAX;snapshot.nodes[1].longitude_e7=INT32_MAX;
+  ++snapshot.revision;test_millis+=1000;update(snapshot);
   const auto before=map_state();
   assert(map_touch(400,300,true,true));assert(map_state().longitude_e7==before.longitude_e7);
   assert(map_touch(402,301,true,false));assert(map_state().following);
-  assert(map_touch(440,310,true,false));assert(!map_state().following&&map_state().longitude_e7!=before.longitude_e7);
+  assert(map_touch(440,310,true,false));assert(!map_state().following&&map_state().following_node_id==0&&map_state().longitude_e7!=before.longitude_e7);
   const auto after=map_state();assert(map_touch(440,310,false,false));
   assert(map_state().longitude_e7==after.longitude_e7);
   // Serial pan and the equivalent physical drag must produce the same camera.
