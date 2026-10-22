@@ -714,6 +714,17 @@ are retained separately from the final passing plan. Physical review and the
 other location/setup methods remain open. This does not close all-method setup.
 [Commands and evidence](../../evidence/maps/2026-10-22-setup-coordinate-confirmation.md).
 
+October 22 lookup follow-up: focused tests of the production worker reproduce
+cross-method cached-result confusion (address → IP → same address) and malformed
+coordinate strings becoming ready. Narrow corrections pass normal/sanitized
+worker checks, the shared HTTP-adapter regression and P4 syntax. Native/device
+acceptance remains open. Source inspection also finds the address endpoint is
+hard-coded to public Nominatim; its application-wide traffic and runtime service
+switching requirements must be resolved before production-scale address lookup
+is claimed. No live address requests were made. This is independent of approval
+to publish the map-download pilot.
+[Lookup evidence and provider policy](../../evidence/maps/2026-10-22-location-lookup-identity.md).
+
 - [x] Pause reception throughout setup and restore the prior active/stopped state on exit in bounded host/device tests; user accepted the notice and responsiveness.
 - [x] Preserve the original graphics state across repeated Settings opens; host/device navigation checks and physical Home graphics acceptance passed.
 - [ ] Verify previously active audio restoration, physical hotplug while paused and automatic first-boot entry.

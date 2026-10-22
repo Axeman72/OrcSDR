@@ -12,10 +12,11 @@ struct esp_http_client_event_t {
   char* header_key;
   char* header_value;
 };
-// Only the SDK declarations consumed by map_http_stream.cpp are represented.
+// Only the SDK declarations consumed by map HTTP/location adapters are represented.
 // This is an adapter test, not a replacement TLS/HTTP implementation.
 struct esp_http_client_config_t {
   const char* url=nullptr;
+  const char* user_agent=nullptr;
   int timeout_ms=0,buffer_size=0,buffer_size_tx=0;
   esp_http_client_transport_t transport_type{};
   esp_err_t (*crt_bundle_attach)(void*)=nullptr;
@@ -30,6 +31,7 @@ esp_err_t esp_http_client_open(esp_http_client_handle_t,int);
 int64_t esp_http_client_fetch_headers(esp_http_client_handle_t);
 int esp_http_client_get_status_code(esp_http_client_handle_t);
 bool esp_http_client_is_chunked_response(esp_http_client_handle_t);
+bool esp_http_client_is_complete_data_received(esp_http_client_handle_t);
 int esp_http_client_read(esp_http_client_handle_t,char*,int);
 esp_err_t esp_http_client_close(esp_http_client_handle_t);
 esp_err_t esp_http_client_cleanup(esp_http_client_handle_t);
