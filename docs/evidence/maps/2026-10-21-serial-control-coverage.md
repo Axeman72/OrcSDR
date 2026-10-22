@@ -9,7 +9,7 @@ not a completed application-wide audit or a claim that every route was tested.
 | Inspect map availability, labels, rendering and installer state | `RTL_MAP_STATUS` | Source-camera diagnostic validated on COM17 with `b326a123`; full global-pack device gate is separate. |
 | Open a dashboard | `RTL_UI OPEN ADSB`, `LORA`, `FT8`, `SETTINGS`, etc. | Existing authenticated route; check the actual screen owner, not acknowledgement alone. |
 | Tap a visible control / enter a key | `RTL_UI TAP x y`, `RTL_KEYBOARD KEY ...` | Useful for UI-route regression; does not replace discoverable semantic map commands. |
-| Set receiver lat/lon | `RTL_ADSB_LOCATION <latitude> <longitude>` | Existing shared location save route; command naming and authentication parity need audit. |
+| Set receiver lat/lon | `RTL_ADSB_LOCATION <latitude> <longitude>` | `7b2b1228` requires authentication and shares verified wizard/picker persistence. COM17 rejection, changed UI save and original-point restore pass; this legacy command is an explicit save. |
 | Resolve approximate network location | `RTL_LOCATION IP`, then `RTL_LOCATION CONFIRM` | Existing lookup/confirm route; persistence and failure gates remain scoped. |
 | Resolve an address or ZIP | `RTL_LOCATION LOOKUP <query>`, then `RTL_LOCATION CONFIRM` | Existing lookup/confirm route. |
 | Inspect lookup state | `RTL_LOCATION STATUS` | Reports lookup result; add a clear saved receiver/map-camera status if not already exposed elsewhere. |
@@ -19,8 +19,8 @@ not a completed application-wide audit or a claim that every route was tested.
 | Per-consumer Labels ON/OFF | `RTL_MAP LABELS PICKER\|LORA\|ADSB\|FT8 ON\|OFF` | Shared preferences and invalidation; independent persistence covered on host, ADS-B preference OFF/ON checked on COM17. Other physical consumer checks remain scoped. |
 | Select/rescan a local OrcMaps pack | `RTL_MAP SELECT <full-id>`; `RTL_MAP RESCAN` | Unsupported/unknown selection rejection passes on COM17. `ba0e7a92` rescan refresh advances displayed frame revision 2→4. Successful selection persistence remains a separate gate. |
 | Check/download/retry/cancel an OrcMaps catalog pack | `RTL_MAP DOWNLOAD CHECK\|INSTALL <index>\|RETRY\|CANCEL` | Shared worker/trust/journal gates; host coverage and unconfigured-catalog rejection on COM17. Actual HTTPS installation remains open. |
-| ADS-B map range | Existing `RTL_UI ACTION SETTINGS RANGE <nm>`; dedicated `RTL_ADSB_RANGE [nm]` in `19856eea` | Existing route saved the global value without updating the open dashboard. Shared setter and observable state now build; COM17 installation/testing pending port availability. |
-| LoRa follow/centering and pan/zoom | `RTL_LORA_MAP STATUS`, `CENTER RECEIVER\|NODE`, `FOLLOW ON\|OFF`, `PAN east south`, `ZOOM IN\|OUT`; existing toggle route remains | `050442b0` shares touch/serial camera actions. Real-dashboard host, sanitizer and native build pass. COM17 installation, physical feel and radio/performance acceptance remain open. |
+| ADS-B map range | Existing `RTL_UI ACTION SETTINGS RANGE <nm>`; dedicated `RTL_ADSB_RANGE [nm]` in `19856eea` | Installed with `050442b0`: COM17 named/Settings/routed-touch range checks pass, including rejection and persistence. Broader aircraft/RF acceptance stays open. |
+| LoRa follow/centering and pan/zoom | `RTL_LORA_MAP STATUS`, `CENTER RECEIVER\|NODE`, `FOLLOW ON\|OFF`, `PAN east south`, `ZOOM IN\|OUT`; existing toggle route remains | `050442b0` is installed; bounded COM17 pan/zoom/receiver-center and streaming checks pass. Positioned-node follow, physical feel and full RF/performance acceptance remain open. |
 
 The older `RTL_CATALOG_*` commands control generic signed data packs, not the
 OrcMaps download catalog. Do not claim these already provide map-install control.
@@ -32,4 +32,6 @@ optimized and sanitizer checks passing. See [command reference](../../MAP_SERIAL
 and [device evidence](2026-10-21-map-serial-controls.md). This closes the named
 map/setup dispatcher implementation gap, not application-wide parity or all
 hardware acceptance. ADS-B range device acceptance and remaining LoRa
-interactions are separate gates.
+interactions are separate gates. October 22 checkpoints supersede the earlier
+pending-port status: [dashboard/stack evidence](2026-10-22-map-dashboard-hardware-checkpoint.md)
+and [coordinate confirmation/serial-save evidence](2026-10-22-setup-coordinate-confirmation.md).

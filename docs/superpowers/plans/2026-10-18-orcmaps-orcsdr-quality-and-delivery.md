@@ -695,7 +695,13 @@ saves implicitly. The proposal is shown at readable size and saved only by the
 explicit button; Back preserves the old point. The existing decimal serial save
 now requires authentication and shares verified wizard/picker persistence.
 Focused UI/flow normal and sanitized checks, shared map pipeline and P4 syntax
-pass; native/device checks remain next. This does not close all-method setup.
+pass. Candidate `7b2b1228` native linking, app-only COM17 preservation and bounded
+coordinate tests pass: no implicit save, proposal cancellation, explicit changed
+point save, original-coordinate restoration and reception pause/resume. The
+unauthenticated serial mutation is rejected. Earlier harness runs fail expected
+denial handling, short save windows and a stale return-screen expectation; these
+are retained separately from the final passing plan. Physical review and the
+other location/setup methods remain open. This does not close all-method setup.
 [Commands and evidence](../../evidence/maps/2026-10-22-setup-coordinate-confirmation.md).
 
 - [x] Pause reception throughout setup and restore the prior active/stopped state on exit in bounded host/device tests; user accepted the notice and responsiveness.
