@@ -2,6 +2,28 @@
 
 This file tracks changes made specifically by the native OrcSDR FT8 decoder workstream. The main branch did not contain a repository-wide CHANGELOG.md when this workstream started.
 
+## 2026-10-21 - FT8 clock: visible sync status, one-tap sync, automatic re-sync while decoding
+
+- **Problem found on the bench:** two Tab5s stopped decoding 40 m because their clocks were wrong (one 1.1 s slow, one 3.5 s fast), while the Live CLOCK chip still said LOCKED. The RTC keeps the date through power-offs but drifts about 0.9 s per day, and the one network sync per boot was only
+  requested if Wi-Fi was already up when the decoder started (never retried if it was not, or if it failed). A slot is cut at the Tab5's own UTC boundary and the sync search cannot look before its start, so a clock off by a second or more hides most signals.
+- **CLOCK chip (Live and Decodes tabs)** now shows how far the clock can be trusted, not whether a date exists: SYNCED (with the age, e.g. "12m ago"), STALE (last sync over 6 h old), SYNCING, UNSYNCED, FAILED, or NO WI-FI. **Tap it to sync now.** The Setup row "UTC SLOT CLOCK" shows the same state in words.
+- **Automatic re-sync:** while the decoder runs and Wi-Fi is already connected, the first sync happens at once and then every 2 hours (drift stays under about 75 ms); a failed attempt is retried after 5 minutes. Nothing is contacted when the decoder is not running. This replaces the once-per-boot request.
+- New `clock_sync_status` (pure policy and text, host-tested in `tests/clock_sync_status_tests.cpp`, also covered by the dashboard tests); `ntp_sync` now records the last success and attempt. `main.cpp` only fills two snapshot fields, forwards the tap and calls the policy once per UI loop.
+- **Clock from the signals themselves (no Wi-Fi needed):** most FT8 stations are on NTP or GPS, so if our clock is fast or slow by e, every decoded station shows DT = +e or -e. `ft8_clock_estimator` (pure, host-tested) pools the DTs of the last four slots
+  (at least 6 decodes from 4 different stations that agree within 250 ms) and, when the median is more than 200 ms off, asks for a clock step. The application applies it only when no network sync in the last 6 h vouches for the clock
+  (`time_service::step_ms` moves the system clock to the millisecond and writes the RTC on a second boundary); the chip then reads "VIA FT8 2m". A network sync always wins.
+- **Wide time search:** while the clock is unsynced (no network sync, no signal correction) FT8 slots are cut with 3 s of audio before and after, so stations still decode when the clock is up to about 3.5 s slow or 4.8 s fast (it was about 0.5 s early to 1.9 s late).
+  The decode waits for the trail (3 s later), so it is used only while the clock is not known to be right. DT is still reported against the nominal slot start, and DUMP/SAVE still give the nominal 15 s. Backend: `Config::window_extra_ms`, `begin_slot(epoch, lead_samples)`.
+- **Bench result (Tab5 on 40 m, quiet band about 1 decode per slot, one unit, one evening):** with the network sync held off and the clock set 2 s fast, the wide search kept decoding and the clock was stepped back
+  by -2060 ms after about 17 slots (4 stations); set 2 s slow, it stepped +1960 ms after about 8 slots. Afterwards the clock read 309 and 342 ms against the PC, and a network sync of the same unit read 288 ms, so the signal-corrected
+  clock agreed with NTP to within about 20-55 ms (the PC itself is only a rough reference). The receiver DT bias (+60 ms) comes from 43 decodes of 11 stations on this unit; other dongles and bands are not measured.
+- Fixed in passing: the first build of this boot-looped the unit (`Could not reserve internal/DMA pool`) because about 800 B of new static data used up the last slack in internal RAM at boot; the static audio chunk in `ft8_runtime.cpp` is now 2048 samples instead of 4096, which frees 4 KB.
+- Serial: `FT8 CLOCK` (query) prints the trust level, ages, whether the wide search is on and the decoded stations' view of the clock error; `FT8 CLOCKTEST <ms>` (authenticated, bench only) steps the clock on purpose, forgets the last sync and holds the automatic network sync off until `FT8 CLOCKTEST 0`.
+- **Screenshots over serial (`FT8 SNAP`):** the screen as a PNG, made by M5GFX's own encoder and streamed as base64 lines with a SHA-256 (`ORC_SNAP_BEGIN`/`ORC_SNAP_DATA`/`ORC_SNAP_END`), authenticated. No SD card, no `RTL_STOP`, no retune: the radio and decoder keep running.
+  `tools/tab5_ft8_shot.py` now uses it by default (`--tab` waits for the tab switch; a failed switch is an error instead of a wrong-tab shot); the old SD route stays as `--sd` for older firmware. The old route stopped the radio and retuned the band for every shot, which cost decoding slots and could leave the unit off its band.
+  `FT8 DIAL <hz>` (authenticated, bench) tunes an exact dial frequency, as the Live DIAL chip does with expert tuning.
+- Not done: the last-sync time is not kept across a reboot, so a restart shows UNSYNCED until the next sync (the RTC itself still holds the date).
+
 ## 2026-10-08 - FT8/FT4/JS8 dashboard: expert tuning, gain control, information popups, stations heard (Tab5 + optional OrcDial)
 
 - **Expert tuning** (Setup checkbox, off by default; Auto keeps the band table): tap the Live DIAL chip for a Tune panel with a 12-key MHz keypad, six step sizes (10 Hz to 100 kHz), -/+ one and ten steps, and AUTO. The receiver's own limits still decide

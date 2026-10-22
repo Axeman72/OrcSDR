@@ -10,6 +10,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <sys/time.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 namespace orcsdr::time_service {
 namespace {
@@ -112,6 +116,31 @@ bool format_local(char* output, size_t output_size, uint32_t epoch) {
 
 void resync_system_from_rtc() {
   if (M5.Rtc.isEnabled()) M5.Rtc.setSystemTimeFromRtc();
+}
+
+bool step_ms(int32_t delta_ms) {
+  if (!g_wallclock_valid.load(std::memory_order_acquire) || !M5.Rtc.isEnabled()) return false;
+  timeval tv{};
+  gettimeofday(&tv, nullptr);
+  int64_t us = static_cast<int64_t>(tv.tv_sec) * 1000000 + tv.tv_usec + static_cast<int64_t>(delta_ms) * 1000;
+  const time_t stepped = static_cast<time_t>(us / 1000000);
+  if (!valid_epoch(stepped)) return false;
+  timeval target{};
+  target.tv_sec = stepped;
+  target.tv_usec = static_cast<suseconds_t>(us % 1000000);
+  if (settimeofday(&target, nullptr) != 0) return false;
+  // Same discipline as the network sync: write the RTC on a second boundary so it is not left off by the fraction of a second.
+  gettimeofday(&tv, nullptr);
+  const uint32_t wait_us = 1000000u - static_cast<uint32_t>(tv.tv_usec);
+  if (wait_us > 2000u) vTaskDelay(pdMS_TO_TICKS((wait_us - 2000u) / 1000u));
+  do {
+    gettimeofday(&tv, nullptr);
+  } while (tv.tv_usec > 500000);
+  const bool ok = set_utc(static_cast<uint32_t>(tv.tv_sec));
+  if (!ok) {   // leave the clocks in step with each other: the RTC (unchanged) wins
+    resync_system_from_rtc();
+  }
+  return ok;
 }
 
 bool format_utc(char* output, size_t output_size, uint32_t epoch) {

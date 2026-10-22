@@ -111,6 +111,22 @@ void set_radio_context(uint8_t band_index, uint32_t dial_hz);
 uint32_t requested_dial_hz();
 Status status();
 
+// Wide time search (FT8 only): each slot is cut with 3 s of audio before and after it, so stations still decode while the clock is
+// seconds off. It delays each decode by 3 s and costs more decode time, so it is meant for a clock that is not known to be right.
+void set_wide_search(bool wide);
+// Our clock error as the decoded stations see it (median DT over the last few slots): positive = our clock is fast.
+struct DtReport {
+  bool valid = false;
+  int32_t error_ms = 0;
+  uint16_t stations = 0;
+  bool wide = false;       // the last slot was cut with the wide window
+};
+DtReport dt_report();
+// The correction (ms to add to the clock) the decoded stations ask for; true once per request. The application decides whether to apply it.
+bool take_clock_step(int32_t* delta_ms);
+// Tell the runtime the wall clock was stepped by `delta_ms` so the slot schedule and the DT evidence restart.
+void clock_stepped(int32_t delta_ms);
+
 // A live waterfall of the tap's audio, 200-3000 Hz at 6.25 Hz per bin (one 1920-point FFT every 150 ms, each row normalised to its own
 // median so it adapts to any noise floor). Rows are 0-255 (8 counts per dB above the median plus 3 dB, so noise stays dark). Display only: it never feeds the decoder.
 constexpr size_t kWaterfallRows = 112;
