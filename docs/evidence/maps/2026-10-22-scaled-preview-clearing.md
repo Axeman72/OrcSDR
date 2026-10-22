@@ -59,3 +59,32 @@ Scaled-edge appearance and performance comparison remain open. COM17's physical
 availability is pending; installed app remains `ef53789f`. COM39 is untouched.
 This does not claim the full 33 ms target: the previously measured scaled image
 transfer is still the dominant cost.
+
+## Pinned M5GFX scanline conformance
+
+An optional CMake test now extracts the unchanged transform/inverse/scanline
+bodies from the resolved M5GFX `LGFXBase.cpp` into the build directory and executes
+them against the production preview helper and actual `pixelcopy_t`. It preserves
+upstream attribution, edits no managed component, and copies no implementation
+into product sources. Signature drift fails generation for review. The fake panel
+records writes; this tests native raster coverage on a host, not physical timing.
+
+`map_preview_native` passes 600 full-size picker/LoRa cases, including fractional
+offsets, all supported power-of-two scales, intermediate scale, clipping, displaced
+images and preserved interiors. The original full-clear helper fails its retained-
+interior assertion (exit 134), recorded in `global-scaled-native-raster-red-20261022.log`.
+Resolved source SHA-256:
+`c9bff4ce17f1e2127bf708ad6ebc9d10b4ac7bfed557340811cfea61769f9918`.
+
+Commands from the integration root:
+
+```text
+wsl -d Ubuntu -- bash -lc 'cd /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion && cmake -S apps/orcsdr-tab5/tests/maps -B .local/maps/native-preview-host-20261022 -DORCMAPS_ROOT=/mnt/f/AI/OrcSDR-TEMP/orcmaps-quality-delivery -DM5GFX_ROOT=/mnt/f/AI/OrcSDR-TEMP/maps-integration-completion/apps/orcsdr-tab5/managed_components/m5stack__m5gfx && cmake --build .local/maps/native-preview-host-20261022 --target orcsdr_map_preview_native_tests orcsdr_map_preview_tests orcsdr_map_preview_format_tests -j2 && ctest --test-dir .local/maps/native-preview-host-20261022 -R "^map_preview(_native|_format)?$" --output-on-failure'
+wsl -d Ubuntu -- bash -lc 'cd /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion && cmake -S apps/orcsdr-tab5/tests/maps -B .local/maps/native-preview-asan-20261022 -DORCMAPS_ROOT=/mnt/f/AI/OrcSDR-TEMP/orcmaps-quality-delivery -DM5GFX_ROOT=/mnt/f/AI/OrcSDR-TEMP/maps-integration-completion/apps/orcsdr-tab5/managed_components/m5stack__m5gfx -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build .local/maps/native-preview-asan-20261022 --target orcsdr_map_preview_native_tests -j2 && ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir .local/maps/native-preview-asan-20261022 -R "^map_preview_native$" --output-on-failure'
+```
+
+Normal preview/native-raster/byte-format checks pass 3/3; the native raster check
+also passes ASan/UBSan 1/1. Logs `global-scaled-native-ctest-final-20261022.log` and
+`global-scaled-native-asan-20261022.log`. Initial ad-hoc extraction needed explicit
+UTF-8 decoding for the upstream source; corrected generator uses UTF-8. No full
+test suite or additional firmware build was needed for this test-only addition.

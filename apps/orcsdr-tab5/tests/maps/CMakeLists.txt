@@ -89,6 +89,21 @@ if(M5GFX_ROOT)
     "${M5GFX_ROOT}/src/lgfx/v1/misc/pixelcopy.cpp")
   target_include_directories(orcsdr_map_preview_format_tests PRIVATE "${M5GFX_ROOT}/src")
   add_test(NAME map_preview_format COMMAND orcsdr_map_preview_format_tests)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  set(native_preview_test "${CMAKE_CURRENT_BINARY_DIR}/native_preview_test.cpp")
+  add_custom_command(OUTPUT "${native_preview_test}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/generate_native_preview_test.py"
+      "${M5GFX_ROOT}/src/lgfx/v1/LGFXBase.cpp" "${native_preview_test}"
+    DEPENDS generate_native_preview_test.py "${M5GFX_ROOT}/src/lgfx/v1/LGFXBase.cpp"
+    VERBATIM)
+  add_executable(orcsdr_map_preview_native_tests "${native_preview_test}")
+  target_include_directories(orcsdr_map_preview_native_tests PRIVATE "${ui}" "${engine}/include" "${M5GFX_ROOT}/src")
+  if(MSVC)
+    target_compile_options(orcsdr_map_preview_native_tests PRIVATE /UNDEBUG)
+  else()
+    target_compile_options(orcsdr_map_preview_native_tests PRIVATE -UNDEBUG)
+  endif()
+  add_test(NAME map_preview_native COMMAND orcsdr_map_preview_native_tests)
 endif()
 
 add_executable(orcsdr_map_timing_tests map_timing_tests.cpp)
