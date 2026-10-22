@@ -226,7 +226,35 @@ void screen_tests() {
   map_screen::open(map_screen::Mode::inventory);
   assert(visible("Map 0")&&visible("Map 3")&&!visible("Map 4"));
   click(600,548);assert(visible("Get offline maps")&&visible("Map source is not configured. Installed maps remain available."));
+  // Transfer bytes and verification animation must never clear the whole page.
+  download_status.configured=true;download_status.connected=true;
+  download_status.catalog_ready=true;download_status.sd_available=true;
+  download_status.count=1;download_status.busy=true;
+  download_status.phase=maps::downloads::Phase::downloading;
+  download_status.total_bytes=100000000;++download_status.revision;
+  test_millis+=300;map_screen::tick();map_screen::tick();
+  const int transfer_clears=M5.Display.screen_clears;
+  for(int i=0;i<8;++i) {
+    download_status.completed_bytes+=1000000;++download_status.revision;
+    test_millis+=300;map_screen::tick();map_screen::tick();
+  }
+  assert(M5.Display.screen_clears==transfer_clears);
+  assert(visible("Downloading: 7.6 MB / 95.4 MB"));
+  download_status.phase=maps::downloads::Phase::verifying;++download_status.revision;
+  test_millis+=300;map_screen::tick();map_screen::tick();
+  const int verifying_clears=M5.Display.screen_clears;
+  for(int i=0;i<4;++i){test_millis+=300;map_screen::tick();map_screen::tick();}
+  assert(M5.Display.screen_clears==verifying_clears);
+  assert(visible("Verifying map integrity and installing... Please wait."));
   click(100,548);assert(visible("Choose an offline map"));
+  const int inventory_clears=M5.Display.screen_clears;
+  for(int i=0;i<4;++i) {
+    ++download_status.revision;download_status.completed_bytes+=1000000;
+    test_millis+=300;map_screen::tick();map_screen::tick();
+  }
+  assert(M5.Display.screen_clears==inventory_clears);
+  download_status={};++download_status.revision;
+  test_millis+=300;map_screen::tick();map_screen::tick();
 
   map_screen::touch(300,450,true,true);map_screen::touch(300,300,true,false);map_screen::touch(300,300,false,false);map_screen::tick();
   assert(visible("Map 4")&&!visible("Map 0"));

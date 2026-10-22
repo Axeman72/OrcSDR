@@ -191,6 +191,7 @@ void download_size(uint64_t bytes,char* value,size_t capacity) {
     std::snprintf(value,capacity,"%.1f GB",static_cast<double>(bytes)/(1024.0*1024.0*1024.0));
   else std::snprintf(value,capacity,"%.1f MB",static_cast<double>(bytes)/(1024.0*1024.0));
 }
+void draw_download_progress();
 void draw_downloads() {
   (void)maps::downloads::snapshot(&g_downloads);
   text("Get offline maps",32,92,3);
@@ -227,6 +228,10 @@ void draw_downloads() {
   }
   if(maps::downloads::can_retry(g_downloads))
     button("RETRY LAST",1038,520,210,56);
+  draw_download_progress();
+}
+void draw_download_progress() {
+  M5.Display.fillRect(32,580,1216,44,kBg);
   const bool verifying=g_downloads.phase==maps::downloads::Phase::verifying;
   char status[120]{};
   if(verifying)std::snprintf(status,sizeof(status),"Verifying map integrity and installing... Please wait.");
@@ -426,9 +431,19 @@ void tick() {
   if(maps_step()) {
     const auto previous=g_packs.revision;
     if(maps::snapshot(&g_packs)&&previous!=g_packs.revision)g_dirty=true;
-    const auto download_revision=g_downloads.revision;
-    if(maps::downloads::snapshot(&g_downloads)&&download_revision!=g_downloads.revision)g_dirty=true;
-    if(g_download_view&&g_downloads.phase==maps::downloads::Phase::verifying)g_dirty=true;
+    const auto previous_download=g_downloads;
+    if(maps::downloads::snapshot(&g_downloads)) {
+      const auto& before=previous_download;const auto& after=g_downloads;
+      const bool layout_changed=before.phase!=after.phase||before.busy!=after.busy||
+          before.pending!=after.pending||before.configured!=after.configured||
+          before.connected!=after.connected||before.catalog_ready!=after.catalog_ready||
+          before.sd_available!=after.sd_available||before.count!=after.count||
+          std::strcmp(before.message,after.message);
+      if(layout_changed)g_dirty=true;
+      else if(!g_dirty&&g_download_view&&(before.completed_bytes!=after.completed_bytes||
+          before.total_bytes!=after.total_bytes||after.phase==maps::downloads::Phase::verifying))
+        draw_download_progress();
+    }
   }
 }
 void touch(int x,int y,bool pressed,bool new_press) {

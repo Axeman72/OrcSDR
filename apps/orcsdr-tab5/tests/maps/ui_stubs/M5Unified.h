@@ -12,7 +12,8 @@ inline size_t strlcpy(char* out,const char* in,size_t capacity) {
   if(capacity) {const auto copied=std::min(size,capacity-1);std::memcpy(out,in,copied);out[copied]=0;}
   return size;
 }
-inline uint32_t millis() {return 1000;}
+inline uint32_t test_millis=1000;
+inline uint32_t millis() {return test_millis;}
 namespace lgfx {inline namespace v1 {
 class LovyanGFX {
  public:
