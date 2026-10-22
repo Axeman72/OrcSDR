@@ -717,8 +717,13 @@ other location/setup methods remain open. This does not close all-method setup.
 October 22 lookup follow-up: focused tests of the production worker reproduce
 cross-method cached-result confusion (address → IP → same address) and malformed
 coordinate strings becoming ready. Narrow corrections pass normal/sanitized
-worker checks, the shared HTTP-adapter regression and P4 syntax. Native/device
-acceptance remains open. Source inspection also finds the address endpoint is
+worker checks, the shared HTTP-adapter regression and P4 syntax. Candidate
+`f61bdad5` native/app-only COM17 preservation pass. Bounded self-contained setup
+checks pass for connected-network scan, reception pause, one approximate IP
+proposal without saving, unchanged receiver coordinates, Maps/Complete/Finish
+and reception restoration. Cross-method cache/malformed replies remain host
+tests; live address, credential entry, first boot/interruption/hotplug and full
+setup acceptance remain open. Source inspection also finds the address endpoint is
 hard-coded to public Nominatim; its application-wide traffic and runtime service
 switching requirements must be resolved before production-scale address lookup
 is claimed. No live address requests were made. This is independent of approval
