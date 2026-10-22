@@ -68,9 +68,14 @@ Follow-up reconstruction of the saved main-task frame now establishes FT8
 waterfall drawing inside serial retune with only 56 bytes above the main stack
 lower bound. Its update function's automatic previous-snapshot copy contributes
 a 6,928-byte frame. A narrow source correction puts the 6,840-byte comparison
-snapshot in PSRAM; focused normal/sanitized dashboard tests pass and P4 compile
-reports an 80-byte update frame. Native link/placement and COM17 regression are
-next; the device crash remains open until tested. Keep global-pack, HTTPS, setup, dashboard
+snapshot in PSRAM at `89109160`; focused normal/sanitized dashboard tests pass
+and P4 compile reports an 80-byte update frame. Native link/placement and COM17
+app-only preservation pass. Five serial retunes with live FT8 waterfall and
+retained LoRa/map allocations pass without reset; final read-only state check
+passes. The original whole script fails a stale range assertion, and an earlier
+final-state check fails historical coordinates; current settings are preserved
+rather than overwritten. This closes the captured path's bounded regression,
+not the broader memory-pressure or sustained-stability gate. Keep global-pack, HTTPS, setup, dashboard
 and performance gates open. Production HTTP-adapter boundary tests added at
 `15f1f0bf` pass normally and under ASan/UBSan using a fake SDK boundary; no actual
 network exchange was tested. Exact artifacts, commands, results and limitations:

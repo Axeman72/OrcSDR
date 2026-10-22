@@ -183,3 +183,12 @@ The preserved dump does not establish SD corruption, an allocation root cause
 or an ordinary main-task stack overflow. COM17 was recovered and returned to
 FT8; investigate this retained-memory dashboard transition before claiming the
 combined workload reliable. No power-loss/card-removal acceptance is implied.
+
+Follow-up `89109160` reconstructs the interrupted main task and removes a
+6,840-byte automatic FT8 comparison snapshot from its stack, storing it in
+PSRAM. Native build/placement and COM17 app-only preservation pass; five serial
+retunes with active FT8 waterfall and retained LoRa/map memory pass without
+reset. This is a drawing-stack correction, not an SD driver change. No new SD
+transfer was run for it; retained PSRAM is still tight and broader combined
+workload acceptance remains open. Exact results, including stale test-assertion
+failures and corrected read-only final checks, are in the checkpoint above.

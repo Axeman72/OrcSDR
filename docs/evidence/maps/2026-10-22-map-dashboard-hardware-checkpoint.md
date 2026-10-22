@@ -182,3 +182,72 @@ below 1,024 bytes: actual **80 bytes, static**. Compile log:
 These results support a narrow stack-pressure correction. Native linking,
 final placement and COM17 regression of the captured transition are the next
 gates; the crash is not yet closed by a passing device test.
+
+## Installed correction and bounded regression
+
+Correction commit: `89109160`. Native build command:
+
+```text
+python .local/maps/build_fit_order_20261020.py build ft8-stack-20261022
+C:/Espressif/python_env/idf5.5_py3.14_env/Scripts/python.exe .local/maps/inspect_ft8_stack_20261022.py
+python .local/maps/com17_label_bench.py ft8-stack-preflash-plan-20261022.json ft8-stack-preflash-device-20261022.log
+python .local/maps/flash_ft8_stack_20261022.py
+```
+
+Build, artifact inspection, verified reception stop, app-only flash and fresh
+non-app backup/preservation checks all pass. The app remains 5,139,024 bytes,
+with 1,152,432 bytes factory headroom. Final ELF places the 6,840-byte comparison
+snapshot at `0x48509440` in `.ext_ram.bss`. DMA reserve remains 40 KiB; existing
+C6 input, diagnostics OFF and symbol/dependency gates pass.
+App SHA-256: `3e312c74341078054d2852c908aa9afbe0e0ae75476c17de0aca739cf9cfeeb8`.
+ELF SHA-256: `d11d2de1a2a904ebb3608899d6f1afb4c3e6393631788285e4c205171b341d97`.
+Artifact: `.local/maps/ft8-stack-89109160-20261022/`, including fresh non-app
+backups. Rollback app is the previously verified `050442b0` artifact.
+
+Build log: `fit-order-native-ft8-stack-20261022-20261020.log` (the wrapper retains
+its historical filename suffix). Inspection: `ft8-stack-artifact-inspection-20261022.log`.
+Flash logs: root `ft8-stack-{verify-previous,backup-*,verify-backups,app-write,preservation}-20261022.log`.
+
+The first native monitor requested the approved boot reset, then failed with a
+host-side `Logger.pc_address_decoder` AttributeError when address decoding was
+disabled. It is terminal, not a firmware crash. A subsequent normal-decoding
+monitor attaches using `--no-reset` and records SD/Wi-Fi/RTL ready. Both captures
+are preserved in `apps/orcsdr-tab5/ft8-stack-{boot,running}-native-monitor-20261022.log`.
+The second monitor was closed before command testing.
+
+```text
+python .local/maps/com17_label_bench.py ft8-stack-regression-plan-20261022.json ft8-stack-regression-device-20261022.log
+python .local/maps/com17_label_bench.py ft8-stack-final-state-current-plan-20261022.json ft8-stack-final-state-current-device-20261022.log
+```
+
+Bounded retune substeps **PASS**: LoRa/map visits retain 15,840,000 bytes of IQ
+buffers and a 751,376-byte map frame; FT8 Live opens, then five serial retunes
+between 7.070 and 7.074 MHz acknowledge successfully. Waterfall updates continue
+at 72–73 rows per five-second report; no panic or reset is recorded. Six health
+samples have monotonic uptime. FT8 streaming reports 237,829 samples/s with
+zero observed driver drops/overruns. Free PSRAM is about 409,512 bytes under
+this pressure; minimum reported main-stack margin is 1,544 bytes.
+
+The original **whole regression plan exits 1** on a later stale expectation of
+100 NM ADS-B range: actual current setting is 25 NM. An initial final-state
+check also exits 1 because it expects historical receiver coordinates. The
+current coordinates `440628866,-1230160273` match the earlier reading in this
+same run; flash verification confirms unchanged NVS. Neither current range nor
+location is overwritten to satisfy the old assertions. These test-assumption
+failures are distinct from the passing retune substeps. The corrected read-only
+final-state plan exits 0. Evidence extraction checks five retune acknowledgments,
+retained allocations, live waterfall and monotonic uptime in
+`ft8-stack-retune-evidence-check-20261022.log`.
+
+Final observed state: ADS-B at 1090 MHz, 25 NM radius, streaming about 2,047,866
+samples/s, zero observed drops/overruns. Free PSRAM is 483,604 bytes; largest
+PSRAM block 319,488; largest DMA block 7,936; main-stack margin 1,544; uptime
+190,877 ms, reset reason unchanged from the controlled update. Gain is AUTO,
+280 tenths dB, RTL AGC off after the LoRa guard workload; exact pretest gain
+was not restored. All serial sessions are closed.
+
+The captured stack-pressure path has a source correction and passing bounded
+device regression. This is not a soak, proof against every stack fault, or
+acceptance of the tight retained-memory budget. General low-memory handling,
+full dashboard/RF acceptance, global-pack delivery and performance gates remain
+open. No additional SD transfer was performed for this source-only drawing fix.
