@@ -47,6 +47,10 @@ Checks cover repeated download bytes with updated visible text, verification
 animation without new revisions, and invisible progress on Installed. The fake
 clock is now controllable; its default retains the prior 1000 ms value.
 
-Native build, installation and physical flicker acceptance remain open. COM17
-is still running the TEST-ONLY `627c9d86` pilot while its download completes;
-this correction must not be described as already installed. COM39 untouched.
+Native build and artifact inspection now pass, and COM17 is app-only updated to
+`ef53789f` after the global download completes. Partition preservation and matching
+boot pass; installed global pack and persisted trust remain intact. LoRa's new
+regional basemap renders and a native capture is saved. Physical progress-page
+flicker acceptance remains open; a still capture cannot prove its absence.
+[Exact artifacts and device evidence](2026-10-22-download-pilot-publication.md).
+COM39 untouched.

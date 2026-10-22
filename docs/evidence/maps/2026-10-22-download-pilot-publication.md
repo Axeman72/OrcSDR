@@ -142,8 +142,73 @@ window expires: inspect the existing process/device first.
 
 ## Remaining gates
 
-Complete 543 MB transfer, final hash/schema validation, activation/recovery,
-insufficient space, corrupted data rejection, trust persistence, offline use,
-physical larger-label acceptance and global-pack native quality remain open.
+### Completed install and corrected-app follow-up
+
+The existing full-download observer exits zero at 15:28:17.607. Its final
+status is phase 2 (complete), busy 0, installed 1, 543,380,195 bytes. This is
+the production installer path after complete-file SHA-256/PMTiles validation,
+activation, ownership persistence and journal finalization; not merely a byte
+counter reaching the expected length. First observed verification is 15:16:15.175,
+first observed completion 15:28:12.020: approximately 716.845 seconds including
+polling dwell (about 32-second resolution). Two full-file reads occur on the
+fresh staging/activation path. This long verification/activation cost is a real
+delivery-performance gap, not map-frame timing. `pilot-install-timing-20261022.json`.
+
+App `ef53789f` adds the targeted Maps progress flicker correction and is now
+app-only installed on COM17. Build/inspection and partition preservation pass;
+app 5,157,984 bytes, SHA-256
+`2e3a6e501e28ecf5f5891653fffc7ef5b18345b4a473f6742be05b2e85600c5d`.
+ELF SHA-256 `155f6179a66e9785af4f36d0f5f235dbe6f9e88a4207614829041d1b8c2ff1bd`.
+Matching boot reaches SD/Wi-Fi/RTL Ready. Newly installed SD pack is preserved.
+Artifact/recovery: `.local/maps/maps-progress-ef53789f-20261022/`.
+
+Before this update, the fresh NVS backup's map-delivery blob passes its checksum
+and records exact accepted revision `20261022214257`, accepted catalog hash
+`102ebc795f930073c7b618c14e5789d873ef41aa926190fbf1489e303ce9569a`, owned
+`global-regional`, and no pending install. Only that namespace/blob is decoded;
+unrelated NVS values are not printed. Log `pilot-persisted-trust-check-20261022.log`.
+After the update/reboot, rechecking the same signed catalog succeeds and still
+reports the global pack installed. No trust reset or key replacement occurred.
+
+The installed pack is explicitly selected through the shared inventory action.
+Receiver coordinates remain E7 `440628866,-1230160273`. LoRa then renders camera
+zoom 9 from source zoom 8, six tiles, zero missing/failed, 5,763 features and
+778,621 source bytes. First detailed frame total 4,497,426 us; cached transfer
+26,581 us; three city labels drawn, zero unsupported/overflow. This proves the
+new regional source is used, not just an enlarged embedded z4 overview.
+It does not prove worldwide visual quality or the full 33 ms interaction gate.
+
+The saved native screenshot shows roads, water/land cover, boundaries and city
+names. Larger node names are visible, but clustered nodes still overlap; record
+that as an open readability gap, not accepted decluttering. Capture:
+`.local/maps/pilot-20261022/installed-lora.bmp`, 2,764,854 bytes, SHA-256
+`f3b6c6c8a84d9f6fc0e866b9dfc348e20717bc2cd8cee52548e00b5f893721f1`.
+Capture writes while reception is running; subsequent hash-checked serial image
+read pauses reception and retains the completed map; LoRa is resumed afterward.
+Final driver observation about 958 ksps, zero driver drops/overruns. Earlier
+global-map observation: free PSRAM 2,077,836, largest 1,998,848; largest DMA 8,192;
+main-stack high-water margin 1,544. These are bounded checks, not a soak.
+
+Commands run from the integration root:
+
+```text
+python .local/maps/build_pilot_20261022.py build maps-progress-ef53789f-20261022
+python .local/maps/inspect_maps_progress_20261022.py
+python .local/maps/flash_maps_progress_20261022.py
+python .local/maps/verify_pilot_persisted_trust_20261022.py
+python .local/maps/com17_label_bench.py maps-progress-installed-lora-plan-20261022.json maps-progress-installed-lora-device-20261022.log
+```
+
+All exit zero. The plan's initial Cancel is rejected because no map screen owns
+the display after reboot; the plan does not require that no-op. Open List and
+Select Pack succeed. Do not interpret every command as acknowledged success.
+Logs: `maps-progress-{artifact-inspection,verify-previous,backup-*,verify-backups,app-write,preservation,installed-lora-device}-20261022.log`;
+build `fit-order-native-maps-progress-ef53789f-20261022-20261020.log`;
+native monitor in invocation directory
+`apps/orcsdr-tab5/maps-progress-boot-native-monitor-20261022.log`.
+
+Controlled interrupted activation recovery, hardware insufficient-space/corruption
+rejection, disconnected-network rendering, physical flicker/larger-label acceptance,
+clustered-node decluttering and worldwide global-pack native quality remain open.
 The full integration goal is not complete. TEST-ONLY catalog configuration is
 local build input; do not accidentally inherit it into production/release builds.
