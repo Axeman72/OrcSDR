@@ -62,3 +62,28 @@ P4 section placement/size, then verify COM17 identity/recovery and perform the
 already-authorized app-only update. Measure the unchanged 20-pan workload under
 reception, cancellation, low-memory fallback/reclaim, SD and radio continuity.
 Do not infer two-second acceptance or a speed multiplier from these host results.
+
+## Producer gate and dependency resolution
+
+User approved the full producer suite and publication of the two commits through
+2133547. The configured OrcMaps host build and CTest pass 9/9, exit 0; producer
+log maps-feature-replay-full-host-20261023.log. Pushed exactly those two commits
+to codex/map-quality-delivery and verified the remote ref equals
+2133547bf8e003e2f4c52de3b8abf737261a8397. No main merge, tag or release.
+Requested incremental CodeRabbit review on PR #7 after the substantial push;
+triage of review findings retains its pending approval.
+
+Updated the consumer manifest to that commit and ran:
+
+```text
+python .local/maps/build_feature_replay_20261023.py update-dependencies
+```
+
+Exit 0. The component manager regenerated dependencies.lock; only the OrcMaps
+revision/component hash and overall manifest hash changed. The existing build
+gate confirms requested, locked and fetched revisions all equal 2133547.
+Log: maps-feature-replay-native-update-dependencies-20261023.log. No hand edits
+to the lock or managed component sources; other dependencies remain unchanged.
+Pre-resolution sdkconfig, CMakeCache and lock snapshots are preserved under
+.local/maps/maps-feature-replay-2133547-20261023. Native link and hardware gates
+are still open at this checkpoint.

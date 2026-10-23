@@ -15,8 +15,8 @@ dependencies:
     version: 31a159df4f006a837d5041029bc6d1bc63520234
   orcmaps:
     git: https://github.com/hardcoreerik/OrcMaps.git
-    # Reviewed development pin: boundary hierarchy and bounded ordered tile composition.
-    version: b59d47819cc3b81c1bbe50ed75b775275bb0218e
+    # Development candidate: bounded feature replay; native acceptance pending.
+    version: 2133547bf8e003e2f4c52de3b8abf737261a8397
   m5stack/m5unified:
     version: "0.2.20"
   m5stack/m5gfx:
