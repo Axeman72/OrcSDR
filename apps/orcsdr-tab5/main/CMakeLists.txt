@@ -65,6 +65,7 @@ idf_component_register(
         "../ui/ft8_native_backend.cpp"
         "../ui/ft8_runtime.cpp"
         "../ui/ft8_clock_estimator.cpp"
+        "../ui/wwv_tick.cpp"
         "../ui/memory_reclaim.cpp"
         "../ui/ft8_hunter.cpp"
         "../ui/ft8_dashboard.cpp"

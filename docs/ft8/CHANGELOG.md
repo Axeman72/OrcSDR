@@ -2,6 +2,13 @@
 
 This file tracks changes made specifically by the native OrcSDR FT8 decoder workstream. The main branch did not contain a repository-wide CHANGELOG.md when this workstream started.
 
+## 2026-10-23 - WWV tick detector, FT8 WWV command, RTL AGC button on the Live gain popup
+
+- **WWV/WWVH tick detector on the device (`wwv_tick`, host-tested in `tests/wwv_tick_tests.cpp` on synthetic signals and on a real 10 MHz capture, `tests/fixtures/wwv/`):** the receiver is tuned 1 kHz below the WWV carrier, so the carrier is a steady line near 1000 Hz in the USB audio and serves as the phase reference for a synchronous AM detector; the 5 ms 1000 Hz tick is folded over one second for about a minute in two independent looks (even and odd seconds, which must agree). The decoder task pumps the audio ring through it while it runs, so no slot is decoded meanwhile.
+- **`FT8 WWV <MHz> <seconds> [CAL|SYNC]`** (`FT8 WWV` = status, `FT8 WWV STOP`): retunes, measures, reports `ORC_FT8_WWV` / `ORC_FT8_WWV_RESULT` and puts the band back. `CAL` (right after a fresh network sync) learns this site's fixed receive delay per frequency (NVS `wwvb*`); `SYNC` then steps the clock by the measured error when it is between 20 and 400 ms, and the CLOCK chip reads "VIA RF". `tools/wwv_probe.py` is now a thin driver for this command.
+- Not yet run on a device; build and host tests pass. 5 and 2.5 MHz carriers are far weaker than 10 MHz, so expect those to fail at night.
+- **RTL AGC button on the FT8 Live GAIN popup:** dongles that expose the RTL2832 AGC (V3C, V4) already had the toggle on Home and AM, but not in FT8. The popup now shows RTL AGC ON/OFF next to AUTO and MANUAL (hidden when the dongle lacks it; independent of the tuner gain controls). Host-tested in `tests/ft8_dashboard_tests.cpp`.
+
 ## 2026-10-23 - FT8 clock: the sync status survives a restart
 
 - The time of the last good sync (network, or a correction from decoded stations) is kept in flash (`clk_ntp`, `clk_sig`) and restored at boot, so a restart no longer shows UNSYNCED until the next sync. The RTC keeps counting through a restart and drifts only slowly, so the restored age stays meaningful (an age over 6 h reads STALE).

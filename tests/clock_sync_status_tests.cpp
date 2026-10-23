@@ -103,7 +103,7 @@ void test_text() {
   CHECK(std::strcmp(value, "SYNCING") == 0 && std::strcmp(title, "CLOCK") == 0);
   // Widest cases must still fit the 190 px chip (title about 16 characters, value about 14).
   chip_text(Level::signal, 12 * 60, title, sizeof(title), value, sizeof(value));
-  CHECK(std::strcmp(value, "VIA FT8 12m") == 0);
+  CHECK(std::strcmp(value, "VIA RF 12m") == 0);
   for (int l = 0; l <= 6; ++l) {
     chip_text(static_cast<Level>(l), 59 * 60, title, sizeof(title), value, sizeof(value));
     CHECK(std::strlen(title) <= 16 && std::strlen(value) <= 12);

@@ -112,6 +112,10 @@ run_suite ft8_clock_estimator_tests \
   tests/ft8_clock_estimator_tests.cpp \
   apps/orcsdr-tab5/ui/ft8_clock_estimator.cpp
 
+run_suite wwv_tick_tests \
+  tests/wwv_tick_tests.cpp \
+  apps/orcsdr-tab5/ui/wwv_tick.cpp
+
 run_suite clock_sync_status_tests \
   tests/clock_sync_status_tests.cpp \
   apps/orcsdr-tab5/ui/clock_sync_status.cpp
