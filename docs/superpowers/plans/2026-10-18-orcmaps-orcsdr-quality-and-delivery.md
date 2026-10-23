@@ -71,7 +71,13 @@ age/telemetry redraws. Both are reproduced and corrected with focused regression
 The user-approved bounded node-name layout prioritizes the selected name and
 avoids overlap while preserving all markers. Final affected host checks pass 4/4,
 sanitizers 2/2, P4 syntax passes. Native build/physical validation of these latest
-corrections is next; representative 33 ms acceptance remains open.
+corrections now passes. COM17 is app-only updated to `51318792` with verified
+fresh backups, matching ELF boot and non-app preservation. A 12-second still-view
+observation records only one extra cached push while generation/revision stays
+unchanged. Native capture shows separated node IDs and intact map controls;
+retained-map SD screenshot write/readback passes and radio resumes at about
+959 ksps, zero reported driver drops/overruns. Physical stationary/moving flicker
+and readability acceptance is pending; representative 33 ms remains open.
 [Flicker and name-layout evidence](../../evidence/maps/2026-10-22-lora-flicker-and-label-layout.md).
 [Retired row-batching evidence](../../evidence/maps/2026-10-22-scaled-preview-stripes.md).
 
@@ -99,7 +105,7 @@ URL passes bounded HTTPS Range/If-Range checks. GitHub rejects pure-hex release
 tags; final data tag `sha256/<full hash>` preserves the existing exact-hash path
 contract. Existing draft world overview and production signing remain unchanged.
 
-COM17 now runs app-only candidate `9ab05c04`, with NVS/SD/world/C6 preserved.
+COM17 now runs app-only candidate `51318792`, with NVS/SD/world/C6 preserved.
 The 543,380,195-byte TEST-ONLY HTTPS download completes through hash verification
 and activation. Cancel/retry, persisted catalog trust/ownership, reboot discovery
 and reselection pass. Verification/activation takes about 12 minutes after the
