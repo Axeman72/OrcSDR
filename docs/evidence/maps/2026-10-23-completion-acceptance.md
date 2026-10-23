@@ -120,3 +120,7 @@ removed decoder testing from this goal's execution. Refetched origin/main remain
 result above is retained as honest navigation/memory evidence, not a request to
 reopen decoder validation or refactor its lifecycle. Further tests target maps,
 UI ownership, retained memory and radio continuity only.
+
+Measured follow-up: [20-pan refill baseline](2026-10-23-refill-baseline.md) records p50 3.65 s / p95 4.55 s / max 5.13 s; the 2-second gate fails.
+
+User physical acceptance of reconciled application30a00ce1 during the pan run: “Dragging, colors and controls look good.” This does not accept the separate, uninstalled single-inflate experiment.
