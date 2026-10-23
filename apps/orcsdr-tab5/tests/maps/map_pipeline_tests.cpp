@@ -39,6 +39,51 @@ struct MeasuredText final : orcmap::LabelTextTarget {
     names.emplace_back(name);
   }
 };
+void global_replay_test(const char* archive) {
+  using namespace orcsdr::maps;
+  orcmap::host::FileByteSource source(archive);
+  bool allow = true;
+  Pipeline direct(source),cached(source,{nullptr,[](void* p){return *static_cast<bool*>(p);},&allow});
+  std::vector<uint8_t> arena(768*1024); FeatureCache replay;
+  replay.Reset(arena.data(),arena.size());cached.set_feature_cache(&replay);
+  assert(direct.open("protomaps-v4")&&cached.open("protomaps-v4"));
+  orcmap::Viewport camera;camera.width_px=842;camera.height_px=330;camera.zoom=9;
+  camera.center_lat_deg=44.0628866;camera.center_lon_deg=-123.0160273;
+  orcmap::host::FramebufferTarget reference(842,330),actual(842,330);
+  for(bool labels:{false,true})for(int step=0;step<5;++step) {
+    auto moved=camera;assert(orcmap::PanByPixels(&moved,step==1?40:step==3?-40:0,step==2?20:step==4?-20:0));
+    orcmap::Viewport view;assert(pack_source_view(moved,direct.header().min_zoom,direct.header().max_zoom,&view));
+    orcmap::LabelLayout left,right;MeasuredText lt,rt;
+    assert(direct.render(view,reference,labels?&left:nullptr,labels?&lt:nullptr,9));
+    assert(cached.render(view,actual,labels?&right:nullptr,labels?&rt:nullptr,9));
+    assert(reference.Pixels()==actual.Pixels()&&lt.names==rt.names);
+    assert(replay.Used()<=arena.size()&&direct.stats().features==cached.stats().features);
+    if(step)assert(cached.stats().replay_hits==cached.stats().tiles&&cached.stats().replay_fallbacks==0);
+    std::printf("GLOBAL_REPLAY_IDENTICAL labels=%u step=%d hits=%u tiles=%u bytes=%zu fallbacks=%u\n",labels,step,
+      cached.stats().replay_hits,cached.stats().tiles,cached.stats().replay_bytes,cached.stats().replay_fallbacks);
+  }
+  for(int pan:{600,-600,0}) {
+    auto moved=camera;assert(orcmap::PanByPixels(&moved,pan,0));orcmap::Viewport view;
+    assert(pack_source_view(moved,direct.header().min_zoom,direct.header().max_zoom,&view));
+    assert(direct.render(view,reference)&&cached.render(view,actual)&&reference.Pixels()==actual.Pixels());
+    assert(replay.Used()<=replay.Capacity());
+  }
+  // Disabling/reclaiming the optional cache returns to ordinary streaming.
+  cached.set_feature_cache(nullptr);replay.Reset();orcmap::Viewport view;
+  assert(pack_source_view(camera,direct.header().min_zoom,direct.header().max_zoom,&view));
+  assert(direct.render(view,reference)&&cached.render(view,actual)&&reference.Pixels()==actual.Pixels());
+  // A cache too small for even one complete tile must not lose detail.
+  uint8_t tiny[1]{};replay.Reset(tiny,sizeof(tiny));cached.set_feature_cache(&replay);
+  assert(cached.render(view,actual)&&reference.Pixels()==actual.Pixels());
+  assert(cached.stats().replay_hits==0&&cached.stats().replay_fallbacks==cached.stats().tiles&&replay.Count()==0);
+  // Reopen invalidates cache identity even if the profile string is unchanged.
+  replay.Reset(arena.data(),arena.size());cached.set_feature_cache(&replay);
+  assert(cached.render(view,actual)&&replay.Count()>0);
+  assert(cached.open("protomaps-v4")&&replay.Count()==0);
+  assert(cached.render(view,actual));allow=false;
+  assert(!cached.render(view,actual)&&cached.stats().cancelled);
+  allow=true;assert(cached.render(view,actual)&&reference.Pixels()==actual.Pixels());
+}
 void global_cache_test(const char* archive) {
   using namespace orcsdr::maps;
   orcmap::host::FileByteSource source(archive);
@@ -253,6 +298,7 @@ int main(int argc, char** argv) {
   std::puts("MAP_PIPELINE_TEST_PASS");
   if(const char* archive=std::getenv("ORCSDR_LABEL_TEST_ARCHIVE")) {
     global_cache_test(archive);
+    global_replay_test(archive);
     global_label_test(archive);
     global_order_test(archive);
   }

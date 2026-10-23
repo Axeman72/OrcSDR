@@ -35,6 +35,7 @@ bool Pipeline::open(std::string_view profile) {
 }
 bool Pipeline::open_impl(std::string_view profile) {
   stats_={};
+  if (feature_cache_) feature_cache_->Clear(); // Archive/profile identity changed.
   ready_ = false;
   if (profile == "openmaptiles-3.16") profile_ = "openmaptiles-3.16";
   else if (profile == "orcmaps-overview-1") profile_ = "orcmaps-overview-1";
@@ -56,6 +57,7 @@ struct Pipeline::Context {
   uint8_t label_zoom;
   orcmap::LabelLayout* labels;
   orcmap::OrderedRenderScratch& scratch;
+  bool replaying = false;
 };
 
 bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
@@ -71,6 +73,7 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
   auto& feature = const_cast<orcmap::Feature&>(decoded);
   feature.kind_assigned = orcmap::experimental::TryClassifyFeatureForProfile(
       pipeline.profile_, feature, &feature.kind);
+  if (!context.replaying && pipeline.feature_cache_) pipeline.feature_cache_->Capture(feature);
   const uint64_t start = pipeline.now();
   for (const auto& placement : context.placements) {
     if (!(placement.tile == context.tile)) continue;
@@ -91,7 +94,7 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
 bool Pipeline::render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target,
                        orcmap::LabelLayout* labels, orcmap::LabelTextTarget* text,int label_zoom) {
   try {return render_impl(viewport,target,labels,text,label_zoom);}
-  catch(const std::bad_alloc&) {render_scratch_.Reset();ready_=false;stats_.out_of_memory=true;++stats_.failed;return false;}
+  catch(const std::bad_alloc&) {if(feature_cache_)feature_cache_->Commit(false);render_scratch_.Reset();ready_=false;stats_.out_of_memory=true;++stats_.failed;return false;}
 }
 bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget& target,
                             orcmap::LabelLayout* labels,orcmap::LabelTextTarget* text,int label_zoom) {
@@ -104,6 +107,8 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
       viewport.zoom < reader_.Header().min_zoom || viewport.zoom > reader_.Header().max_zoom) return false;
   std::vector<orcmap::TilePlacement> placements;
   if (!orcmap::EnumerateVisibleTilePlacements(viewport, &placements) || placements.size() > 64) return false;
+  const bool include_places = labels && label_zoom >= 6;
+  if (feature_cache_) feature_cache_->Prepare(placements, include_places);
   if (!orcmap::ClearMapBackground(viewport, orcmap::styles::OrcSdrDark(), &target)) return false;
   if (labels) labels->BeginFrame(viewport.width_px,viewport.height_px);
   for (size_t i = 0; i < placements.size(); ++i) {
@@ -130,13 +135,23 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     options.feature_sink = &Pipeline::feature;
     options.feature_sink_ctx = &context;
     const uint64_t stream = now(), render_before = stats_.render_us;
-    bool ok = reader_.StreamTile(tile.z, tile.x, tile.y, options, &scratch_);
+    const auto* replay = feature_cache_ ? feature_cache_->Find(tile) : nullptr;
+    context.replaying = replay != nullptr;
+    bool ok;
+    if (replay) {
+      ++stats_.replay_hits;
+      ok = replay->Replay(scratch_.feature, &Pipeline::feature, &context);
+    } else {
+      if (feature_cache_) feature_cache_->Begin(tile, include_places);
+      ok = reader_.StreamTile(tile.z, tile.x, tile.y, options, &scratch_);
+    }
     stats_.stream_us += now() - stream - (stats_.render_us - render_before);
     if (ok) {
       const uint64_t flush = now();
       ok = orcmap::FinishOrderedTile(&render_scratch_, &target, hooks_.service, hooks_.context);
       stats_.render_us += now() - flush;
     }
+    if (!replay && feature_cache_ && !feature_cache_->Commit(ok) && feature_cache_->Capacity()) ++stats_.replay_fallbacks;
     if (render_scratch_.status == orcmap::OrderedRenderStatus::kCancelled) stats_.cancelled = true;
     if (render_scratch_.status == orcmap::OrderedRenderStatus::kCapacityExceeded) ++stats_.deferred_capacity_failures;
     stats_.deferred_peak_bytes = std::max(stats_.deferred_peak_bytes, render_scratch_.peak_bytes);
@@ -158,6 +173,8 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     stats_.labels=labels->stats();
   }
   stats_.total_us = now() - start;
+  stats_.replay_bytes = feature_cache_ ? feature_cache_->Used() : 0;
+  stats_.replay_capacity = feature_cache_ ? feature_cache_->Capacity() : 0;
   return stats_.tiles > 0 && stats_.failed == 0 && !stats_.cancelled;
 }
 

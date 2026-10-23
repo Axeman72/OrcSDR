@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string_view>
 #include "map_world_compat.hpp"
+#include "map_feature_cache.hpp"
 #include "orcmap/byte_source.hpp"
 #include "orcmap/mvt_stream.hpp"
 #include "orcmap/pmtiles.hpp"
@@ -30,6 +31,8 @@ struct RenderStats {
   uint64_t label_us = 0;
   size_t deferred_peak_bytes = 0, deferred_retained_bytes = 0;
   uint32_t deferred_capacity_failures = 0;
+  uint32_t replay_hits = 0, replay_fallbacks = 0;
+  size_t replay_bytes = 0, replay_capacity = 0;
 };
 
 // One source/reader/scratch per active archive. No display, radio, or network
@@ -38,6 +41,8 @@ class Pipeline {
  public:
   explicit Pipeline(orcmap::ByteSource& source, WorkHooks hooks = {});
   bool open(std::string_view profile);
+  // Caller owns lifetime/PSRAM placement and must use the map worker lock.
+  void set_feature_cache(FeatureCache* cache) { feature_cache_ = cache; if (cache) cache->Clear(); }
   // Optional labels use caller-owned storage (PSRAM on P4) and a real font target.
   bool render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target,
               orcmap::LabelLayout* labels = nullptr, orcmap::LabelTextTarget* text = nullptr,
@@ -70,6 +75,7 @@ class Pipeline {
   orcmap::PmTilesReader reader_;
   orcmap::MvtStreamScratch scratch_;
   orcmap::OrderedRenderScratch render_scratch_;
+  FeatureCache* feature_cache_ = nullptr;
   bool ready_ = false;
   std::string_view profile_; // points only to a supported static literal
 };

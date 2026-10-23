@@ -87,7 +87,15 @@ struct FreeReadBuffer { void operator()(uint8_t* p) const {heap_caps_free(p);} }
 EXT_RAM_BSS_ATTR std::unique_ptr<uint8_t,FreeReadBuffer> g_read_buffer;
 EXT_RAM_BSS_ATTR ReadCache g_read_cache;
 std::atomic<size_t> g_read_cache_bytes{0};
+constexpr size_t kReplayCapacity = 768 * 1024;
+EXT_RAM_BSS_ATTR FeatureCache g_feature_cache;
+EXT_RAM_BSS_ATTR std::unique_ptr<uint8_t,FreeReadBuffer> g_replay_buffer;
+std::atomic<size_t> g_replay_bytes{0};
+void reset_replay() {
+  g_feature_cache.Reset();g_replay_buffer.reset();g_replay_bytes.store(0);
+}
 void reset_source() {
+  reset_replay();
   g_pipeline.reset();g_read_cache.Reset();g_read_buffer.reset();
   g_read_cache_bytes.store(0);g_source.reset();g_archive[0]=0;
 }
@@ -385,6 +393,7 @@ void worker(void*) {
     }
     g_ready=request; // service hook observes this request's immutable serial
     if(ok && (g_canvas.width()!=view.width_px || g_canvas.height()!=view.height_px)) {
+      reset_replay();
       // Mandatory frame storage takes priority over this optional read cache.
       g_read_cache.Reset(g_source.get());g_read_buffer.reset();g_read_cache_bytes.store(0);
       g_canvas.deleteSprite();g_canvas_bytes.store(0);
@@ -403,6 +412,15 @@ void worker(void*) {
       g_read_buffer.reset(static_cast<uint8_t*>(heap_caps_aligned_alloc(64,ReadCache::kCapacity,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)));
       g_read_cache.Reset(g_source.get(),g_read_buffer.get(),g_read_buffer ? ReadCache::kCapacity : 0);
       g_read_cache_bytes.store(g_read_cache.Capacity());
+    }
+    // Mandatory canvas/preview and decoding scratch retain priority. A failed
+    // optional allocation leaves the original streaming path available.
+    if(ok && path[0]!='@' && !g_replay_buffer &&
+       heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=kReplayCapacity+512*1024+preview_reserve) {
+      g_replay_buffer.reset(static_cast<uint8_t*>(heap_caps_malloc(kReplayCapacity,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)));
+      g_feature_cache.Reset(g_replay_buffer.get(),g_replay_buffer ? kReplayCapacity : 0);
+      g_replay_bytes.store(g_feature_cache.Capacity());
+      if(g_pipeline)g_pipeline->set_feature_cache(&g_feature_cache);
     }
     g_worker_wait_us=0;g_worker_yields=0;g_read_cache.ResetStats();
     if(ok) {
@@ -441,11 +459,11 @@ void worker(void*) {
     }
   }
 }
-size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load()+g_read_cache_bytes.load(); }
+size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load()+g_read_cache_bytes.load()+g_replay_bytes.load(); }
 size_t release() {
   if(!g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return 0;
   if(g_preview_lock&&xSemaphoreTake(g_preview_lock,0)!=pdTRUE){xSemaphoreGive(g_lock);return 0;}
-  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0)+g_read_cache_bytes.load();
+  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0)+g_read_cache_bytes.load()+g_replay_bytes.load();
   g_canvas.deleteSprite();g_preview.deleteSprite();g_preview_valid=false;g_preview_lifetime.fetch_add(1);g_cached=false;
   if(g_preview_lock)xSemaphoreGive(g_preview_lock);
   g_serial.fetch_add(1); // the same camera must request a new frame after reclaim
@@ -457,6 +475,7 @@ bool begin(storage::FileSystem* sd) {
   if(g_task)return true;
   // External BSS is NOLOAD: restore this polymorphic object's vtable at runtime.
   new(&g_read_cache) ReadCache();
+  new(&g_feature_cache) FeatureCache();
   preferences::load();
   g_sd=sd!=nullptr;
   g_storage=sd;
@@ -569,6 +588,10 @@ void report(void (*write)(const char*)) {
       static_cast<unsigned long>(frame.read_cache_bytes),static_cast<unsigned long long>(frame.read_cache.hits),
       static_cast<unsigned long long>(frame.read_cache.misses),static_cast<unsigned long long>(frame.read_cache.backing_reads),
       static_cast<unsigned long long>(frame.read_cache.backing_bytes));
+  write(line);
+  std::snprintf(line,sizeof(line),"ORC_MAP_REPLAY capacity_bytes=%u retained_bytes=%u tile_hits=%lu fallbacks=%lu\n",
+      static_cast<unsigned>(stats.replay_capacity),static_cast<unsigned>(stats.replay_bytes),
+      static_cast<unsigned long>(stats.replay_hits),static_cast<unsigned long>(stats.replay_fallbacks));
   write(line);
   std::snprintf(line,sizeof(line),"ORC_MAP_WORKER yields=%lu wait_us=%llu included_in_total=1 tick_us=%llu\n",
       static_cast<unsigned long>(frame.worker_yields),static_cast<unsigned long long>(frame.worker_wait_us),

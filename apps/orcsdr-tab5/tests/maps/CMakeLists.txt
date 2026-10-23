@@ -17,6 +17,7 @@ add_executable(orcsdr_maps_tests
   "${engine}/src/core/pack.cpp" "${engine}/src/core/pack_json.cpp" "${engine}/src/core/pack_discovery.cpp"
   "${engine}/src/tiles/pmtiles_reader.cpp" "${engine}/src/tiles/compression.cpp"
   "${engine}/src/tiles/mvt_decoder.cpp" "${engine}/src/tiles/mvt_stream.cpp"
+  "${engine}/src/tiles/feature_replay.cpp"
   "${engine}/src/tiles/mvt_translate.cpp" "${engine}/src/tiles/mvt_classify_experimental.cpp"
   "${engine}/src/render/style.cpp" "${engine}/src/render/renderer.cpp" "${engine}/src/render/clip.cpp"
   "${engine}/src/render/labels.cpp"
@@ -32,6 +33,15 @@ else()
   target_compile_options(orcsdr_maps_tests PRIVATE -UNDEBUG)
 endif()
 enable_testing()
+add_executable(orcsdr_map_feature_cache_tests map_feature_cache_tests.cpp
+  "${engine}/src/tiles/feature_replay.cpp")
+target_include_directories(orcsdr_map_feature_cache_tests PRIVATE "${ui}" "${engine}/include")
+if(MSVC)
+  target_compile_options(orcsdr_map_feature_cache_tests PRIVATE /UNDEBUG)
+else()
+  target_compile_options(orcsdr_map_feature_cache_tests PRIVATE -UNDEBUG)
+endif()
+add_test(NAME map_feature_cache COMMAND orcsdr_map_feature_cache_tests)
 add_executable(orcsdr_map_http_stream_tests http_stream_tests.cpp "${ui}/map_http_stream.cpp")
 target_include_directories(orcsdr_map_http_stream_tests PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/http_stubs" "${ui}" "${engine}/include")

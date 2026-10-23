@@ -5,6 +5,12 @@ status and lists do not require authentication. Every operation that changes
 state requires the existing authenticated serial session; this interface never
 pairs a new key. Responses end in a newline.
 
+The prepared feature-replay candidate adds `ORC_MAP_REPLAY` to `RTL_MAP STATUS`:
+`capacity_bytes` is the optional arena size, `retained_bytes` its complete tile
+payload, `tile_hits` the last frame's replayed tiles, and `fallbacks` the tiles
+streamed without retaining a complete replay. Zero capacity means normal
+streaming. These figures do not themselves establish faster display updates.
+
 Keep the session alive with `PING` at intervals shorter than five seconds,
 including while waiting for a command result. A location save can take several
 seconds; wait for its final result rather than assuming a short silence means

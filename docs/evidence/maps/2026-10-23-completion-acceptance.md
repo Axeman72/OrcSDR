@@ -141,6 +141,12 @@ antimeridian views. The reference payload is 433,391 bytes, but vector capacity
 is 573,440 bytes; Tokyo exceeds a 512 KiB payload budget. Fixed-capacity storage,
 fallback/eviction, labels, cancellation/reclaim and native timing remain open.
 This is a host feasibility result, not an installed optimization.
+
+Next source checkpoint: [bounded shared-pipeline integration](2026-10-23-feature-replay-integration.md).
+Focused integration passes 2/2, including replay/streaming equivalence, fallback,
+eviction and cancellation recovery; three P4 syntax checks pass. Engine dependency
+resolution, native link/placement and COM17 performance remain open. A full
+producer host run and development push are now explicitly approved.
 Current app remains 30a00ce1 / engine b59d478; consumer source revert ff31e14b restores
 that app tree exactly. Engine PR7's optional path was withdrawn after an 8.46 s
 completed frame and incomplete seven-second samples. No candidate percentiles
