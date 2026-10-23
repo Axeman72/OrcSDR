@@ -123,6 +123,20 @@ void test_text() {
   CHECK(std::strlen(tiny) < sizeof(tiny));
 }
 
+void test_restore_stamp() {
+  CHECK(restore_stamp(kNow - 600, kNow) == kNow - 600);                              // a recent sync survives a restart
+  CHECK(restore_stamp(kNow - kStaleAfterSeconds - 5, kNow) == kNow - kStaleAfterSeconds - 5);   // an old one too: it then reads as stale, not synced
+  CHECK(restore_stamp(0, kNow) == 0);                                                // never synced
+  CHECK(restore_stamp(kNow + 1, kNow) == 0);                                         // the clock was set back since: cannot vouch
+  CHECK(restore_stamp(kNow - kRestoreMaxAgeSeconds - 1, kNow) == 0);                 // too old to mean anything
+  CHECK(restore_stamp(kNow - kRestoreMaxAgeSeconds, kNow) == kNow - kRestoreMaxAgeSeconds);
+  CHECK(restore_stamp(kNow, 0) == 0);                                                // no valid clock yet
+  // A restored stamp feeds evaluate() like a fresh one.
+  Input in = base();
+  in.last_sync_utc = restore_stamp(kNow - 3600, kNow);
+  CHECK(evaluate(in) == Level::synced && age_seconds(in) == 3600);
+}
+
 void test_display_key() {
   CHECK(display_key(Level::synced, 100) == display_key(Level::synced, 110));       // same minute: no repaint
   CHECK(display_key(Level::synced, 100) != display_key(Level::synced, 200));       // new minute
@@ -182,6 +196,7 @@ int main() {
   test_levels();
   test_signal_correction();
   test_text();
+  test_restore_stamp();
   test_display_key();
   test_auto_sync();
   std::puts("clock_sync_status_tests: all passed");

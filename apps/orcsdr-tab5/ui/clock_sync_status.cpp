@@ -101,6 +101,11 @@ bool auto_sync_due(const DueInput& in) {
   return in.ms_since_last_attempt >= wait;
 }
 
+uint32_t restore_stamp(uint32_t stored, uint32_t now_utc) {
+  if (stored == 0 || now_utc == 0 || stored > now_utc || now_utc - stored > kRestoreMaxAgeSeconds) return 0;
+  return stored;
+}
+
 bool self_check() {
   Input in{};
   in.clock_valid = true;

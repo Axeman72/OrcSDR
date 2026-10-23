@@ -2,6 +2,13 @@
 
 This file tracks changes made specifically by the native OrcSDR FT8 decoder workstream. The main branch did not contain a repository-wide CHANGELOG.md when this workstream started.
 
+## 2026-10-23 - FT8 clock: the sync status survives a restart
+
+- The time of the last good sync (network, or a correction from decoded stations) is kept in flash (`clk_ntp`, `clk_sig`) and restored at boot, so a restart no longer shows UNSYNCED until the next sync. The RTC keeps counting through a restart and drifts only slowly, so the restored age stays meaningful (an age over 6 h reads STALE).
+- A stored time is believed only if it is not zero, not in the future (the clock was set back) and not older than 30 days (`clock_sync::restore_stamp`, host-tested); anything else is dropped.
+- It is erased whenever something changes the clock without vouching for it: setting the clock by hand (touch or serial) and `FT8 CLOCKTEST`. Written after each network sync and each signal correction (about every 2 hours at most).
+- Not yet run on a device (the unit was unavailable): the host tests and the firmware build pass.
+
 ## 2026-10-21 - FT8 clock: visible sync status, one-tap sync, automatic re-sync while decoding
 
 - **Problem found on the bench:** two Tab5s stopped decoding 40 m because their clocks were wrong (one 1.1 s slow, one 3.5 s fast), while the Live CLOCK chip still said LOCKED. The RTC keeps the date through power-offs but drifts about 0.9 s per day, and the one network sync per boot was only

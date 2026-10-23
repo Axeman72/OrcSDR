@@ -13664,6 +13664,31 @@ void ft8_free_memory_and_retry() {
 uint32_t g_ft8_signal_sync_utc = 0;       // when the clock was last corrected from the decoded stations' DT (0 = never)
 bool g_ft8_clock_test_hold = false;       // FT8 CLOCKTEST: the clock was set wrong on purpose; keep the network sync off until it is cleared
 
+// When the clock was last known right (a network sync, or a correction from decoded stations) is kept in flash so a restart does not forget it.
+// The RTC keeps counting through a restart and drifts only slowly, so the age stays meaningful. Anything that changes the clock without
+// vouching for it (the user setting it by hand, FT8 CLOCKTEST) must call ft8_clock_trust_forget().
+constexpr const char* kClockNtpKey = "clk_ntp";
+constexpr const char* kClockSignalKey = "clk_sig";
+
+void ft8_clock_trust_save() {
+  (void)preferences.putUInt(kClockNtpKey, orcsdr::ntp_sync::last_success_utc());
+  (void)preferences.putUInt(kClockSignalKey, g_ft8_signal_sync_utc);
+}
+
+void ft8_clock_trust_forget() {
+  orcsdr::ntp_sync::forget_last_success();
+  g_ft8_signal_sync_utc = 0;
+  (void)preferences.remove(kClockNtpKey);
+  (void)preferences.remove(kClockSignalKey);
+}
+
+void ft8_clock_trust_restore() {
+  const auto clock = orcsdr::time_service::now();
+  if (!clock.wallclock_valid) return;   // no trustworthy date yet: nothing can be vouched for
+  orcsdr::ntp_sync::restore_last_success(orcsdr::clock_sync::restore_stamp(preferences.getUInt(kClockNtpKey, 0), clock.utc));
+  g_ft8_signal_sync_utc = orcsdr::clock_sync::restore_stamp(preferences.getUInt(kClockSignalKey, 0), clock.utc);
+}
+
 orcsdr::clock_sync::Input ft8_clock_sync_input() {
   const auto clock = orcsdr::time_service::now();
   orcsdr::clock_sync::Input in;
@@ -13704,6 +13729,7 @@ void ft8_auto_clock_sync() {
       if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
       if (stepped) {
         g_ft8_signal_sync_utc = orcsdr::time_service::now().utc;
+        ft8_clock_trust_save();
         Serial.printf("ORC_FT8_CLOCK_DT applied step_ms=%d\n", static_cast<int>(step_ms));
       } else {
         Serial.printf("ORC_FT8_CLOCK_DT step_failed step_ms=%d moved_ms=%d\n", static_cast<int>(step_ms), static_cast<int>(applied_ms));
@@ -14789,6 +14815,7 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       if (!orcsdr::time_service::store_utc_offset_minutes(preferences, action.value))
         Serial.println("ORC_TZ_ERROR not_stored");
       if (orcsdr::time_service::set_utc(action.utc) && preferences.putBool("rtc_est", true)) {
+        ft8_clock_trust_forget();   // set by hand: nothing vouches for its accuracy, so the sync status starts over
         Serial.printf("ORC_RTC_SET_OK utc=%lu source=touch\n", static_cast<unsigned long>(action.utc));
       } else {
         Serial.println("ORC_RTC_SET_ERROR touch_set_failed");
@@ -14870,6 +14897,7 @@ void service_clock() {
   bool ok = false;
   if (!orcsdr::ntp_sync::take_result(&ok)) return;
   if (ok && !preferences.putBool("rtc_est", true)) ok = false;
+  if (ok) ft8_clock_trust_save();   // remember the sync across a restart
   Serial.printf("ORC_NTP_%s\n", ok ? "OK" : "FAILED");
   update_global_settings();
   bump_rtl_ui();
@@ -15101,6 +15129,7 @@ void load_state() {
   preferences.begin("orclink", false);
   orcsdr::time_service::initialize(preferences.getBool("rtc_est", false));
   orcsdr::time_service::load_config(preferences);
+  ft8_clock_trust_restore();   // when the clock was last known right survives a restart
   orcsdr::am::load(preferences);
   rtl_am_step_hz = orcsdr::am::tune_step();
   band_step_load();
@@ -18812,8 +18841,7 @@ void process_ft8_command(const char* args) {
       return;
     }
     g_ft8_clock_test_hold = true;
-    orcsdr::ntp_sync::forget_last_success();
-    g_ft8_signal_sync_utc = 0;
+    ft8_clock_trust_forget();   // the clock is about to be wrong on purpose: a restart must not call it synced
     int32_t applied_ms = 0;
     const bool ok = orcsdr::time_service::step_ms(static_cast<int32_t>(delta), &applied_ms);
     if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
@@ -21120,6 +21148,7 @@ void process_command(char* command) {
       Serial.println("ORC_RTC_SET_ERROR persistence_failed");
       return;
     }
+    ft8_clock_trust_forget();   // set by hand: nothing vouches for its accuracy, so the sync status starts over
     Serial.printf("ORC_RTC_SET_OK utc=%lu\n", epoch);
     update_global_settings();
     bump_rtl_ui();

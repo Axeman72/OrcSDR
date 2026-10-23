@@ -60,6 +60,11 @@ struct DueInput {
 // older than kResyncAfterSeconds, and the retry delay since the previous attempt has passed.
 bool auto_sync_due(const DueInput& in);
 
+// A sync stamp kept across a reboot is believed only if it is plausible: not zero, not in the future (the clock was set back since) and not
+// older than kRestoreMaxAgeSeconds. Anything else is dropped (0), so a restart never claims a sync that cannot be vouched for.
+constexpr uint32_t kRestoreMaxAgeSeconds = 30u * 24u * 3600u;
+uint32_t restore_stamp(uint32_t stored, uint32_t now_utc);
+
 bool self_check();
 
 }  // namespace orcsdr::clock_sync
