@@ -3050,6 +3050,8 @@ static std::atomic<uint32_t> g_sstv_if_hz{0};
 static std::atomic<uint8_t> g_dead_air_demod{0};
 static uint32_t g_dead_air_saved_filter_hz = 0;  // IF width in force before Dead Air changed mode; UI task only
 static uint32_t g_dead_air_return_hz = 0;        // frequency to give back to Home when Dead Air is left; UI task only
+static RtlBand g_dead_air_return_band = RtlBand::browse;  // the band Home was on (shortwave, MW... keep their own label)
+static uint8_t g_dead_air_return_demod = 0;      // Home's demodulator choice at that moment
 
 HomeDemod effective_demod(RtlBand band) {
   if (band == RtlBand::browse) {
@@ -13044,12 +13046,18 @@ void show_home(bool demo) {
   orcsdr::sstv_app::close();
   orcsdr::acars_app::close();
   const uint32_t dead_air_return_hz = orcsdr::dead_air_app::active() ? g_dead_air_return_hz : 0u;
+  const RtlBand dead_air_return_band = g_dead_air_return_band;
+  const uint8_t dead_air_return_demod = g_dead_air_return_demod;
   orcsdr::dead_air_app::close();
   home_enter();
   orcsdr::audio_header::reset(rtl_header_audio_control);
   orcsdr::navigation::show_home(demo);
   // Home re-derives the band and demodulator for the frequency it had before Dead Air took the general band.
-  if (dead_air_return_hz != 0 && rtl_device_ready()) (void)home_tune_to(dead_air_return_hz, true);
+  if (dead_air_return_hz != 0 && rtl_device_ready()) {
+    // Give back exactly what Dead Air took: the same band label (shortwave, CB, FM...) and demodulator choice.
+    rtl_home_demod.store(dead_air_return_demod, std::memory_order_release);
+    (void)queue_local_rtl_listen(dead_air_return_band, dead_air_return_hz, false);
+  }
 }
 
 void draw_home_dashboard() {
@@ -14184,7 +14192,11 @@ void open_dead_air_dashboard() {
   persist_dashboard_open(orcsdr::dashboards::Id::dead_air);
   // Dead Air rides the general (BROWSE, NFM) band. Remember where the radio was so Home can take it back to the right
   // band and demodulator when Dead Air is left; 0 means there was nothing to return to.
-  if (!orcsdr::dead_air_app::active()) g_dead_air_return_hz = rtl_device_ready() ? rtl_ui_frequency_hz : 0u;
+  if (!orcsdr::dead_air_app::active()) {
+    g_dead_air_return_hz = rtl_device_ready() ? rtl_ui_frequency_hz : 0u;
+    g_dead_air_return_band = rtl_ui_band;
+    g_dead_air_return_demod = rtl_home_demod.load(std::memory_order_acquire);
+  }
   orcsdr::home::leave();
   orcsdr::ft8::leave();
   orcsdr::sstv_app::close();
