@@ -14820,11 +14820,12 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       update_global_settings();
       bump_rtl_ui();
       break;
-    case orcsdr::settings::ActionKind::clock_set_utc:
+    case orcsdr::settings::ActionKind::clock_set_utc: {
       if (!orcsdr::time_service::store_utc_offset_minutes(preferences, action.value))
         Serial.println("ORC_TZ_ERROR not_stored");
-      if (orcsdr::time_service::set_utc(action.utc) && preferences.putBool("rtc_est", true)) {
-        ft8_clock_trust_forget();   // set by hand: nothing vouches for its accuracy, so the sync status starts over
+      const bool utc_set = orcsdr::time_service::set_utc(action.utc);
+      if (utc_set) ft8_clock_trust_forget();   // set by hand: nothing vouches for its accuracy, so the sync status starts over (even if persisting fails)
+      if (utc_set && preferences.putBool("rtc_est", true)) {
         Serial.printf("ORC_RTC_SET_OK utc=%lu source=touch\n", static_cast<unsigned long>(action.utc));
       } else {
         Serial.println("ORC_RTC_SET_ERROR touch_set_failed");
@@ -14832,6 +14833,7 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       update_global_settings();
       bump_rtl_ui();
       break;
+    }
     case orcsdr::settings::ActionKind::clock_ntp_sync:
       if (orcsdr::ntp_sync::start(wifi_connected)) {
         Serial.println("ORC_NTP_START");
@@ -18781,7 +18783,8 @@ void process_ft8_command(const char* args) {
     if (strcasecmp(p, "CAL") == 0) action = WwvAction::calibrate;
     else if (strcasecmp(p, "SYNC") == 0) action = WwvAction::sync;
     char key[16];
-    if (end == rest || !ft8_wwv_key(mhz, key, sizeof(key)) || seconds < 20 || seconds > 240 ||
+    // The key rounds to the nearest supported frequency, so require the typed value to be that frequency (10.04 must not tune 40 kHz off).
+    if (end == rest || !ft8_wwv_key(mhz, key, sizeof(key)) || std::fabs(mhz * 10.0f - std::round(mhz * 10.0f)) > 0.01f || seconds < 20 || seconds > 240 ||
         (*p != '\0' && action == WwvAction::report)) {
       Serial.println("ORC_FT8_ERROR WWV invalid use WWV <2.5|5|10|15|20> [20-240 seconds] [CAL|SYNC] | WWV STOP | WWV");
       return;
@@ -18796,7 +18799,7 @@ void process_ft8_command(const char* args) {
     }
     g_wwv_previous_band = ft8_selected_band();
     g_wwv_previous_dial_override = g_ft8_dial_override_hz;
-    const uint32_t dial =static_cast<uint32_t>(mhz * 1000000.0f + 0.5f) - 1000u;   // 1 kHz below the carrier: the carrier is then a line at 1000 Hz
+    const uint32_t dial = static_cast<uint32_t>(mhz * 1000000.0f + 0.5f) - 1000u;   // 1 kHz below the carrier: the carrier is then a line at 1000 Hz
     if (!ft8_tune_dial(dial) || !orcsdr::ft8_runtime::wwv_start(static_cast<uint32_t>(seconds))) {
       if (g_wwv_previous_dial_override != 0) (void)ft8_tune_dial(g_wwv_previous_dial_override);
       else (void)ft8_select_band_table(g_wwv_previous_band);
