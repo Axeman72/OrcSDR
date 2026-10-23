@@ -14,6 +14,7 @@
 #include <new>
 #include <sys/time.h>
 
+#include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -101,7 +102,8 @@ struct Runtime {
   Status status{};
 };
 
-Runtime g;
+// Zero-initialised, not real-time and not DMA: kept in PSRAM so internal RAM stays free for the boot-time DMA pool.
+EXT_RAM_BSS_ATTR Runtime g;
 
 uint64_t wall_ms() {
   timeval tv{};
@@ -203,7 +205,7 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
     return;
   }
 
-  static int16_t chunk[2048];   // shared by the FT8/FT4 and JS8 paths: internal RAM is tight (the 40 KB DMA pool at boot only just fits), so no second buffer and no bigger one
+  EXT_RAM_BSS_ATTR static int16_t chunk[4096];   // shared by the FT8/FT4 and JS8 paths: internal RAM is tight, so no second buffer
   if (is_js8(g.mode)) {
     // JS8 (receive only): the backend returns a Decode only for a frame whose parity and CRC-12 both hold and that renders as a verified message.
     if (!js8_supported(g.mode) || g.js8 == nullptr) return;
