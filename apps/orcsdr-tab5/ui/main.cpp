@@ -13664,6 +13664,40 @@ void ft8_free_memory_and_retry() {
 uint32_t g_ft8_signal_sync_utc = 0;       // when the clock was last corrected from the decoded stations' DT (0 = never)
 bool g_ft8_clock_test_hold = false;       // FT8 CLOCKTEST: the clock was set wrong on purpose; keep the network sync off until it is cleared
 
+// When the clock was last known right (a network sync, or a correction from decoded stations) is kept in flash so a restart does not forget it.
+// The RTC keeps counting through a restart and drifts only slowly, so the age stays meaningful. Anything that changes the clock without
+// vouching for it (the user setting it by hand, FT8 CLOCKTEST) must call ft8_clock_trust_forget().
+constexpr const char* kClockNtpKey = "clk_ntp";
+constexpr const char* kClockSignalKey = "clk_sig";
+
+void ft8_clock_trust_save() {
+  (void)preferences.putUInt(kClockNtpKey, orcsdr::ntp_sync::last_success_utc());
+  (void)preferences.putUInt(kClockSignalKey, g_ft8_signal_sync_utc);
+}
+
+void ft8_wwv_clock_changed();   // defined with the WWV state below
+
+void ft8_clock_trust_forget() {
+  orcsdr::ft8_runtime::clock_changed();   // a queued signal correction was decoded against the old clock
+  ft8_wwv_clock_changed();   // every caller has just set or deliberately disturbed the clock: a WWV measurement spanning it means nothing
+  orcsdr::ntp_sync::forget_last_success();
+  g_ft8_signal_sync_utc = 0;
+  // A stamp that stays in flash would be believed again after a restart: if the erase fails, overwrite it with zero (which restore ignores).
+  for (const char* key : {kClockNtpKey, kClockSignalKey}) {
+    if (!preferences.remove(key)) {
+      Serial.printf("ORC_FT8_CLOCK_TRUST_ERASE_FAILED key=%s\n", key);
+      (void)preferences.putUInt(key, 0);
+    }
+  }
+}
+
+void ft8_clock_trust_restore() {
+  const auto clock = orcsdr::time_service::now();
+  if (!clock.wallclock_valid) return;   // no trustworthy date yet: nothing can be vouched for
+  orcsdr::ntp_sync::restore_last_success(orcsdr::clock_sync::restore_stamp(preferences.getUInt(kClockNtpKey, 0), clock.utc));
+  g_ft8_signal_sync_utc = orcsdr::clock_sync::restore_stamp(preferences.getUInt(kClockSignalKey, 0), clock.utc);
+}
+
 orcsdr::clock_sync::Input ft8_clock_sync_input() {
   const auto clock = orcsdr::time_service::now();
   orcsdr::clock_sync::Input in;
@@ -13704,6 +13738,7 @@ void ft8_auto_clock_sync() {
       if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
       if (stepped) {
         g_ft8_signal_sync_utc = orcsdr::time_service::now().utc;
+        ft8_clock_trust_save();
         Serial.printf("ORC_FT8_CLOCK_DT applied step_ms=%d\n", static_cast<int>(step_ms));
       } else {
         Serial.printf("ORC_FT8_CLOCK_DT step_failed step_ms=%d moved_ms=%d\n", static_cast<int>(step_ms), static_cast<int>(applied_ms));
@@ -13812,6 +13847,15 @@ void ft8_dashboard_fill_snapshot(orcsdr::ft8::Snapshot& snapshot) {
     snapshot.gain_step_count = static_cast<uint8_t>(step_count);
     for (size_t i = 0; i < step_count; ++i) snapshot.gain_steps_tenth_db[i] = steps[i];
   }
+  // The RTL2832's own AGC (V3/V4 dongles) is independent of the tuner gain, so the button does not depend on tuner gain being available.
+  if (g_rtl != nullptr && rtl_has_device_capability(ESP_RTL_SDR_CAP_RTL_AGC)) {
+    // Only offer the button when the state could be read: a failed read must not show OFF and then send an ON request on a guess.
+    bool agc = false;
+    if (esp_rtl_sdr_get_rtl_agc(g_rtl, &agc) == ESP_OK) {
+      snapshot.rtl_agc_available = true;
+      snapshot.rtl_agc = agc;
+    }
+  }
 #endif
   snapshot.decode_count = std::min(g_ft8_store.size(), orcsdr::ft8::kDecodeCapacity);
   for (size_t i = 0; i < snapshot.decode_count; ++i) {
@@ -13832,6 +13876,8 @@ void draw_ft8_dashboard(bool static_panel) {
 }
 
 // Choose a band and, when the receiver can take it, listen there (HF dial frequencies use the shortwave path).
+// Counts accepted FT8 band or dial changes; a WWV measurement compares it to skip its restore after the user tuned elsewhere.
+static uint32_t g_ft8_tune_generation = 0;
 bool ft8_select_band(size_t index) {
   if (index >= orcsdr::ft8::band_count()) return false;
   const auto* preset = orcsdr::ft8::band(index);
@@ -13855,6 +13901,7 @@ bool ft8_select_band(size_t index) {
                             ? request_hot_retune(dial_hz) : queue_local_rtl_listen(target, dial_hz);
   if (accepted) {
     g_ft8_band = index;
+    ++g_ft8_tune_generation;
     orcsdr::ft8_runtime::set_radio_context(static_cast<uint8_t>(index), dial_hz);
   }
   return accepted;
@@ -13904,6 +13951,7 @@ void handle_ft8_dashboard_action(const orcsdr::ft8::Action& action) {
     case Kind::tune_dial: (void)ft8_tune_dial(action.value); break;
     case Kind::gain_auto: (void)rtl_gain_set_auto("FT8"); break;
     case Kind::gain_manual: (void)rtl_gain_set_manual("FT8", static_cast<int>(action.value)); break;
+    case Kind::rtl_agc: (void)rtl_gain_set_rtl_agc("FT8", action.value != 0); break;
     case Kind::tune_auto: (void)ft8_select_band_table(ft8_selected_band()); break;
     case Kind::set_expert:
       g_ft8_expert = action.value != 0;
@@ -14785,10 +14833,12 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       update_global_settings();
       bump_rtl_ui();
       break;
-    case orcsdr::settings::ActionKind::clock_set_utc:
+    case orcsdr::settings::ActionKind::clock_set_utc: {
       if (!orcsdr::time_service::store_utc_offset_minutes(preferences, action.value))
         Serial.println("ORC_TZ_ERROR not_stored");
-      if (orcsdr::time_service::set_utc(action.utc) && preferences.putBool("rtc_est", true)) {
+      const bool utc_set = orcsdr::time_service::set_utc(action.utc);
+      if (utc_set) ft8_clock_trust_forget();   // set by hand: nothing vouches for its accuracy, so the sync status starts over (even if persisting fails)
+      if (utc_set && preferences.putBool("rtc_est", true)) {
         Serial.printf("ORC_RTC_SET_OK utc=%lu source=touch\n", static_cast<unsigned long>(action.utc));
       } else {
         Serial.println("ORC_RTC_SET_ERROR touch_set_failed");
@@ -14796,6 +14846,7 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       update_global_settings();
       bump_rtl_ui();
       break;
+    }
     case orcsdr::settings::ActionKind::clock_ntp_sync:
       if (orcsdr::ntp_sync::start(wifi_connected)) {
         Serial.println("ORC_NTP_START");
@@ -14862,14 +14913,124 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
   }
 }
 
+// ---- FT8 WWV: measuring the WWV time-signal tick with the FT8 audio path (bench command; see wwv_tick.hpp)
+// The decoder task folds the tick; this side tunes, restores the band, and when asked learns the fixed delay against a fresh network sync
+// (CAL) or corrects the clock from the tick (SYNC). The delay (audio filters, propagation, which station) differs by site and frequency, so
+// it is learned on the device and never built in.
+enum class WwvAction : uint8_t { none, report, calibrate, sync };
+WwvAction g_wwv_action = WwvAction::none;
+float g_wwv_mhz = 0.0f;
+size_t g_wwv_previous_band = SIZE_MAX;
+uint32_t g_wwv_previous_dial_override = 0;   // the expert dial in use before the measurement (0 = the band table's)
+uint32_t g_wwv_tune_generation = 0;
+
+bool ft8_wwv_key(float mhz, char* key, size_t size) {
+  const int tenths = static_cast<int>(mhz * 10.0f + 0.5f);
+  if (tenths != 25 && tenths != 50 && tenths != 100 && tenths != 150 && tenths != 200) return false;
+  snprintf(key, size, "wwvb%d", tenths);
+  return true;
+}
+
+// Brings an offset (ms) into -500..500: the tick repeats every second, so only the fraction of a second means anything.
+float ft8_wwv_wrap_ms(float ms) {
+  while (ms > 500.0f) ms -= 1000.0f;
+  while (ms <= -500.0f) ms += 1000.0f;
+  return ms;
+}
+
+bool g_wwv_clock_changed = false;   // the clock was set by hand (or by CLOCKTEST) during the measurement: its result must not be applied
+
+void ft8_wwv_clock_changed() {
+  if (g_wwv_action == WwvAction::none) return;
+  g_wwv_clock_changed = true;
+  orcsdr::ft8_runtime::wwv_stop();   // ends it (band restored by the service); a report already finished is discarded by the flag
+}
+
+void ft8_wwv_service() {
+  if (g_wwv_action == WwvAction::none) return;
+  const auto r = orcsdr::ft8_runtime::wwv_report();
+  if (r.phase != 2) {
+    if (r.phase == 0) g_wwv_action = WwvAction::none;   // nothing is running any more
+    return;
+  }
+  const WwvAction action = g_wwv_action;
+  g_wwv_action = WwvAction::none;
+  if (g_wwv_previous_band != SIZE_MAX && g_ft8_tune_generation == g_wwv_tune_generation) {   // not if the person tuned meanwhile
+    if (g_wwv_previous_dial_override != 0) (void)ft8_tune_dial(g_wwv_previous_dial_override);
+    else (void)ft8_select_band_table(g_wwv_previous_band);   // listen where the person was listening
+  }
+  g_wwv_previous_band = SIZE_MAX;
+  if (g_wwv_clock_changed) {
+    g_wwv_clock_changed = false;
+    Serial.println("ORC_FT8_WWV_RESULT cancelled (the clock was set during the measurement)");
+    return;
+  }
+  char key[16];
+  const bool have_key = ft8_wwv_key(g_wwv_mhz, key, sizeof(key));
+  const int32_t kNoBias = INT32_MIN;
+  const int32_t bias = have_key ? preferences.getInt(key, kNoBias) : kNoBias;
+  Serial.printf("ORC_FT8_WWV mhz=%.1f note=%u seconds=%u carrier=%d carrier_hz=%.2f carrier_snr_db=%.1f ticks=%d tick_wall_ms=%.2f tick_stream_ms=%.2f z=%.1f agree=%d even_ms=%.2f odd_ms=%.2f bias_ms=%ld\n",
+                static_cast<double>(g_wwv_mhz), static_cast<unsigned>(r.note), static_cast<unsigned>(r.seconds), r.carrier_found ? 1 : 0,
+                static_cast<double>(r.carrier_hz), static_cast<double>(r.carrier_snr_db), r.ticks ? 1 : 0, static_cast<double>(r.tick_wall_ms),
+                static_cast<double>(r.tick_stream_ms), static_cast<double>(r.peak_z), r.halves_agree ? 1 : 0, static_cast<double>(r.even_ms),
+                static_cast<double>(r.odd_ms), bias == kNoBias ? 0L : static_cast<long>(bias));
+  if (r.note == 1 || r.note == 3 || r.note == 4) {   // stopped, interrupted or timed out: a partial fold is reported above but never applied
+    Serial.printf("ORC_FT8_WWV_RESULT incomplete note=%u (not applied)\n", static_cast<unsigned>(r.note));
+    return;
+  }
+  if (!r.ticks) {
+    Serial.println(r.carrier_found ? "ORC_FT8_WWV_RESULT no_tick (carrier heard, tick not found: too weak or too short)"
+                                   : "ORC_FT8_WWV_RESULT no_carrier (no WWV carrier line near 1000 Hz)");
+    return;
+  }
+  if (action == WwvAction::calibrate) {
+    const auto status = ft8_clock_sync_input();
+    const bool fresh = orcsdr::clock_sync::evaluate(status) == orcsdr::clock_sync::Level::synced && orcsdr::clock_sync::age_seconds(status) <= 900;
+    if (!have_key || !fresh) {
+      Serial.println("ORC_FT8_WWV_RESULT cal_refused (needs a network sync in the last 15 minutes: run FT8 NTP first)");
+    } else if (preferences.putInt(key, static_cast<int32_t>(r.tick_wall_ms + 0.5f))) {
+      Serial.printf("ORC_FT8_WWV_RESULT cal_stored bias_ms=%d\n", static_cast<int>(r.tick_wall_ms + 0.5f));
+    }
+    return;
+  }
+  if (action == WwvAction::sync) {
+    if (bias == kNoBias) {
+      Serial.println("ORC_FT8_WWV_RESULT sync_refused (not calibrated for this frequency: run FT8 WWV <MHz> CAL right after an NTP sync)");
+      return;
+    }
+    const float error_ms = ft8_wwv_wrap_ms(r.tick_wall_ms - static_cast<float>(bias));   // positive: our clock reads late, i.e. it is fast
+    if (error_ms > 400.0f || error_ms < -400.0f) {
+      Serial.printf("ORC_FT8_WWV_RESULT sync_refused error_ms=%.1f (a tick cannot tell a second from a few hundred ms: fix the clock first)\n", static_cast<double>(error_ms));
+    } else if (error_ms < 20.0f && error_ms > -20.0f) {
+      Serial.printf("ORC_FT8_WWV_RESULT in_step error_ms=%.1f (no change)\n", static_cast<double>(error_ms));
+    } else {
+      int32_t applied = 0;
+      const bool stepped = orcsdr::time_service::step_ms(static_cast<int32_t>(-error_ms), &applied);
+      if (applied > 50 || applied < -50) orcsdr::ft8_runtime::clock_stepped(applied);
+      if (stepped) {
+        g_ft8_signal_sync_utc = orcsdr::time_service::now().utc;
+        ft8_clock_trust_save();
+      }
+      Serial.printf("ORC_FT8_WWV_RESULT %s error_ms=%.1f step_ms=%d moved_ms=%d\n", stepped ? "synced" : "sync_failed", static_cast<double>(error_ms),
+                    static_cast<int>(-error_ms), static_cast<int>(applied));
+    }
+    return;
+  }
+  const float error_ms = bias == kNoBias ? 0.0f : ft8_wwv_wrap_ms(r.tick_wall_ms - static_cast<float>(bias));
+  if (bias == kNoBias) Serial.println("ORC_FT8_WWV_RESULT tick_found (not calibrated: FT8 WWV <MHz> CAL after an NTP sync stores the delay)");
+  else Serial.printf("ORC_FT8_WWV_RESULT tick_found error_ms=%.1f (positive: the clock is fast)\n", static_cast<double>(error_ms));
+}
+
 // Runs an optional network sync to its end and records that the RTC is now established. Called every UI loop.
 void service_clock() {
   ft8_install_clock_hooks();
+  ft8_wwv_service();
   orcsdr::ntp_sync::poll();
   ft8_auto_clock_sync();
   bool ok = false;
   if (!orcsdr::ntp_sync::take_result(&ok)) return;
   if (ok && !preferences.putBool("rtc_est", true)) ok = false;
+  if (ok) ft8_clock_trust_save();   // remember the sync across a restart
   Serial.printf("ORC_NTP_%s\n", ok ? "OK" : "FAILED");
   update_global_settings();
   bump_rtl_ui();
@@ -15101,6 +15262,7 @@ void load_state() {
   preferences.begin("orclink", false);
   orcsdr::time_service::initialize(preferences.getBool("rtc_est", false));
   orcsdr::time_service::load_config(preferences);
+  ft8_clock_trust_restore();   // when the clock was last known right survives a restart
   orcsdr::am::load(preferences);
   rtl_am_step_hz = orcsdr::am::tune_step();
   band_step_load();
@@ -18619,6 +18781,71 @@ void process_ft8_command(const char* args) {
     return;
   }
 
+  if (strcmp(verb, "WWV") == 0) {
+    // FT8 WWV                                            status (no authentication)
+    // FT8 WWV <2.5|5|10|15|20> [seconds 20-240] [CAL|SYNC]  tune 1 kHz below the WWV carrier and fold the tick for `seconds` (default 90)
+    // FT8 WWV STOP                                       end a measurement early
+    // CAL stores the fixed delay against a fresh NTP sync; SYNC corrects the clock from the tick (needs that calibration). The decoder must
+    // be running (FT8 RUN 1) and the band is put back afterwards. Needs authentication to start.
+    const auto status = orcsdr::ft8_runtime::wwv_report();
+    if (*rest == '\0') {
+      Serial.printf("ORC_FT8_WWV_STATUS phase=%u seconds=%u action=%u mhz=%.1f\n", static_cast<unsigned>(status.phase), static_cast<unsigned>(status.seconds),
+                    static_cast<unsigned>(g_wwv_action), static_cast<double>(g_wwv_mhz));
+      return;
+    }
+    if (need_auth()) return;
+    if (strcasecmp(rest, "STOP") == 0) {
+      orcsdr::ft8_runtime::wwv_stop();
+      Serial.println("ORC_FT8_WWV_STOP requested");
+      return;
+    }
+    char* end = nullptr;
+    const float mhz = strtof(rest, &end);
+    unsigned long seconds = 90;
+    WwvAction action = WwvAction::report;
+    const char* p = end;
+    while (*p == ' ') ++p;
+    if (*p >= '0' && *p <= '9') {
+      seconds = strtoul(p, &end, 10);
+      p = end;
+      while (*p == ' ') ++p;
+    }
+    if (strcasecmp(p, "CAL") == 0) action = WwvAction::calibrate;
+    else if (strcasecmp(p, "SYNC") == 0) action = WwvAction::sync;
+    char key[16];
+    // The key rounds to the nearest supported frequency, so require the typed value to be that frequency (10.04 must not tune 40 kHz off).
+    if (end == rest || !ft8_wwv_key(mhz, key, sizeof(key)) || std::fabs(mhz * 10.0f - std::round(mhz * 10.0f)) > 0.01f || seconds < 20 || seconds > 240 ||
+        (*p != '\0' && action == WwvAction::report)) {
+      Serial.println("ORC_FT8_ERROR WWV invalid use WWV <2.5|5|10|15|20> [20-240 seconds] [CAL|SYNC] | WWV STOP | WWV");
+      return;
+    }
+    if (!orcsdr::ft8_runtime::active()) {
+      Serial.println("ORC_FT8_ERROR WWV the decoder is not running (FT8 RUN 1 or open the FT8 screen)");
+      return;
+    }
+    if (status.phase == 1 || g_wwv_action != WwvAction::none) {
+      Serial.println("ORC_FT8_ERROR WWV a measurement is already running (FT8 WWV STOP)");
+      return;
+    }
+    g_wwv_previous_band = ft8_selected_band();
+    g_wwv_previous_dial_override = g_ft8_dial_override_hz;
+    const uint32_t dial = static_cast<uint32_t>(mhz * 1000000.0f + 0.5f) - 1000u;   // 1 kHz below the carrier: the carrier is then a line at 1000 Hz
+    if (!ft8_tune_dial(dial) || !orcsdr::ft8_runtime::wwv_start(static_cast<uint32_t>(seconds))) {
+      if (g_wwv_previous_dial_override != 0) (void)ft8_tune_dial(g_wwv_previous_dial_override);
+      else (void)ft8_select_band_table(g_wwv_previous_band);
+      g_wwv_previous_band = SIZE_MAX;
+      Serial.println("ORC_FT8_ERROR WWV could not start (tuning refused or no memory)");
+      return;
+    }
+    g_wwv_tune_generation = g_ft8_tune_generation;   // after the measurement's own tune
+    g_wwv_clock_changed = false;
+    g_wwv_action = action;
+    g_wwv_mhz = mhz;
+    Serial.printf("ORC_FT8_WWV_START mhz=%.1f dial_hz=%lu seconds=%lu action=%u (about %lu s with the retune; the band comes back by itself)\n", static_cast<double>(mhz),
+                  static_cast<unsigned long>(dial), seconds, static_cast<unsigned>(action), seconds + 12);
+    return;
+  }
+
   // ---- everything below changes state
   if (need_auth()) return;
 
@@ -18812,8 +19039,7 @@ void process_ft8_command(const char* args) {
       return;
     }
     g_ft8_clock_test_hold = true;
-    orcsdr::ntp_sync::forget_last_success();
-    g_ft8_signal_sync_utc = 0;
+    ft8_clock_trust_forget();   // the clock is about to be wrong on purpose: a restart must not call it synced
     int32_t applied_ms = 0;
     const bool ok = orcsdr::time_service::step_ms(static_cast<int32_t>(delta), &applied_ms);
     if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
@@ -21116,6 +21342,7 @@ void process_command(char* command) {
       Serial.println("ORC_RTC_SET_ERROR invalid_or_unavailable");
       return;
     }
+    ft8_clock_trust_forget();   // set by hand: nothing vouches for its accuracy, so the sync status starts over (even if persisting below fails)
     if (!preferences.putBool("rtc_est", true)) {
       Serial.println("ORC_RTC_SET_ERROR persistence_failed");
       return;

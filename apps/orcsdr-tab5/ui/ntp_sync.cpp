@@ -73,6 +73,8 @@ void set_step_listener(StepListener listener) { g_step_listener = listener; }
 
 uint32_t last_success_utc() { return g_last_success_utc; }
 
+void restore_last_success(uint32_t utc) { g_last_success_utc = utc; }
+
 void forget_last_success() {
   if (g_state == State::syncing) {   // an attempt in flight would finish later, rewrite the clock and mark it synced again
     esp_sntp_stop();
