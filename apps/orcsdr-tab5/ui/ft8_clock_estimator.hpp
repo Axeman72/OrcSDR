@@ -15,7 +15,10 @@ namespace orcsdr::ft8::clock_dt {
 // about +-100 ms, which is why the correction threshold is 200 ms.
 constexpr int32_t kReceiverBiasMs = 60;
 
-constexpr size_t kWindowSlots = 8;          // decodes from the last 8 slots (2 minutes) are pooled: a quiet band gives only a few decodes a slot
+// Decodes from the last 24 slots (6 minutes) are pooled. A quiet band gives about one decode every two slots, so 8 slots (2 minutes) never
+// reached the 6 decodes needed (measured on 40 m: 17 minutes of wide-search decoding without a correction). The clock drifts about 0.9 s a
+// day, so a slower decision costs nothing; the evidence is cleared whenever the clock is stepped.
+constexpr size_t kWindowSlots = 24;
 constexpr size_t kMaxSamples = 64;
 constexpr size_t kMinSamples = 6;           // fewer decodes than this prove nothing
 constexpr size_t kMinDistinct = 4;          // from at least this many different stations (one chatty station must not steer the clock)
