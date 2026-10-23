@@ -19,8 +19,13 @@ RegionalView draw_camera(lgfx::v1::LovyanGFX& display,const orcmap::Viewport& ca
   result.valid=width>0&&height>0;
   if(!result.valid)return result;
   result.x=x;result.y=y;
-  display.fillRect(x,y,width,height,background);
   result.frame.state=draw(result.camera,display,x,y,&result.frame,preferred,labels);
+  // Ready frames and cached previews are opaque. Clearing first briefly blanks
+  // every dashboard map on data/age updates, despite preserving the cached view.
+  // Pending may also mean a publication-lock miss: keep the previous visible
+  // image then, rather than mistaking absent frame metadata for an empty map.
+  if(result.frame.state==Frame::unavailable&&!result.frame.credit[0])
+    display.fillRect(x,y,width,height,background);
   if(result.frame.state!=Frame::ready) {
     display.drawRect(x,y,width,height,grid);
     std::snprintf(result.frame.status,sizeof(result.frame.status),"%s",

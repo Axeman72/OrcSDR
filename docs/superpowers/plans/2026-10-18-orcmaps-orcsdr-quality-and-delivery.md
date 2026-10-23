@@ -55,7 +55,7 @@ and full RF/overlay acceptance remain open.
 
 ### October 22 approved download pilot and LoRa readability
 
-Prepared follow-on: a shared, reclaimable 40 KiB PSRAM row buffer batches enlarged
+Retired experiment: a shared, reclaimable 40 KiB PSRAM row buffer batched enlarged
 cached previews through the public M5GFX image API. Pinned-panel probing confirms
 rotated scanline copy-call amplification; this is not a hardware speed claim.
 Normal preview/raster/format checks pass 3/3, raster sanitizer 1/1, production
@@ -63,7 +63,17 @@ allocation/reclaim fault injection passes, and five P4 syntax checks pass.
 Actual pixel colours match the pinned raster in 720 enlarged-image cases;
 unsupported/shrinking scales preserve the original path. Native build/device
 performance and retained-map SD/reclaim acceptance remain open; COM17 is still
-on `9ab05c04`. [Row-batching evidence and limits](../../evidence/maps/2026-10-22-scaled-preview-stripes.md).
+on `9ab05c04`. Subsequent native testing measures scaled paint about 77 ms median
+versus the previous 57 ms; the experiment is removed and COM17 app-only rollback
+passes preservation, matching boot and streaming. A user-reported LoRa flicker
+also exposes the shared map adapter's unconditional full-map clear and unnecessary
+age/telemetry redraws. Both are reproduced and corrected with focused regressions.
+The user-approved bounded node-name layout prioritizes the selected name and
+avoids overlap while preserving all markers. Final affected host checks pass 4/4,
+sanitizers 2/2, P4 syntax passes. Native build/physical validation of these latest
+corrections is next; representative 33 ms acceptance remains open.
+[Flicker and name-layout evidence](../../evidence/maps/2026-10-22-lora-flicker-and-label-layout.md).
+[Retired row-batching evidence](../../evidence/maps/2026-10-22-scaled-preview-stripes.md).
 
 Latest source checkpoint `9ab05c04`: scaled cached previews now preserve their
 guaranteed covered interior instead of clearing the whole map before zoom.

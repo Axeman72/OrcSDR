@@ -729,7 +729,11 @@ void draw_map_dynamic(bool details=true) {
       M5.Display.drawCircle(receiver_x,receiver_y,8,kYellow);
       text("RX",receiver_x+10,receiver_y+12,kYellow,1,middle_left);
     }
-    for (size_t i = 0; i < g_snapshot.node_count; ++i) {
+    struct MapLabel {int x=0,y=0,width=0,left=0,top=0;bool visible=false,selected=false,placed=false;};
+    static EXT_RAM_BSS_ATTR MapLabel labels[kNodeCapacity];
+    const size_t count=std::min<size_t>(g_snapshot.node_count,kNodeCapacity);
+    for (size_t i = 0; i < count; ++i) {
+      labels[i]=MapLabel{};
       const Node& node = g_snapshot.nodes[i];
       if (!has_map_position(node)) continue;
       int x = 0, y = 0;
@@ -740,10 +744,37 @@ void draw_map_dynamic(bool details=true) {
       M5.Display.fillCircle(x, y, 3, color);
       char value[32]; node_name(node, value, sizeof(value));
       M5.Display.setTextSize(2);
-      const int label_x=std::clamp(x+14,kMapX+4,
-          std::max(kMapX+4,kMapX+kMapW-4-static_cast<int>(M5.Display.textWidth(value))));
-      const int label_y=std::clamp(y-6,kMapY+12,kMapY+kMapH-24-12);
-      text(value,label_x,label_y,color,2,middle_left);
+      labels[i].x=x;labels[i].y=y;labels[i].width=static_cast<int>(M5.Display.textWidth(value));
+      labels[i].visible=true;labels[i].selected=selected;
+    }
+    const auto intersects=[](int l,int t,int w,int h,int other_l,int other_t,int other_w,int other_h) {
+      return l<other_l+other_w&&l+w>other_l&&t<other_t+other_h&&t+h>other_t;
+    };
+    // Selected/followed node gets first choice. Nearby alternatives keep labels
+    // readable; crowded names remain in Nodes instead of overwriting each other.
+    for(int pass=0;pass<2;++pass)for(size_t i=0;i<count;++i) {
+      auto& label=labels[i];
+      if(!label.visible||label.selected!=(pass==0))continue;
+      for(int row=0;row<5&&!label.placed;++row)for(int side=0;side<2&&!label.placed;++side) {
+        constexpr int offsets[]={-6,-32,20,-58,46};
+        const int left=std::clamp(side?label.x-14-label.width:label.x+14,kMapX+4,
+            std::max(kMapX+4,kMapX+kMapW-4-label.width));
+        const int top=label.y+offsets[row]-12;
+        if(label.width<=0||left+label.width>kMapX+kMapW-4||top<kMapY+4||top+24>kMapY+kMapH-24)continue;
+        bool blocked=intersects(left,top,label.width,24,kMapZoomX-2,kMapZoomY-2,
+            kMapZoomSize+4,kMapZoomStep+kMapZoomSize+4);
+        for(size_t j=0;!blocked&&j<count;++j) {
+          const auto& other=labels[j];
+          if(other.placed)blocked=intersects(left-2,top-2,label.width+4,28,
+              other.left,other.top,other.width,24);
+          if(!blocked&&j!=i&&other.visible)blocked=intersects(left,top,label.width,24,
+              other.x-11,other.y-11,22,22);
+        }
+        if(blocked)continue;
+        label.left=left;label.top=top;label.placed=true;
+        char value[32];node_name(g_snapshot.nodes[i],value,sizeof(value));
+        text(value,left,top+12,label.selected?kGreen:kCyan,2,middle_left);
+      }
     }
     M5.Display.clearClipRect();
     button(kMapZoomX,kMapZoomY,kMapZoomSize,kMapZoomSize,"+",kCyan);
@@ -892,6 +923,13 @@ void draw() {
 void update(const Snapshot& snapshot) {
   if (!g_active) return;
   const bool content_changed = snapshot.revision != g_snapshot.revision;
+  bool map_content_changed=snapshot.node_count!=g_snapshot.node_count||
+      snapshot.selected_node!=g_snapshot.selected_node;
+  for(size_t i=0;!map_content_changed&&i<std::min<size_t>(snapshot.node_count,kNodeCapacity);++i) {
+    const auto& before=g_snapshot.nodes[i];const auto& after=snapshot.nodes[i];
+    map_content_changed=before.id!=after.id||before.latitude_e7!=after.latitude_e7||
+        before.longitude_e7!=after.longitude_e7||std::strcmp(before.name,after.name)!=0;
+  }
   g_snapshot = snapshot;
   if (g_header_running != g_snapshot.running || g_header_wifi != g_snapshot.wifi_connected ||
       g_header_decoder != g_snapshot.native_decoder_ready ||
@@ -903,6 +941,9 @@ void update(const Snapshot& snapshot) {
   const uint32_t now = millis();
   const bool needs_age_refresh = g_view != View::traffic || g_traffic_details;
   const bool map_changed=g_view==View::map&&g_map_revision_seen!=maps::revision();
+  // Map contents have no age labels. RF counters and age ticks must not repaint
+  // a stationary basemap or clear its selected-node panel repeatedly.
+  if(g_view==View::map&&!map_changed&&!map_content_changed)return;
   if (!map_changed&&!content_changed &&
       (!needs_age_refresh || now - g_last_dynamic_ms < kDynamicRefreshIntervalMs)) return;
   g_last_dynamic_ms = now;

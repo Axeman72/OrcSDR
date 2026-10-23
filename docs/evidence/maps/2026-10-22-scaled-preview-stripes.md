@@ -1,5 +1,27 @@
 # Scaled transfer call amplification and bounded row batching
 
+**Retired after hardware testing.** Candidate `d7541282` passes native build,
+artifact, app-only preservation and boot checks, but the same bounded LoRa plan
+measures scaled paint p50/p95 76,951/91,354 us versus 57,346/66,722 us in the
+preceding `9ab05c04` run. Same-scale painting remains about 23 ms median.
+Decoder allocation/load differs, so this is not a controlled speedup ratio;
+there is no evidence supporting keeping the added buffer/complexity. The user
+also reports LoRa-map flicker. Source row batching and its 40 KiB allocation are
+removed, retaining this probe as historical evidence. COM17 app-only rollback to
+`9ab05c04` passes previous-app identity, fresh backups, all non-app preservation,
+matching ELF startup and LoRa streaming checks. No SD/C6/receiver-setting erase.
+
+Logs: `scaled-stripe-{artifact-inspection,preflash-device,verify-previous,
+backup-*,verify-backups,app-write,preservation,postflash-device,controlled-device}-20261022.log`;
+native boot in `apps/orcsdr-tab5/scaled-stripe-boot-native-monitor-20261022.log`.
+Rollback logs: `lora-flicker-rollback-{preflight-device,verify-previous,backup-*,
+verify-backups,app-write,preservation,postflight-device}-20261022.log`;
+boot in `apps/orcsdr-tab5/lora-flicker-rollback-boot-native-monitor-20261022.log`.
+All successful executions are preserved; the optional ROM-GDB generation warning
+does not fail firmware linking. Host call-count reduction did not predict native
+performance. The separate unconditional adapter clear and idle LoRa redraw are
+addressed in [the follow-up correction](2026-10-22-lora-flicker-and-label-layout.md).
+
 The installed `9ab05c04` candidate measures scaled transfer p50/p95
 57,280/66,672 us while LoRa receives, after unnecessary clear cost is removed.
 Inspecting pinned M5GFX identifies a separate transfer cost: its affine renderer

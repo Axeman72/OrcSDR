@@ -57,14 +57,6 @@ the settings-save result and a fresh frame, then verify persistence separately.
 
 ## LoRa dashboard map
 
-`RTL_MAP_STATUS` (also included by `RTL_MAP STATUS`) reports
-`ORC_MAP_PREVIEW_BUFFER stripe_bytes=... stripe_rows=16 stripe_paints=...`.
-The optional enlargement buffer is capped at 40 KiB in PSRAM and participates in
-map-cache reclaim. Zero bytes means the original scaling path remains in use.
-Preview facts append `stripe_backend=1` when row batching paints that request;
-transfer timing then includes row sampling and public image transfers. This is
-diagnostic state, not a physical FPS or touch-latency measurement.
-
 ```text
 RTL_UI OPEN LORA
 RTL_UI ACTION LORA VIEW 3

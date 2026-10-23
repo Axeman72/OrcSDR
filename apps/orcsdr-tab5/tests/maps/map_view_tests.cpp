@@ -29,11 +29,12 @@ int main() {
   using namespace orcsdr::maps;
   lgfx::LovyanGFX display;
   for(const auto state:{Frame::pending,Frame::ready,Frame::unavailable}) {
-    next_frame=state;display.strings.clear();
+    next_frame=state;display.strings.clear();const auto clears=display.region_clears;
     // A stale saved legacy identity must never bypass the shared engine.
     const auto view=draw_region(display,444013775,-1229940563,100,10,20,622,302,
                                 0,1,2,"lane_county_map",true);
     assert(view.valid&&view.frame.state==state);
+    assert(display.region_clears==clears); // Opaque frame/preview replaces pixels without blanking first.
     int x=0,y=0;assert(project(view,444013775,-1229940563,&x,&y));
     assert(x==15&&y==26);
     if(state==Frame::pending) {
@@ -43,8 +44,14 @@ int main() {
   }
   assert(service_calls==3);
   next_frame=Frame::pending;preview=false;
+  const auto empty_clears=display.region_clears;
   const auto loading=draw_region(display,0,0,25,10,20,622,302,0,1,2);
+  assert(display.region_clears==empty_clears);
   assert(std::strcmp(loading.frame.status,"LOADING LOCAL MAP")==0);
+  next_frame=Frame::unavailable;
+  draw_region(display,0,0,25,10,20,622,302,0,1,2);
+  assert(display.region_clears==empty_clears+1);
+  next_frame=Frame::pending;
   orcmap::Viewport camera;camera.width_px=842;camera.height_px=330;
   camera.center_lat_deg=10;camera.center_lon_deg=-179.9;camera.zoom=12;camera.tile_size_px=310;
   const auto moved=draw_camera(display,camera,50,182,0,1,2,nullptr,false);

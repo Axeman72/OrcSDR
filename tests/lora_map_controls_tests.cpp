@@ -138,6 +138,33 @@ int main() {
     assert(p.text_size==2);
   }
   assert(aligned);
+  // Unrelated telemetry/age ticks must not erase and repaint a stationary map.
+  const int unchanged_frames=frames;
+  for(int i=0;i<3;++i) {
+    ++snapshot.revision;++snapshot.uptime_seconds;++snapshot.crc_ok;
+    test_millis+=1000;update(snapshot);
+  }
+  assert(frames==unchanged_frames);
+  // Colocated nodes keep every marker but never print names over one another.
+  snapshot.node_count=kNodeCapacity;snapshot.selected_node=kNodeCapacity-1;
+  for(size_t i=0;i<kNodeCapacity;++i) {
+    snapshot.nodes[i]=snapshot.nodes[0];snapshot.nodes[i].id=0x1000+i;
+    std::snprintf(snapshot.nodes[i].name,sizeof(snapshot.nodes[i].name),"CLUSTER %02u",unsigned(i));
+  }
+  lgfx::paints.clear();++snapshot.revision;test_millis+=1000;update(snapshot);
+  assert(painted("CLUSTER 15"));
+  std::vector<lgfx::Paint> names;
+  for(const auto& p:lgfx::paints)if(p.text.rfind("CLUSTER ",0)==0&&p.x<892&&p.y>=182&&p.y<488) {
+    assert(p.text_size==2&&p.x>=54&&p.x+int(p.text.size())*12<=888&&p.y-12>=186&&p.y+12<=488);
+    for(const auto& before:names)assert(p.x>=before.x+int(before.text.size())*12+2||
+        before.x>=p.x+int(p.text.size())*12+2||p.y-12>=before.y+14||before.y-12>=p.y+14);
+    names.push_back(p);
+  }
+  assert(names.size()>1&&names.size()<kNodeCapacity&&names.front().text=="CLUSTER 15");
+  snapshot.node_count=2;snapshot.selected_node=0;
+  snapshot.nodes[0].id=0x11111111;std::strcpy(snapshot.nodes[0].name,"NODE A");
+  snapshot.nodes[1].latitude_e7=INT32_MAX;snapshot.nodes[1].longitude_e7=INT32_MAX;
+  ++snapshot.revision;test_millis+=1000;update(snapshot);
   // A completed worker frame repaints even without a new radio snapshot.
   const auto before_publication=frames;++map_revision;service_map();assert(frames==before_publication+1);
   owner=false;++map_revision;service_map();assert(frames==before_publication+1);owner=true;
