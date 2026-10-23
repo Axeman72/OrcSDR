@@ -139,7 +139,7 @@ Result save_bmp(M5GFX& display, orcsdr::storage::FileSystem& filesystem, const c
 }
 
 namespace {
-void sink_text(SnapSink sink, void* context, const char* text) { sink(text, strlen(text), context); }
+bool sink_text(SnapSink sink, void* context, const char* text) { return sink(text, strlen(text), context); }
 }  // namespace
 
 bool stream_png(M5GFX& display, SnapSink sink, void* context) {
@@ -158,7 +158,10 @@ bool stream_png(M5GFX& display, SnapSink sink, void* context) {
   char begin[160];
   const int begin_length = snprintf(begin, sizeof(begin), "ORC_SNAP_BEGIN width=%d height=%d bytes=%u sha256=%s\n",
                                     static_cast<int>(display.width()), static_cast<int>(display.height()), static_cast<unsigned>(png_bytes), hex);
-  sink(begin, static_cast<size_t>(begin_length), context);
+  if (!sink(begin, static_cast<size_t>(begin_length), context)) {   // the host is not reading: give up before encoding anything more
+    free(png);
+    return false;
+  }
   // "ORC_SNAP_DATA <offset> " + base64 of one chunk + newline
   char* line = static_cast<char*>(malloc(48 + ((kSnapChunkBytes + 2) / 3) * 4));
   if (line == nullptr) {
@@ -175,7 +178,11 @@ bool stream_png(M5GFX& display, SnapSink sink, void* context) {
                                static_cast<const uint8_t*>(png) + offset, count) == 0;
     if (!ok) break;
     line[prefix + encoded] = '\n';
-    sink(line, static_cast<size_t>(prefix) + encoded + 1, context);
+    if (!sink(line, static_cast<size_t>(prefix) + encoded + 1, context)) {   // stalled: stop, do not wait out the remaining chunks
+      free(line);
+      free(png);
+      return false;
+    }
   }
   free(line);
   free(png);

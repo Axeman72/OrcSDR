@@ -31,6 +31,9 @@ This file tracks changes made specifically by the native OrcSDR FT8 decoder work
 - **Review fixes (Grok full review of this branch, 6 MINOR, no blockers; each checked against the code):** the RTC/clock write now waits for a whole-second boundary even after a late wake-up (`time_service::wait_for_second_boundary`, also used by the network sync, which had the same gap);
   `FT8 CLOCKTEST` now aborts a network sync that is already running instead of letting it undo the test; DUMP/SAVE in wide mode keep exactly the nominal 15 s (it stored 16 s); a sync older than 6 h now also uses the wide search; docs and the on-device HELP list the new commands.
   Not changed: a failed RTC write after a correction request discards that evidence (the next window re-collects it within minutes).
+- **CodeRabbit review (6 comments, all verified against the code):** starting the decoder now clears the timing evidence, the estimate and any queued correction from an earlier session; a network sync that steps the wall clock now tells the FT8 runtime how far
+  (`ntp_sync::set_step_listener`, the real step = wall-clock change minus elapsed monotonic time) so the slot schedule and evidence restart; the second-boundary wait reports failure and the RTC is then not written mid-second (the sync or step fails instead of reporting success);
+  a stalled host aborts `FT8 SNAP` at the first short write instead of waiting out every chunk; `FT8 DIAL` rejects trailing text; `FT8 CLOCK` works without authentication, as documented.
 - Not done: the last-sync time is not kept across a reboot, so a restart shows UNSYNCED until the next sync (the RTC itself still holds the date).
 
 ## 2026-10-08 - FT8/FT4/JS8 dashboard: expert tuning, gain control, information popups, stations heard (Tab5 + optional OrcDial)

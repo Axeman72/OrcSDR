@@ -25,7 +25,8 @@ void resync_system_from_rtc();
 bool step_ms(int32_t delta_ms);
 // Blocks (up to about 1 s, a little more after a late wake-up) until just after a whole-second boundary and returns that moment in `out`.
 // The RTC counts whole seconds and restarts its sub-second counter when written, so it must be written right here.
-void wait_for_second_boundary(timeval* out);
+// Returns false if three attempts all missed the boundary (a heavily loaded system); the caller must then not write the RTC.
+bool wait_for_second_boundary(timeval* out);
 bool format_utc(char* output, size_t output_size, uint32_t epoch);
 
 // The hardware RTC always holds UTC. The zone is a UTC offset in minutes east of UTC (UTC-07:00 is -420) that

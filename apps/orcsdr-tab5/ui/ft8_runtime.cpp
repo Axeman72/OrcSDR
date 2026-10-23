@@ -649,6 +649,13 @@ bool start(orcsdr::ft8::DigitalMode mode, DecodeCallback on_decode, void* contex
   g.blocks_us_sum.store(0);
   g.blocks_us_n.store(0);
   g.tap_blocks.store(0);
+  g.dt_estimator.clear();   // evidence, a queued correction and the estimate from an earlier session must not carry over: the clock or band may have changed
+  g.pending_step_ms.store(0, std::memory_order_release);
+  g.clock_stepped.store(false, std::memory_order_release);
+  g.dt_valid.store(false, std::memory_order_release);
+  g.dt_error_ms.store(0, std::memory_order_release);
+  g.dt_stations.store(0, std::memory_order_release);
+  g.last_slot_wide.store(false, std::memory_order_release);
   g.reset_pending.store(true, std::memory_order_release);
   g.last_touch_us.store(esp_timer_get_time(), std::memory_order_release);
   set_state(State::waiting_signal);

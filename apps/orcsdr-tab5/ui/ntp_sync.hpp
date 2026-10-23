@@ -18,6 +18,9 @@ void poll();
 State state();
 // True once per finished attempt; `ok` says whether the RTC was set.
 bool take_result(bool* ok);
+// Called after a sync with how far the wall clock actually moved (ms, positive = later) when that was more than 50 ms.
+using StepListener = void (*)(int32_t delta_ms);
+void set_step_listener(StepListener listener);
 // UTC seconds when the last sync succeeded (0 = none since power-up).
 uint32_t last_success_utc();
 // Milliseconds since the last attempt started (0xFFFFFFFF = none since power-up) and whether that attempt failed.

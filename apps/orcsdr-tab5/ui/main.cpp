@@ -13681,6 +13681,11 @@ orcsdr::clock_sync::Input ft8_clock_sync_input() {
 // Called every UI loop; the policy (age, retry delay, Wi-Fi) lives in clock_sync::auto_sync_due. Without a recent network sync the decoder
 // searches a wider time window and, from the DT of the stations it decodes, asks for the clock to be corrected (no Wi-Fi needed).
 void ft8_auto_clock_sync() {
+  static bool step_listener_installed = false;
+  if (!step_listener_installed) {   // a network sync steps the wall clock: the FT8 slot schedule and its timing evidence restart with it
+    step_listener_installed = true;
+    orcsdr::ntp_sync::set_step_listener([](int32_t delta_ms) { orcsdr::ft8_runtime::clock_stepped(delta_ms); });
+  }
   if (!orcsdr::ft8_runtime::active()) return;
   const auto status = ft8_clock_sync_input();
   const auto level = orcsdr::clock_sync::evaluate(status);
@@ -18592,6 +18597,19 @@ void process_ft8_command(const char* args) {
     return;
   }
 
+  if (strcmp(verb, "CLOCK") == 0) {
+    // A query (no authentication): the clock's trust state and the decoded stations' view of it (median DT): positive dt_err_ms = our clock is fast.
+    const auto status = ft8_clock_sync_input();
+    const auto level = orcsdr::clock_sync::evaluate(status);
+    const auto dt = orcsdr::ft8_runtime::dt_report();
+    Serial.printf("ORC_FT8_CLOCK level=%u age_s=%lu ntp_utc=%lu signal_utc=%lu wide=%d last_slot_wide=%d dt_valid=%d dt_err_ms=%d dt_stations=%u hold=%d\n",
+                  static_cast<unsigned>(level), static_cast<unsigned long>(orcsdr::clock_sync::age_seconds(status)),
+                  static_cast<unsigned long>(status.last_sync_utc), static_cast<unsigned long>(status.last_signal_sync_utc),
+                  orcsdr::clock_sync::wants_wide_search(level) ? 1 : 0, dt.wide ? 1 : 0, dt.valid ? 1 : 0, static_cast<int>(dt.error_ms),
+                  static_cast<unsigned>(dt.stations), g_ft8_clock_test_hold ? 1 : 0);
+    return;
+  }
+
   // ---- everything below changes state
   if (need_auth()) return;
 
@@ -18715,7 +18733,8 @@ void process_ft8_command(const char* args) {
     // The screen as a PNG over serial: no SD card, no RTL_STOP, no retune (tools/tab5_ft8_shot.py uses this).
     if (need_auth()) return;
     (void)orcsdr::ui_capture::stream_png(M5.Display, [](const char* data, size_t size, void*) {
-      Serial.writeBytes(reinterpret_cast<const uint8_t*>(data), size);   // blocking, never drops: the host is reading
+      // Blocking (never drops while the host reads); a short write means the host stopped reading, so the capture aborts.
+      return Serial.writeBytes(reinterpret_cast<const uint8_t*>(data), size) == size;
     }, nullptr);
     return;
   }
@@ -18760,21 +18779,12 @@ void process_ft8_command(const char* args) {
     // Bench: tune an exact dial frequency in Hz (what the Live DIAL chip does with expert tuning), e.g. a time-signal station.
     // FT8 BAND <label> returns to the band table.
     if (need_auth()) return;
-    const unsigned long hz = strtoul(rest, nullptr, 10);
-    if (hz == 0 || !ft8_tune_dial(static_cast<uint32_t>(hz))) Serial.println("ORC_FT8_ERROR DIAL invalid use DIAL <hz> (0.5 MHz to the tuner limit)");
-    return;
-  }
-
-  if (strcmp(verb, "CLOCK") == 0) {
-    // The clock's trust state and the decoded stations' view of it (median DT): positive dt_err_ms = our clock is fast.
-    const auto status = ft8_clock_sync_input();
-    const auto level = orcsdr::clock_sync::evaluate(status);
-    const auto dt = orcsdr::ft8_runtime::dt_report();
-    Serial.printf("ORC_FT8_CLOCK level=%u age_s=%lu ntp_utc=%lu signal_utc=%lu wide=%d last_slot_wide=%d dt_valid=%d dt_err_ms=%d dt_stations=%u hold=%d\n",
-                  static_cast<unsigned>(level), static_cast<unsigned long>(orcsdr::clock_sync::age_seconds(status)),
-                  static_cast<unsigned long>(status.last_sync_utc), static_cast<unsigned long>(status.last_signal_sync_utc),
-                  orcsdr::clock_sync::wants_wide_search(level) ? 1 : 0, dt.wide ? 1 : 0, dt.valid ? 1 : 0, static_cast<int>(dt.error_ms),
-                  static_cast<unsigned>(dt.stations), g_ft8_clock_test_hold ? 1 : 0);
+    char* dial_end = nullptr;
+    const unsigned long hz = strtoul(rest, &dial_end, 10);
+    while (dial_end != nullptr && *dial_end == ' ') ++dial_end;
+    // The whole argument must be the number ("14074000oops" is rejected, not tuned as 14074000).
+    if (hz == 0 || dial_end == rest || *dial_end != '\0' || !ft8_tune_dial(static_cast<uint32_t>(hz)))
+      Serial.println("ORC_FT8_ERROR DIAL invalid use DIAL <hz> (0.5 MHz to the tuner limit)");
     return;
   }
 
