@@ -13863,6 +13863,8 @@ void draw_ft8_dashboard(bool static_panel) {
 }
 
 // Choose a band and, when the receiver can take it, listen there (HF dial frequencies use the shortwave path).
+// Counts accepted FT8 band or dial changes; a WWV measurement compares it to skip its restore after the user tuned elsewhere.
+static uint32_t g_ft8_tune_generation = 0;
 bool ft8_select_band(size_t index) {
   if (index >= orcsdr::ft8::band_count()) return false;
   const auto* preset = orcsdr::ft8::band(index);
@@ -13886,6 +13888,7 @@ bool ft8_select_band(size_t index) {
                             ? request_hot_retune(dial_hz) : queue_local_rtl_listen(target, dial_hz);
   if (accepted) {
     g_ft8_band = index;
+    ++g_ft8_tune_generation;
     orcsdr::ft8_runtime::set_radio_context(static_cast<uint8_t>(index), dial_hz);
   }
   return accepted;
@@ -14903,6 +14906,8 @@ enum class WwvAction : uint8_t { none, report, calibrate, sync };
 WwvAction g_wwv_action = WwvAction::none;
 float g_wwv_mhz = 0.0f;
 size_t g_wwv_previous_band = SIZE_MAX;
+uint32_t g_wwv_previous_dial_override = 0;   // the expert dial in use before the measurement (0 = the band table's)
+uint32_t g_wwv_tune_generation = 0;
 
 bool ft8_wwv_key(float mhz, char* key, size_t size) {
   const int tenths = static_cast<int>(mhz * 10.0f + 0.5f);
@@ -14927,7 +14932,10 @@ void ft8_wwv_service() {
   }
   const WwvAction action = g_wwv_action;
   g_wwv_action = WwvAction::none;
-  if (g_wwv_previous_band != SIZE_MAX) (void)ft8_select_band_table(g_wwv_previous_band);   // listen where the person was listening
+  if (g_wwv_previous_band != SIZE_MAX && g_ft8_tune_generation == g_wwv_tune_generation) {   // not if the person tuned meanwhile
+    if (g_wwv_previous_dial_override != 0) (void)ft8_tune_dial(g_wwv_previous_dial_override);
+    else (void)ft8_select_band_table(g_wwv_previous_band);   // listen where the person was listening
+  }
   g_wwv_previous_band = SIZE_MAX;
   char key[16];
   const bool have_key = ft8_wwv_key(g_wwv_mhz, key, sizeof(key));
@@ -18787,13 +18795,16 @@ void process_ft8_command(const char* args) {
       return;
     }
     g_wwv_previous_band = ft8_selected_band();
-    const uint32_t dial = static_cast<uint32_t>(mhz * 1000000.0f + 0.5f) - 1000u;   // 1 kHz below the carrier: the carrier is then a line at 1000 Hz
+    g_wwv_previous_dial_override = g_ft8_dial_override_hz;
+    const uint32_t dial =static_cast<uint32_t>(mhz * 1000000.0f + 0.5f) - 1000u;   // 1 kHz below the carrier: the carrier is then a line at 1000 Hz
     if (!ft8_tune_dial(dial) || !orcsdr::ft8_runtime::wwv_start(static_cast<uint32_t>(seconds))) {
-      (void)ft8_select_band_table(g_wwv_previous_band);
+      if (g_wwv_previous_dial_override != 0) (void)ft8_tune_dial(g_wwv_previous_dial_override);
+      else (void)ft8_select_band_table(g_wwv_previous_band);
       g_wwv_previous_band = SIZE_MAX;
       Serial.println("ORC_FT8_ERROR WWV could not start (tuning refused or no memory)");
       return;
     }
+    g_wwv_tune_generation = g_ft8_tune_generation;   // after the measurement's own tune
     g_wwv_action = action;
     g_wwv_mhz = mhz;
     Serial.printf("ORC_FT8_WWV_START mhz=%.1f dial_hz=%lu seconds=%lu action=%u (about %lu s with the retune; the band comes back by itself)\n", static_cast<double>(mhz),
@@ -21297,11 +21308,11 @@ void process_command(char* command) {
       Serial.println("ORC_RTC_SET_ERROR invalid_or_unavailable");
       return;
     }
+    ft8_clock_trust_forget();   // set by hand: nothing vouches for its accuracy, so the sync status starts over (even if persisting below fails)
     if (!preferences.putBool("rtc_est", true)) {
       Serial.println("ORC_RTC_SET_ERROR persistence_failed");
       return;
     }
-    ft8_clock_trust_forget();   // set by hand: nothing vouches for its accuracy, so the sync status starts over
     Serial.printf("ORC_RTC_SET_OK utc=%lu\n", epoch);
     update_global_settings();
     bump_rtl_ui();

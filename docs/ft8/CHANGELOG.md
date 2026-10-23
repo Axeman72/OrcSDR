@@ -16,9 +16,9 @@ This file tracks changes made specifically by the native OrcSDR FT8 decoder work
 - It is erased whenever something changes the clock without vouching for it: setting the clock by hand (touch or serial) and `FT8 CLOCKTEST`. Written after each network sync and each signal correction (about every 2 hours at most).
 - Not yet run on a device (the unit was unavailable): the host tests and the firmware build pass.
 - **WWV/WWVH tick probe (`tools/wwv_probe.py`, bench only, no firmware change):** captures one 15 s audio slot on 5, 10 and 15 MHz through `FT8 DIAL` and `FT8 DUMP`, and checks whether the once-per-second 5 ms tick is there (folds the 1000/1200 Hz envelope over one second;
-  needs the same position in at least 60 percent of the seconds and 8 dB over the median). `--selftest` checks it on synthetic ticks and noise; `--wav` analyses a saved capture.
+  needs the same position in at least 60 percent of the seconds and 8 dB over the median). (That first version has since been replaced by the thin driver for `FT8 WWV` described above; it no longer has offline modes.)
   First result, 2026-10-23 about 08:20 UTC (1:20 AM local), Tab5 on COM39 with the MLA-30+ loop: **no WWV tick and no WWV tones heard on 5, 10 or 15 MHz** (the apparent lines at 600 and 1000 Hz on 15 MHz were isolated broadband noise bursts).
-  That is one hour of the night on one antenna, so it does not say WWV is unusable: 10 and 15 MHz are normally daytime frequencies. No on-device tick detector or "sync from WWV" action is built, because there is not yet a signal to build or test it on.
+  That is one hour of the night on one antenna, so it does not say WWV is unusable: 10 and 15 MHz are normally daytime frequencies. (The on-device detector described above was built afterwards.)
 
 ## 2026-10-21 - FT8 clock: visible sync status, one-tap sync, automatic re-sync while decoding
 
