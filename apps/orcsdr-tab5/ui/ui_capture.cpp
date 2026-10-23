@@ -144,7 +144,8 @@ void sink_text(SnapSink sink, void* context, const char* text) { sink(text, strl
 
 bool stream_png(M5GFX& display, SnapSink sink, void* context) {
   size_t png_bytes = 0;
-  void* png = display.createPng(&png_bytes);
+  // The size must be explicit: createPng's default width and height of 0 mean an empty rectangle and it returns null.
+  void* png = display.createPng(&png_bytes, 0, 0, display.width(), display.height());
   if (png == nullptr || png_bytes == 0) {
     free(png);
     sink_text(sink, context, "ORC_SNAP_ERROR encode_failed\n");

@@ -55,22 +55,25 @@ def snap_png(dev, key, destination, tries=3):
         chunks = {}
         end = time.time() + 40
         done = False
+        pending = b""
         while time.time() < end and not done:
-            raw = dev.s.readline()
-            if not raw:
-                continue
-            text = raw.decode("utf-8", "replace").rstrip()
-            if "ORC_SNAP_ERROR" in text or "ORC_FT8_ERROR" in text:
-                raise SystemExit("device refused the capture: " + text[text.find("ORC_"):])
-            m = re.search(r"ORC_SNAP_BEGIN width=(\d+) height=(\d+) bytes=(\d+) sha256=([0-9a-f]{64})", text)
-            if m:
-                header = (int(m.group(3)), m.group(4))
-                continue
-            m = re.match(r"\s*ORC_SNAP_DATA (\d+) ([A-Za-z0-9+/=]+)$", text)
-            if m and header:
-                chunks[int(m.group(1))] = m.group(2)
-            elif "ORC_SNAP_END" in text and header:
-                done = True
+            # Bulk reads: pyserial's readline() takes one byte at a time and falls behind a fast USB stream, which loses chunks.
+            pending += dev.s.read(max(dev.s.in_waiting, 1))
+            *complete, pending = pending.split(b"\n")
+            for raw in complete:
+                text = raw.decode("utf-8", "replace").rstrip()
+                if "ORC_SNAP_ERROR" in text or "ORC_FT8_ERROR" in text:
+                    raise SystemExit("device refused the capture: " + text[text.find("ORC_"):])
+                m = re.search(r"ORC_SNAP_BEGIN width=(\d+) height=(\d+) bytes=(\d+) sha256=([0-9a-f]{64})", text)
+                if m:
+                    header = (int(m.group(3)), m.group(4))
+                    continue
+                m = re.match(r"\s*ORC_SNAP_DATA (\d+) ([A-Za-z0-9+/=]+)$", text)
+                if m and header:
+                    chunks[int(m.group(1))] = m.group(2)
+                elif "ORC_SNAP_END" in text and header:
+                    done = True
+                    break
         if not header or not done:
             print("capture attempt %d incomplete, retrying" % (attempt + 1), file=sys.stderr)
             continue
