@@ -1,7 +1,10 @@
 # OrcMaps completion acceptance — October 23, 2026
 
-Current source 4d4f85a3 on codex/maps-integration-completion. Last device-tested
-app cb1b567a; no device observation has been performed in this October 23 scout.
+Initial scout source 4d4f85a3 on codex/maps-integration-completion.
+Reconciled source 30a00ce1 now contains fetched main 629ba546; affected host/
+sanitizer, P4 syntax, native link, app-only COM17 preservation/startup and bounded
+map navigation checks pass. Current COM17 application is 30a00ce1; final physical
+appearance, sustained pressure and band-qualified decoding remain separate gates.
 OrcMaps pin b59d47819cc3b81c1bbe50ed75b775275bb0218e. This current matrix supersedes
 stale unchecked entries in the historical plan without deleting their evidence.
 
@@ -9,7 +12,7 @@ stale unchecked entries in the historical plan without deleting their evidence.
 |---|---|---|---|
 | Location picker/save | Implemented; verified explicit lat/lon persistence and feedback | Bounded COM17 save/return/reboot checks | Prior controls, readable text, saving feedback and dragging accepted; retain on final candidate |
 | Shared map consumers and labels | LoRa, ADS-B and FT8 use shared service; independent preferences | Host and bounded COM17 checkpoints exist | Finish label persistence across all consumers, ADS-B aircraft/range and FT8 projection/whole-world/polar acceptance |
-| LoRa map overlays | Bounded priority names, markers, centering and Follow implemented | Controlled text/NODEINFO and bounded position/Follow checks | Prior dragging/flicker accepted; Follow identity during history reorder remains unverified |
+| LoRa map overlays | Bounded priority names, markers, centering and Follow implemented | Controlled text/NODEINFO and bounded position/Follow checks | Prior dragging/flicker accepted; actual dashboard host regression passes identity retention across reordered/missing/returning nodes; native reordered-traffic proof remains open |
 | Detail refill/read cache | 256 KiB reclaimable aligned-PSRAM cache; runtime construction corrected | Four cached pans median 4.10 s versus 6.23 s direct fallback; pixel equality, cancel/zoom/reclaim/SD checks | Latest candidate physical feel pending; decoder work varies, isolated multiplier not proven; further decode/draw work and explicit budgets open |
 | Cached motion | Last-valid-frame preview and clipping implemented | Pan paint checks exist; representative continuous timing incomplete | Approximately 33 ms target remains open; paint-call timings are not full motion latency |
 | Worldwide quality | Profile, hierarchy, rings/clipping and bounded labels implemented | Fixed worldwide host views recorded | Device boundaries/contrast/international-script and fallback acceptance still open |
@@ -18,7 +21,7 @@ stale unchecked entries in the historical plan without deleting their evidence.
 | Install latency | Safe verification implemented | Approximately 12-minute post-transfer verification/activation observed | Reduce or explicitly resolve without weakening verification |
 | Serial parity | Named shared map/setup controls implemented | Focused source/host/device checks; latest restore uses RTL_LISTEN LORA | Reconcile stale coverage ledger and close unverified action/UI equivalence |
 | SD/memory/radio | Aligned read cache, no new internal DMA pool; reclaim/reset paths implemented | Native 16 KiB retained-memory paused write/readback; active map reads; radio/log recovery pass | Final shared-candidate budgets, pressure/navigation checks open; historical failures preserved |
-| Mainline reconciliation | Not yet applied to shared branch | Fetch and merge-tree simulation performed; five conflict files identified | Isolated resolution and scoped regressions pending; no merge into main authorized |
+| Mainline reconciliation | Isolated merge 30a00ce1 reviewed, then local integration fast-forwarded | Five conflicts resolved; maps 5/5, FT8 normal/sanitized, two clock tests and P4 syntax pass | Native build/inspection, app-only preservation/startup and bounded COM17 navigation PASS; main and remote refs unchanged; broad final review remains open |
 
 ## October 23 scout
 
@@ -47,8 +50,73 @@ production decisions, erase and main merge retain their separate approval gates.
 
 ## Next milestone
 
-Validate the isolated mainline candidate and reconcile this matrix with actual
-results. Then define numeric motion/refill acceptance gates and profile repeated
+Reconciled candidate has passed its bounded native gate; source acceptance does
+not close the remaining rows above. Define numeric motion/refill gates and profile repeated
 decode/draw work on authorized COM17. Do not add an arbitrary overnight soak or
 restore legacy geography. Production/publication choices remain decision-blocked,
 not reasons to stop independent authorized implementation.
+
+Scoped reconciliation results: [source and tests](2026-10-23-mainline-reconciliation.md).
+
+## October 23 bounded native checkpoint
+
+COM17 30:ED:A0:E2:E6:95, application 30a00ce1: named Local Maps ownership,
+LoRa map pan/return, ADS-B map/range and FT8 map/label-off/on/live return pass.
+Completed frames all report missing=0 and failed=0. Observed detail-frame wall
+times: LoRa 3.368263 s, ADS-B 3.268251 s, FT8 0.478210 s. These are single
+observations, not p50/p95 acceptance or full motion latency. FT8 STATUS reports
+runtime=stopped, so no FT8 decoder-load/stack-fault reproduction is claimed.
+
+Saved point remains E7 440628866,-1230160273; label preferences remain
+picker=1,lora=0,adsb=1,ft8=1. ADS-B range remains 25 nautical miles. FM restored
+at 94.5 MHz, manual gain 445, driver STREAMING, drops=0/overruns=0. Post-navigation sampled
+PSRAM free 2,144,780 bytes/largest 1,245,184; largest DMA 19,456; main stack
+high-water mark 1,448; monotonic uptime and unchanged reset reason 11. Retained
+allocation pressure requires a separate repeat/reclaim check. LoRa SD logger
+ready=true,error=false,queued=0,dropped=0. Antenna suitability was not confirmed
+for this run: these results demonstrate stream/UI continuity, not RF decoding.
+
+Exact postflight command (integration root):
+`python .local/maps/com17_label_bench.py maps-mainline-postflight-plan-20261023.json maps-mainline-postflight-device-20261023.log`
+Exit 0; console companion maps-mainline-postflight-console-20261023.log.
+See the linked reconciliation record for build, hashes and preservation logs.
+
+Follow-up named memory query on Home identifies the retained holder: LoRa IQ
+buffers 15,840,000 bytes, map frame 1,048,576 bytes. FT8 reports active=0,
+last_failure=memory, needed=516000, failures=12. Thus FT8 decoder startup after
+this navigation sequence FAILS despite its map/UI checks passing. This is a real
+acceptance blocker; runtime=stopped must not be counted as receiver continuity.
+The existing explicit FREE MEMORY / RTL_MEM RECLAIM path is being checked before
+any source change. Its LoRa guard preserves active/captured/exporting data.
+Return-Home query log: maps-mainline-return-home-device-20261023.log, command
+`python .local/maps/com17_label_bench.py maps-mainline-return-home-plan-20261023.json maps-mainline-return-home-device-20261023.log` (exit 0).
+
+## Accepted responsiveness gate
+
+User selected October 23: p95 detailed refill within 2.0 seconds for a fixed
+COM17 routine-pan workload under reception. Cached visible-motion updates retain
+a separate approximately 33 ms target. Report p50/p95/max with sample count and
+nearest-rank percentile method; do not substitute LCD push timing for end-to-end
+motion. Preserve detail/pixel output, cancellation, memory safety and RF continuity.
+No new optimization is accepted solely on desktop timing.
+
+Existing explicit reclaim check exits 0. RTL_MEM RECLAIM releases 16,888,576
+bytes (LoRa 15,840,000 + map 1,048,576); FT8 then starts, reports listening,
+tap=1 and 123 incoming blocks after 10 seconds. Sample free PSRAM recovers to
+16,234,296 bytes; largest 15,204,352, main-stack high-water 1,448. No decoder
+success is claimed from this short run. This confirms safe manual recovery,
+not automatic pressure handling: switching directly from retained LoRa/map
+allocations can still require FREE MEMORY. Preserve this as an explicit remaining
+cross-dashboard acceptance issue rather than silently refactoring receiver lifecycle.
+
+Command: `python .local/maps/com17_label_bench.py maps-mainline-reclaim-plan-20261023.json maps-mainline-reclaim-device-20261023.log`
+Exit 0. Plan ends by restoring 94.5 MHz FM/manual gain 445 and Home.
+
+## Scope clarification — October 23
+
+User confirmed newer FT8 decoder work is already merged into main and explicitly
+removed decoder testing from this goal's execution. Refetched origin/main remains
+629ba546, already included in reconciled 30a00ce1. The observed allocation/reclaim
+result above is retained as honest navigation/memory evidence, not a request to
+reopen decoder validation or refactor its lifecycle. Further tests target maps,
+UI ownership, retained memory and radio continuity only.

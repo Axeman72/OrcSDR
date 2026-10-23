@@ -2,7 +2,28 @@
 
 > **For agentic workers:** Continue the existing implementation under applicable repository instructions and available skills. The user approved execution on October 18, 2026 ("approved. please enable this."). Current delivery work is Phase 4; Phase 2 map quality, Phase 3 responsiveness and outstanding Phase 1 gates remain open. This approval does not authorize paid services, publication, destructive operations, or bypass the user's approval requirement for high-usage work.
 
-## Current phase and handoff — October 19, 2026
+## Current acceptance — October 23, 2026
+
+The [current completion matrix](../../evidence/maps/2026-10-23-completion-acceptance.md)
+is the acceptance index. The dated records below are historical checkpoints;
+unchecked items and old timings are superseded only by explicit newer evidence.
+Do not repeat the completed FT8 migration, label-control implementation or actual
+TEST-ONLY global-pack install as missing features.
+
+Reconciled source candidate `30a00ce1` contains fetched main `629ba546` plus the
+preserved map work. Five actual conflicts are resolved in isolation; both map and
+clock FT8 tests, affected map tests (5/5), clock tests, sanitizers and four P4
+syntax checks pass. The local integration branch is safely fast-forwarded; main
+and remote refs are unchanged. Native link/inspection and bounded COM17 app-only
+preservation, startup and map-navigation checks now pass. See the current matrix
+for measured memory, timings and remaining physical/RF acceptance limits.
+[Scoped reconciliation evidence](../../evidence/maps/2026-10-23-mainline-reconciliation.md).
+
+Current COM17 application is `30a00ce1`; the prior recovery app is `cb1b567a`.
+Final physical performance and repeated memory-pressure acceptance remain open. No erase, C6 update or
+COM39 access is authorized; routine COM17 builds/app-only tests remain approved.
+
+## Historical phase and handoff — October 19, 2026
 
 ### Serial control requirement — October 21, 2026
 
