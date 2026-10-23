@@ -17,6 +17,7 @@ struct Stats {
   float rms_dbfs = -100.0f;   // level of the last block
   float peak_dbfs = -100.0f;
   const char* error = nullptr;  // static string, set when start() fails
+  uint32_t flat_blocks = 0;     // consecutive blocks whose samples were all identical (a stalled input, not a quiet room)
 };
 
 // Called on the mic task for every completed block. Must be fast and must not block.
@@ -27,6 +28,7 @@ bool start(Sink sink);
 // Stops capture and releases the microphone. Safe to call when not running.
 void stop();
 bool running();
+uint32_t flat_blocks();  // cheap; safe to call from the sink
 Stats stats();
 
 }  // namespace orcsdr::dead_air_mic

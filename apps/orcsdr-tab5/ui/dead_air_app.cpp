@@ -163,6 +163,9 @@ struct State {
   const char* replay_note = "";
   uint32_t replay_started_ms = 0;
   bool log_pending = false, log_completed = false;
+  uint32_t mic_restart_due_ms = 0;        // restart the mic input after a replay (the speaker shares its I2S port)
+  uint32_t mic_last_restart_ms = 0;
+  uint8_t mic_restarts = 0;               // consecutive watchdog restarts without recovery
   char log_name[32]{};
   uint32_t seq_hist[16]{};                // events that have a clip, newest first
   uint8_t seq_hist_count = 0;
@@ -261,6 +264,7 @@ void write_clip(State& s, ClipChannel& ch) {
   const char* reason = "write_failed";
   uint64_t pos = job.start;
   const uint32_t cap = ring.capacity;
+  int32_t lo = 32767, hi = -32768;  // range of the samples written; a mic clip with none is a stalled input
   while (ok && pos < job.end) {
     const uint32_t n = static_cast<uint32_t>(std::min<uint64_t>(sizeof(m.chunk) / sizeof(m.chunk[0]), job.end - pos));
     // The ring keeps overwriting its oldest samples; a sample is still intact only while it is less than one ring behind.
@@ -270,6 +274,7 @@ void write_clip(State& s, ClipChannel& ch) {
     std::memcpy(m.chunk, ring.pcm + from, first * sizeof(int16_t));
     if (n > first) std::memcpy(m.chunk + first, ring.pcm, (n - first) * sizeof(int16_t));
     if (ring.written.load(std::memory_order_acquire) - pos > cap - kRingMarginSamples) { ok = false; reason = "ring_overrun"; break; }
+    for (uint32_t i = 0; i < n; ++i) { lo = std::min<int32_t>(lo, m.chunk[i]); hi = std::max<int32_t>(hi, m.chunk[i]); }
     const size_t bytes = static_cast<size_t>(n) * sizeof(int16_t);
     ok = file.write(reinterpret_cast<const uint8_t*>(m.chunk), bytes) == bytes &&
          mbedtls_sha256_update(&sha, reinterpret_cast<const uint8_t*>(m.chunk), bytes) == 0;
@@ -281,6 +286,7 @@ void write_clip(State& s, ClipChannel& ch) {
   const size_t expected = kWavHeaderBytes + static_cast<size_t>(samples) * sizeof(int16_t);
   ok = ok && file.size() == expected && file.sync();
   file.close();
+  if (ok && ch.mic && lo == hi) { ok = false; reason = "mic_silent"; }  // identical samples throughout: not a recording of the room
   if (!ok) {
     (void)fs.remove(path);  // never leave a partial clip that looks like evidence
     fail(reason);
@@ -309,7 +315,8 @@ void write_clip(State& s, ClipChannel& ch) {
               static_cast<unsigned long>(job.trigger_count), r.name, static_cast<unsigned long>(expected), r.sha,
               static_cast<unsigned long>(kClipSampleRate), static_cast<unsigned long>(samples),
               static_cast<unsigned long>(static_cast<uint64_t>(samples) * 1000u / kClipSampleRate),
-              static_cast<unsigned long>(kClipPreMs), static_cast<unsigned long>(kClipPostMs), job.truncated ? "true" : "false",
+              static_cast<unsigned long>((job.trigger_sample - job.start) * 1000u / kClipSampleRate),
+              static_cast<unsigned long>((job.end - job.trigger_sample) * 1000u / kClipSampleRate), job.truncated ? "true" : "false",
               ch.source, t.demod, static_cast<unsigned long>(t.frequency_hz), t.speaker_on ? "on" : "muted", processing,
               static_cast<unsigned long>(job.trigger_ms));
   if (job.unix_time) json_append(line, sizeof(line), len, "%lu}\n", static_cast<unsigned long>(job.unix_time));
@@ -638,6 +645,7 @@ void end_replay(State& s, bool completed) {
   if (g_hooks.replay_stop) g_hooks.replay_stop();
   g_replaying.store(false, std::memory_order_release);
   s.replay_state = 0;
+  if (s.mic.enabled) s.mic_restart_due_ms = (millis() + 300u) | 1u;  // playback leaves the shared I2S input returning a constant
   s.log_pending = true;  // recorded once the worker is free
   s.log_completed = completed;
   const int i = find_recent(s, s.op_name);
@@ -743,6 +751,7 @@ void mic_sink(const int16_t* pcm, size_t count) {
   PcmRing* ring = g_mic_ring.load(std::memory_order_acquire);
   if (!ring) return;
   if ((g_hooks.sound_enabled && g_hooks.sound_enabled()) || g_replaying.load(std::memory_order_relaxed)) return;
+  if (dead_air_mic::flat_blocks() >= 3) return;  // identical samples: the input has stalled, so there is nothing real to keep
   ring_write(*ring, pcm, count);
 }
 
@@ -769,6 +778,22 @@ bool mic_start(State& s) {
   s.mic_error = nullptr;
   s.mic_state = 1;
   return true;
+}
+
+// Re-opens the microphone input. Playing a clip on the shared I2S port can leave the input returning one constant value;
+// recording then would save silence that looks like evidence.
+void mic_restart(State& s, const char* reason) {
+  abandon_capture(s.mic, reason);
+  dead_air_mic::stop();
+  s.mic.flowing = false;
+  s.mic_last_restart_ms = millis();
+  if (!dead_air_mic::start(mic_sink)) {
+    s.mic_error = "mic restart failed";
+    s.mic.enabled = false;
+    g_mic_ring.store(nullptr, std::memory_order_release);
+    s.mic.ring.capture.store(false, std::memory_order_relaxed);
+    s.mic_state = 3;
+  }
 }
 
 void mic_stop(State& s, const char* reason) {
@@ -1119,6 +1144,22 @@ void tick() {
     s.mic.flowing = !speaker_on && last != 0 && now - last < 500;
     if (!dead_air_mic::running()) { s.mic_error = "mic stopped"; mic_stop(s, "mic_failed"); s.mic_state = 3; }
     else s.mic_state = speaker_on ? 2 : 1;  // paused while the speaker is audible, otherwise listening
+    if (s.mic.enabled && !speaker_on) {
+      if (s.mic_restart_due_ms && static_cast<int32_t>(now - s.mic_restart_due_ms) >= 0) {
+        s.mic_restart_due_ms = 0;
+        mic_restart(s, "mic_restarted");
+      } else if (dead_air_mic::flat_blocks() >= 50 && now - s.mic_last_restart_ms > 3000) {  // 1 s of one constant value
+        if (++s.mic_restarts > 3) {
+          s.mic_error = "mic silent";
+          mic_stop(s, "mic_silent");
+          s.mic_state = 3;
+        } else {
+          mic_restart(s, "mic_stalled");
+        }
+      } else if (dead_air_mic::flat_blocks() == 0 && now - s.mic_last_restart_ms > 5000) {
+        s.mic_restarts = 0;
+      }
+    }
   }
   if (s.replay_state == 2 && g_hooks.replay_playing && now - s.replay_started_ms > 300 && !g_hooks.replay_playing()) end_replay(s, true);
   if (s.log_pending && s.rx.mail.state.load(std::memory_order_acquire) == 0) {

@@ -6,6 +6,7 @@
 #include <freertos/task.h>
 
 #include <atomic>
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
@@ -20,6 +21,7 @@ struct Shared {
   std::atomic<bool> enabled{false};
   std::atomic<uint32_t> blocks{0};
   std::atomic<uint32_t> start_failures{0};
+  std::atomic<uint32_t> flat{0};
   std::atomic<float> rms{-100.0f};
   std::atomic<float> peak{-100.0f};
   std::atomic<const char*> error{nullptr};
@@ -34,14 +36,19 @@ float to_dbfs(float fraction) { return fraction > 0.0f ? std::max(-100.0f, 20.0f
 void deliver(const int16_t* pcm) {
   int64_t sum = 0;
   int32_t peak = 0;
+  int32_t lo = pcm[0], hi = pcm[0];
   for (size_t i = 0; i < kBlockSamples; ++i) {
     const int32_t v = pcm[i];
+    lo = std::min(lo, v);
+    hi = std::max(hi, v);
     sum += static_cast<int64_t>(v) * v;
     peak = std::max(peak, v < 0 ? -v : v);
   }
   g.rms.store(to_dbfs(std::sqrt(static_cast<float>(sum) / static_cast<float>(kBlockSamples)) / 32768.0f), std::memory_order_relaxed);
   g.peak.store(to_dbfs(static_cast<float>(peak) / 32768.0f), std::memory_order_relaxed);
   g.blocks.fetch_add(1, std::memory_order_relaxed);
+  if (hi == lo) g.flat.fetch_add(1, std::memory_order_relaxed);
+  else g.flat.store(0, std::memory_order_relaxed);
   if (g.sink) g.sink(pcm, kBlockSamples);
 }
 
@@ -89,6 +96,7 @@ bool start(Sink sink) {
   g.enabled.store(true, std::memory_order_release);
   g.sink = sink;
   g.blocks.store(0, std::memory_order_relaxed);
+  g.flat.store(0, std::memory_order_relaxed);
   g.run.store(true, std::memory_order_release);
   g.alive.store(true, std::memory_order_release);
   if (xTaskCreatePinnedToCoreWithCaps(mic_task, "dead_air_mic", 6144, nullptr, 2, &g.task, 0,
@@ -113,6 +121,8 @@ void stop() {
 
 bool running() { return g.alive.load(std::memory_order_acquire) && g.run.load(std::memory_order_acquire); }
 
+uint32_t flat_blocks() { return g.flat.load(std::memory_order_relaxed); }
+
 Stats stats() {
   Stats s;
   s.running = running();
@@ -121,6 +131,7 @@ Stats stats() {
   s.rms_dbfs = g.rms.load(std::memory_order_relaxed);
   s.peak_dbfs = g.peak.load(std::memory_order_relaxed);
   s.error = g.error.load(std::memory_order_relaxed);
+  s.flat_blocks = g.flat.load(std::memory_order_relaxed);
   return s;
 }
 
