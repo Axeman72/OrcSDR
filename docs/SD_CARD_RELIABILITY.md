@@ -217,3 +217,13 @@ next request. Focused tests cover collisions, EOF/overflow, short-read recovery,
 source replacement, no-buffer fallback and identical rendered pixels. Native
 performance and retained-memory SD/reclaim results must be recorded separately;
 these source checks do not establish that historical card failures are solved.
+
+The deployed cb1b567a COM17 checkpoint passes active-LoRa map reads, exact
+1,373,584-byte frame/cache reclaim and rebuild, and a paused 16 KiB uniquely
+named scratch write/readback with map memory retained. LoRa reception/logging
+then resume without reported drops/errors. A PSRAM object-vtable initialization
+fault in the first cache candidate is captured and corrected; it is not classified
+as SD corruption. The test harness's unsupported RTL_START command is also
+recorded and corrected to RTL_LISTEN LORA during final recovery. All failures,
+commands, hashes, logs, memory figures and limits are in the
+[read-cache evidence](evidence/maps/2026-10-22-lora-read-cache.md).

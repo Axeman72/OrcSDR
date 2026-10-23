@@ -67,9 +67,22 @@ frames take 6.70–7.66 seconds in this particular test; image transfer takes on
 the same views does not eliminate the work. This is measured render duration,
 not physical finger-to-display latency or a universal estimate for every area.
 
-Next engineering gate: separate cooperative worker-yield time from actual decode
-and drawing costs, then evaluate bounded reuse of compressed tiles or completed
-tile work in the shared engine/adapter. The current stream parses each tile twice
+Current deployed checkpoint `cb1b567a`: a bounded 256 KiB PSRAM read cache
+passes host pixel equality, native opening/pan/zoom/cancellation, reclaim and
+retained-map SD readback checks. Four active-LoRa pans measure 3.73–4.41 seconds
+versus 5.78–6.81 seconds with the cache disabled; observed median 4.10 versus
+6.23 seconds. Physical SD bytes decrease 74–77% in those repeated views. Live
+RF/DSP activity varies, so an isolated CPU multiplier is not established.
+Worker wait is measured (about 0.82–0.89 seconds in the earlier baseline), and
+scheduling remains unchanged. First cache deployment exposed a PSRAM vtable
+initialization fault; it is captured, rolled back, corrected and retested. A
+memory-pressure fallback also passes before the cache budget is refined to
+reuse an existing preview. COM17 is left on LoRa Map, receiving with zero reported
+drops/overruns; NVS/SD/world/C6 preserved and COM39 untouched. Physical acceptance
+of the new performance candidate is pending. [Full cache evidence and failures](../../evidence/maps/2026-10-22-lora-read-cache.md).
+
+Next engineering gate: profile repeated decoding and drawing, then evaluate
+reuse of unchanged tile work in the shared engine/adapter. The current stream parses each tile twice
 and the service rebuilds a complete replacement frame. These are candidates,
 not proof that a particular cache will solve the delay. Retain cancellation,
 radio servicing, reclaim behavior and SD allocation protections. About 2.09 MB
@@ -78,8 +91,8 @@ and measured. Test cold views, repeated views and rapid cancellation separately.
 
 Acceptance requires comparable before/after COM17 measurements while receiving,
 correct newly exposed pixels and overlays, no flicker/blackouts, unchanged saved
-location, bounded memory and no reported radio drops/overruns. Hardware speedup
-is not yet implemented or accepted. [Baseline and exact commands](../../evidence/maps/2026-10-22-lora-detail-refill-baseline.md).
+location, bounded memory and no reported radio drops/overruns. The bounded cache-enabled hardware result is recorded above; instant detail
+refill and broader hardware acceptance remain open. [Baseline and exact commands](../../evidence/maps/2026-10-22-lora-detail-refill-baseline.md).
 
 ### October 22 approved download pilot and LoRa readability
 
