@@ -203,10 +203,3 @@ statistics reset per render; contents survive same-archive pans. Existing
 includes cache lookup/copy plus any backing read time. A hit counts a 4 KiB
 block access, not a complete tile or a displayed frame. Capacity 0 is the
 supported direct-read fallback, not a map failure.
-
-`ORC_MAP_BUFFERED tiles=... retained_bytes=...` reports successful tiles using
-OrcMaps' optional single-inflate buffer and its retained capacity. Capacity is
-capped at256KiB, included in `RTL_MEM STATUS`'s Map frame holder and released by
-`RTL_MEM RECLAIM`. Embedded fallback maps keep streaming. Under pressure or for
-oversized tiles, streaming remains valid; zero buffered tiles alone is not a
-map failure. This is internal render policy, not a separate user action.

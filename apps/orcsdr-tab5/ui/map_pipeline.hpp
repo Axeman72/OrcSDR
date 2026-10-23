@@ -30,8 +30,6 @@ struct RenderStats {
   uint64_t label_us = 0;
   size_t deferred_peak_bytes = 0, deferred_retained_bytes = 0;
   uint32_t deferred_capacity_failures = 0;
-  uint32_t buffered_tiles = 0;
-  size_t buffered_tile_bytes = 0;
 };
 
 // One source/reader/scratch per active archive. No display, radio, or network
@@ -40,9 +38,6 @@ class Pipeline {
  public:
   explicit Pipeline(orcmap::ByteSource& source, WorkHooks hooks = {});
   bool open(std::string_view profile);
-  // Optional PSRAM budget; zero releases this optimization without closing the archive.
-  void set_buffered_tile_budget(size_t bytes);
-  size_t buffered_tile_capacity() const { return scratch_.inflated_tile.capacity(); }
   // Optional labels use caller-owned storage (PSRAM on P4) and a real font target.
   bool render(const orcmap::Viewport& viewport, orcmap::RenderTarget& target,
               orcmap::LabelLayout* labels = nullptr, orcmap::LabelTextTarget* text = nullptr,
@@ -76,7 +71,6 @@ class Pipeline {
   orcmap::MvtStreamScratch scratch_;
   orcmap::OrderedRenderScratch render_scratch_;
   bool ready_ = false;
-  size_t buffered_tile_budget_ = 0;
   std::string_view profile_; // points only to a supported static literal
 };
 

@@ -44,9 +44,8 @@ void global_cache_test(const char* archive) {
   orcmap::host::FileByteSource source(archive);
   std::vector<uint8_t> buffer(ReadCache::kCapacity);
   ReadCache cache;cache.Reset(&source,buffer.data(),buffer.size());
-  Pipeline direct(source),cached(cache),buffered(cache);
-  buffered.set_buffered_tile_budget(orcmap::kMaxBufferedTileBytes);
-  assert(direct.open("protomaps-v4") && cached.open("protomaps-v4") && buffered.open("protomaps-v4"));
+  Pipeline direct(source),cached(cache);
+  assert(direct.open("protomaps-v4") && cached.open("protomaps-v4"));
   orcmap::Viewport camera;camera.width_px=842;camera.height_px=330;camera.zoom=9;
   camera.center_lat_deg=44.0173511;camera.center_lon_deg=-123.0054699;
   orcmap::host::FramebufferTarget reference(842,330),actual(842,330);
@@ -60,20 +59,10 @@ void global_cache_test(const char* archive) {
     assert(direct.render(view,reference) && cached.render(view,actual));
     assert(reference.Pixels()==actual.Pixels());
     assert(direct.stats().tiles==cached.stats().tiles && direct.stats().features==cached.stats().features);
-    assert(buffered.render(view,actual));
-    assert(reference.Pixels()==actual.Pixels());
-    assert(buffered.stats().tiles==direct.stats().tiles && buffered.stats().features==direct.stats().features);
-    assert(buffered.stats().buffered_tiles>0 && buffered.buffered_tile_capacity()<=orcmap::kMaxBufferedTileBytes);
     std::printf("GLOBAL_CACHE_IDENTICAL step=%d hits=%llu misses=%llu backing_bytes=%llu\n",step,
       static_cast<unsigned long long>(cache.stats().hits),static_cast<unsigned long long>(cache.stats().misses),
       static_cast<unsigned long long>(cache.stats().backing_bytes));
   }
-  buffered.set_buffered_tile_budget(0);
-  assert(buffered.buffered_tile_capacity()==0);
-  orcmap::Viewport view;
-  assert(pack_source_view(camera,direct.header().min_zoom,direct.header().max_zoom,&view));
-  assert(buffered.render(view,actual) && buffered.stats().buffered_tiles==0);
-  assert(reference.Pixels()==actual.Pixels());
 }
 void global_label_test(const char* archive) {
   using namespace orcsdr::maps;
