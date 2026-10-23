@@ -13675,7 +13675,10 @@ void ft8_clock_trust_save() {
   (void)preferences.putUInt(kClockSignalKey, g_ft8_signal_sync_utc);
 }
 
+void ft8_wwv_clock_changed();   // defined with the WWV state below
+
 void ft8_clock_trust_forget() {
+  ft8_wwv_clock_changed();   // every caller has just set or deliberately disturbed the clock: a WWV measurement spanning it means nothing
   orcsdr::ntp_sync::forget_last_success();
   g_ft8_signal_sync_utc = 0;
   // A stamp that stays in flash would be believed again after a restart: if the erase fails, overwrite it with zero (which restore ignores).
@@ -14934,6 +14937,14 @@ float ft8_wwv_wrap_ms(float ms) {
   return ms;
 }
 
+bool g_wwv_clock_changed = false;   // the clock was set by hand (or by CLOCKTEST) during the measurement: its result must not be applied
+
+void ft8_wwv_clock_changed() {
+  if (g_wwv_action == WwvAction::none) return;
+  g_wwv_clock_changed = true;
+  orcsdr::ft8_runtime::wwv_stop();   // ends it (band restored by the service); a report already finished is discarded by the flag
+}
+
 void ft8_wwv_service() {
   if (g_wwv_action == WwvAction::none) return;
   const auto r = orcsdr::ft8_runtime::wwv_report();
@@ -14948,6 +14959,11 @@ void ft8_wwv_service() {
     else (void)ft8_select_band_table(g_wwv_previous_band);   // listen where the person was listening
   }
   g_wwv_previous_band = SIZE_MAX;
+  if (g_wwv_clock_changed) {
+    g_wwv_clock_changed = false;
+    Serial.println("ORC_FT8_WWV_RESULT cancelled (the clock was set during the measurement)");
+    return;
+  }
   char key[16];
   const bool have_key = ft8_wwv_key(g_wwv_mhz, key, sizeof(key));
   const int32_t kNoBias = INT32_MIN;
@@ -18817,6 +18833,7 @@ void process_ft8_command(const char* args) {
       return;
     }
     g_wwv_tune_generation = g_ft8_tune_generation;   // after the measurement's own tune
+    g_wwv_clock_changed = false;
     g_wwv_action = action;
     g_wwv_mhz = mhz;
     Serial.printf("ORC_FT8_WWV_START mhz=%.1f dial_hz=%lu seconds=%lu action=%u (about %lu s with the retune; the band comes back by itself)\n", static_cast<double>(mhz),

@@ -298,6 +298,7 @@ void wwv_guard_check() {
   if (g.wwv_phase.load(std::memory_order_acquire) != 1) return;
   if (g.wwv_stop_req.exchange(false, std::memory_order_acq_rel)) wwv_finish(1);
   else if (!g.wwv_running && esp_timer_get_time() - g.wwv_requested_us > 60000000) wwv_finish(4);
+  else if (g.wwv_running && (esp_timer_get_time() - g.wwv_started_us) / 1000000 > static_cast<int64_t>(g.wwv_seconds) + 30) wwv_finish(4);
 }
 
 // The published clock-error estimate (FT8 CLOCK) must go with the evidence it came from.
@@ -650,6 +651,7 @@ void decoder_task(void*) {
       decode_slot(finished * slot_ms, slot_ms, now_ms, total_now, wide);
     }
   }
+  if (g.wwv_phase.load(std::memory_order_acquire) == 1) wwv_finish(1);   // stop() ended the loop mid-measurement: report it so the band is restored and the next start is accepted
   g.task_alive.store(false, std::memory_order_release);
   vTaskDelete(nullptr);
 }

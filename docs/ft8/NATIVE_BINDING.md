@@ -68,7 +68,9 @@ Queries need no authentication; commands that change state need the PAIR/AUTH se
 | `FT8 CLOCK` | no | the clock's trust level (`level`: 0 unsynced, 1 syncing, 2 synced, 3 stale, 4 failed, 5 no Wi-Fi, 6 corrected from decoded stations), ages, whether the wide search is on, and the decoded stations' view of the clock error (`dt_err_ms`, positive = our clock is fast) |
 | `FT8 CLOCKTEST <ms>` | yes | bench only: step the clock by `ms` (-5000..5000), forget the last sync and hold the automatic network sync off; `FT8 CLOCKTEST 0` releases the hold |
 | `FT8 DIAL <hz>` | yes | tune an exact dial frequency (what the Live DIAL chip does with expert tuning); `FT8 BAND <label>` returns to the band table |
-| `FT8 WWV [<MHz> <seconds> [CAL\|SYNC]]` | start/STOP yes | measure the WWV (1000 Hz) tick (receiver retuned 1 kHz below the carrier, band restored afterwards); no argument = status; `CAL` learns the site delay after a fresh `FT8 NTP`, `SYNC` steps the clock from the tick; `tools/wwv_probe.py` wraps it |
+| `FT8 WWV` | no | status of the WWV tick measurement (idle, running with seconds folded, or the last result) |
+| `FT8 WWV <MHz> [<seconds>] [CAL\|SYNC]` | yes | measure the WWV (1000 Hz) tick on 2.5, 5, 10, 15 or 20 MHz (exact values only; 20-240 s, default 90): the receiver is retuned 1 kHz below the carrier and the band comes back afterward. `CAL` learns the site delay right after a fresh `FT8 NTP`; `SYNC` steps the clock from the tick. Setting the clock during a measurement cancels it. `tools/wwv_probe.py` wraps it |
+| `FT8 WWV STOP` | yes | end a running measurement early (the band comes back) |
 | `FT8 SNAP` | yes | the screen as a PNG over serial (`ORC_SNAP_BEGIN`, `ORC_SNAP_DATA <offset> <base64>` lines, `ORC_SNAP_END`), no SD card and no radio stop; `tools/tab5_ft8_shot.py` wraps it |
 | `FT8 DUMP` | no | the last decoded slot as base64 PCM16 lines (about 480 KB) |
 | `FT8 OPEN` | yes | open the FT8 dashboard |
