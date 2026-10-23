@@ -69,6 +69,7 @@ const char* name(Id id) {
     case Id::sstv: return "sstv";
     case Id::acars: return "acars";
     case Id::maps: return "maps";
+    case Id::dead_air: return "dead_air";
     default: return "none";
   }
 }

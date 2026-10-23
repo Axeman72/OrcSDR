@@ -26,7 +26,8 @@ enum class ActionKind : uint8_t {
   set_expert,          // value = 1 or 0: expert tuning (Tune panel, OrcDial rotation steps the dial in Hz)
   gain_auto,           // receiver gain back to automatic
   gain_manual,         // value = tuner gain in tenths of a dB (one of the receiver's steps)
-  free_memory          // the NOT ENOUGH MEMORY state's FREE MEMORY button: release what other features hold, then retry
+  free_memory,         // the NOT ENOUGH MEMORY state's FREE MEMORY button: release what other features hold, then retry
+  sync_clock           // the CLOCK chip: start a network time sync now (the application checks Wi-Fi)
 };
 
 struct Action {
@@ -37,6 +38,10 @@ struct Action {
 struct Snapshot {
   uint64_t utc_ms = 0;
   bool clock_valid = false;
+  // How far the clock can be trusted (clock_sync::Level) and the age of the last network sync in seconds. clock_valid only says a
+  // date exists; FT8 also needs it accurate to a few hundred milliseconds, which only a recent sync shows.
+  uint8_t clock_sync_level = 0;
+  uint32_t clock_sync_age_s = 0;
   bool receiver_running = false;
   bool gain_auto = true;
   int16_t gain_tenth_db = 0;

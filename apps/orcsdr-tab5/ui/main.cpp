@@ -61,6 +61,7 @@
 #include "sstv_diag.hpp"
 #include "sstv_receiver.hpp"
 #include "acars_app.hpp"
+#include "dead_air_app.hpp"
 #include "acars_archive_sd.hpp"
 #include "acars_receiver.hpp"
 #include "acars_selftest.hpp"
@@ -138,6 +139,7 @@
 #include "rf_visualizer.hpp"
 #include "settings_app.hpp"
 #include "clock_settings.hpp"
+#include "clock_sync_status.hpp"
 #include "ntp_sync.hpp"
 #include "time_service.hpp"
 #include "ui_capture.hpp"
@@ -3050,7 +3052,25 @@ static std::atomic<uint8_t> g_sstv_demod{0};
 // The TUNE tab's IF filter width ahead of the FM discriminator in Hz; 0 = the radio's own setting.
 static std::atomic<uint32_t> g_sstv_if_hz{0};
 
+// Dead Air's demodulator choice on the browse band: 0 = not set, 1..5 = NFM, WFM, AM, USB, LSB. Only the real
+// receiver demodulators are offered; sweep patterns and generated audio are not demodulators.
+static std::atomic<uint8_t> g_dead_air_demod{0};
+static uint32_t g_dead_air_saved_filter_hz = 0;  // IF width in force before Dead Air changed mode; UI task only
+static uint32_t g_dead_air_return_hz = 0;        // frequency to give back to Home when Dead Air is left; UI task only
+static RtlBand g_dead_air_return_band = RtlBand::browse;  // the band Home was on (shortwave, MW... keep their own label)
+static uint8_t g_dead_air_return_demod = 0;      // Home's demodulator choice at that moment
+
 HomeDemod effective_demod(RtlBand band) {
+  if (band == RtlBand::browse) {
+    switch (g_dead_air_demod.load(std::memory_order_relaxed)) {
+      case 1: return HomeDemod::nfm;
+      case 2: return HomeDemod::wfm;
+      case 3: return HomeDemod::am;
+      case 4: return HomeDemod::usb;
+      case 5: return HomeDemod::lsb;
+      default: break;
+    }
+  }
   // Receiver DSP never reads screen ownership or UI-only frequency state.
   if (orcsdr::sstv::active() &&
       (band == RtlBand::shortwave || band == RtlBand::browse)) {
@@ -3658,6 +3678,9 @@ bool rtl_audio_select_writable_block(uint32_t now) {
   return false;
 }
 
+// A Dead Air clip is playing on its own speaker channel: the receiver stands down so the two never mix.
+std::atomic<bool> g_dead_air_replay{false};
+
 void flush_audio_play_batch(bool force) {
   if (rtl_audio_play_count == 0) return;
   if (!force && rtl_audio_play_count < kRtlAudioPlayBatchSamples) return;
@@ -3672,7 +3695,7 @@ void flush_audio_play_batch(bool force) {
       return;
     }
   }
-  if (!rtl_audio_enabled.load(std::memory_order_acquire)) {
+  if (!rtl_audio_enabled.load(std::memory_order_acquire) || g_dead_air_replay.load(std::memory_order_relaxed)) {
     rtl_audio_play_count = 0;
     return;
   }
@@ -6892,6 +6915,7 @@ void refresh_active_screen() {
     case Id::ft8: draw_ft8_dashboard(false); break;
     case Id::sstv: draw_sstv_dashboard(false); break;
     case Id::acars: orcsdr::acars_app::draw(false); break;
+    case Id::dead_air: orcsdr::dead_air_app::draw(false); break;
     default: break;  // Settings, documentation, and no screen own their draws.
   }
 }
@@ -6963,6 +6987,7 @@ void close_visualizer() {
     case orcsdr::screens::Id::shortwave: orcsdr::shortwave::draw(); break;
     case orcsdr::screens::Id::sstv: draw_sstv_dashboard(true); break;
     case orcsdr::screens::Id::acars: orcsdr::acars_app::draw(true); break;
+    case orcsdr::screens::Id::dead_air: orcsdr::dead_air_app::draw(true); break;
     case orcsdr::screens::Id::airband: orcsdr::airband::redraw(); break;
     case orcsdr::screens::Id::cb: orcsdr::cb::draw(); break;
     case orcsdr::screens::Id::p25: orcsdr::p25::draw(); break;
@@ -7284,6 +7309,7 @@ void draw_sdr_screen(RtlBand band, uint32_t frequency_hz, uint8_t volume) {
   orcsdr::ft8::leave();
   orcsdr::sstv_app::close();
   orcsdr::acars_app::close();
+  orcsdr::dead_air_app::close();
   orcsdr::settings::leave();
   if (band != RtlBand::fm) orcsdr::fm::leave();
   if (band != RtlBand::am) orcsdr::am::leave();
@@ -7471,7 +7497,8 @@ void draw_band_edges() {
  * Two-window Welch averaging keeps the single render core responsive.
  */
 void draw_spectrum(const uint8_t* iq, size_t bytes) {
-  const bool web_scope = orcsdr::web_console::spectrum_demanded() || sstv_tune_spectrum_wanted();
+  const bool web_scope = orcsdr::web_console::spectrum_demanded() || sstv_tune_spectrum_wanted() ||
+                         orcsdr::dead_air_app::wants_spectrum();
   if (!web_scope && !orcsdr::home::active() && rtl_ui_band == RtlBand::lora &&
       !orcsdr::lora::spectrum_active()) return;
   if (!web_scope && !orcsdr::home::active() && rtl_ui_band == RtlBand::airband &&
@@ -7750,6 +7777,13 @@ void draw_spectrum(const uint8_t* iq, size_t bytes) {
     rtl_spectrum_trace_valid = true;
     return;
   }
+  if (orcsdr::dead_air_app::wants_spectrum()) {
+    orcsdr::dead_air_app::feed_spectrum(rtl_spectrum_levels, kRtlSpectrumBins,
+                                        rtl_active_sample_rate_sps.load(std::memory_order_relaxed));
+    rtl_spectrum_trace_last_ms = now;
+    rtl_spectrum_trace_valid = true;
+    return;
+  }
 
   if (!orcsdr::screens::owns(orcsdr::screens::Id::radio)) return;
   M5.Display.startWrite();
@@ -7883,6 +7917,7 @@ void queue_audio_samples(int16_t* audio, size_t audio_count) {
   orcsdr::sstv::offer_audio_48k(audio, audio_count);
   orcsdr::web_audio::note_generated(audio_count);
   orcsdr::web_audio::publish(audio, audio_count);
+  orcsdr::dead_air_app::offer_audio(audio, audio_count);  // level meter only, lock-free
   orcsdr::visualizer::offer_audio(audio, nullptr, audio_count, 48000);
   /* Capture the post-DSP mono stream before expanding it for the stereo codec. */
   if (g_audio_rec_active.load(std::memory_order_acquire)) {
@@ -9389,7 +9424,7 @@ static void rtl_dsp_task(void *) {
         block.band != RtlBand::lora && block.band != RtlBand::p25 &&
         block.band != RtlBand::pocsag &&
         (rtl_audio_enabled.load(std::memory_order_relaxed) || sstv_owns_audio(block.band) ||
-         orcsdr::web_audio::demanded() ||
+         orcsdr::web_audio::demanded() || orcsdr::dead_air_app::wants_audio() ||
          g_audio_rec_active.load(std::memory_order_relaxed)) &&
         !rtl_audio_test_tone.load(std::memory_order_relaxed)) {
       if (block.band == RtlBand::cb && !orcsdr::home::active()) {
@@ -12994,6 +13029,8 @@ void navigation_restore_screen(orcsdr::screens::Id restore) {
     orcsdr::sstv_app::draw(true);   // Settings opened from the SSTV header returns here, not to Home
   } else if (restore == orcsdr::screens::Id::acars) {
     orcsdr::acars_app::draw(true);
+  } else if (restore == orcsdr::screens::Id::dead_air) {
+    orcsdr::dead_air_app::draw(true);
   } else {
     draw_sdr_screen(rtl_ui_band, rtl_ui_frequency_hz,
                     rtl_live_volume.load(std::memory_order_acquire));
@@ -13106,9 +13143,19 @@ void show_home(bool demo) {
   }
   orcsdr::sstv_app::close();
   orcsdr::acars_app::close();
+  const uint32_t dead_air_return_hz = orcsdr::dead_air_app::active() ? g_dead_air_return_hz : 0u;
+  const RtlBand dead_air_return_band = g_dead_air_return_band;
+  const uint8_t dead_air_return_demod = g_dead_air_return_demod;
+  orcsdr::dead_air_app::close();
   home_enter();
   orcsdr::audio_header::reset(rtl_header_audio_control);
   orcsdr::navigation::show_home(demo);
+  // Home re-derives the band and demodulator for the frequency it had before Dead Air took the general band.
+  if (dead_air_return_hz != 0 && rtl_device_ready()) {
+    // Give back exactly what Dead Air took: the same band label (shortwave, CB, FM...) and demodulator choice.
+    rtl_home_demod.store(dead_air_return_demod, std::memory_order_release);
+    (void)queue_local_rtl_listen(dead_air_return_band, dead_air_return_hz, false);
+  }
 }
 
 void draw_home_dashboard() {
@@ -13715,10 +13762,72 @@ void ft8_free_memory_and_retry() {
     (void)ft8_select_band(ft8_selected_band());   // "queued or running" is exactly what that predicate tests
 }
 
+uint32_t g_ft8_signal_sync_utc = 0;       // when the clock was last corrected from the decoded stations' DT (0 = never)
+bool g_ft8_clock_test_hold = false;       // FT8 CLOCKTEST: the clock was set wrong on purpose; keep the network sync off until it is cleared
+
+orcsdr::clock_sync::Input ft8_clock_sync_input() {
+  const auto clock = orcsdr::time_service::now();
+  orcsdr::clock_sync::Input in;
+  in.clock_valid = clock.wallclock_valid;
+  in.wifi_connected = wifi_connected;
+  in.syncing = orcsdr::ntp_sync::state() == orcsdr::ntp_sync::State::syncing;
+  in.last_attempt_failed = orcsdr::ntp_sync::last_attempt_failed();
+  in.now_utc = clock.utc;
+  in.last_sync_utc = orcsdr::ntp_sync::last_success_utc();
+  in.last_signal_sync_utc = g_ft8_signal_sync_utc;
+  return in;
+}
+
+// A network sync steps the wall clock: the FT8 slot schedule and its timing evidence restart with it. Installed before the first sync can be polled.
+void ft8_install_clock_hooks() {
+  static bool installed = false;
+  if (installed) return;
+  installed = true;
+  orcsdr::ntp_sync::set_step_listener([](int32_t delta_ms) { orcsdr::ft8_runtime::clock_stepped(delta_ms); });
+}
+
+// While the decoder runs, keep the clock right: the RTC drifts about 0.9 s a day and FT8 needs a few hundred milliseconds.
+// Called every UI loop; the policy (age, retry delay, Wi-Fi) lives in clock_sync::auto_sync_due. Without a recent network sync the decoder
+// searches a wider time window and, from the DT of the stations it decodes, asks for the clock to be corrected (no Wi-Fi needed).
+void ft8_auto_clock_sync() {
+  if (!orcsdr::ft8_runtime::active()) return;
+  const auto status = ft8_clock_sync_input();
+  const auto level = orcsdr::clock_sync::evaluate(status);
+  orcsdr::ft8_runtime::set_wide_search(orcsdr::clock_sync::wants_wide_search(level));
+  int32_t step_ms = 0;
+  if (orcsdr::ft8_runtime::take_clock_step(&step_ms)) {
+    if (!orcsdr::clock_sync::may_apply_signal_correction(level)) {
+      Serial.printf("ORC_FT8_CLOCK_DT ignored step_ms=%d (a network sync is recent)\n", static_cast<int>(step_ms));
+    } else {
+      int32_t applied_ms = 0;
+      const bool stepped = orcsdr::time_service::step_ms(step_ms, &applied_ms);
+      // Tell the decoder how far the wall clock really moved, also after a rolled-back step: its slot schedule and evidence follow the clock.
+      if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
+      if (stepped) {
+        g_ft8_signal_sync_utc = orcsdr::time_service::now().utc;
+        Serial.printf("ORC_FT8_CLOCK_DT applied step_ms=%d\n", static_cast<int>(step_ms));
+      } else {
+        Serial.printf("ORC_FT8_CLOCK_DT step_failed step_ms=%d moved_ms=%d\n", static_cast<int>(step_ms), static_cast<int>(applied_ms));
+      }
+    }
+  }
+  if (g_ft8_clock_test_hold) return;
+  orcsdr::clock_sync::DueInput due;
+  due.status = status;
+  due.decoder_running = true;
+  due.ms_since_last_attempt = orcsdr::ntp_sync::ms_since_last_attempt();
+  if (orcsdr::clock_sync::auto_sync_due(due) && orcsdr::ntp_sync::start(true)) Serial.println("ORC_FT8_NTP auto sync requested");
+}
+
 void ft8_dashboard_fill_snapshot(orcsdr::ft8::Snapshot& snapshot) {
   new (&snapshot) orcsdr::ft8::Snapshot();
   const auto clock = orcsdr::time_service::now();
   snapshot.clock_valid = clock.wallclock_valid;
+  {
+    const auto sync = ft8_clock_sync_input();
+    snapshot.clock_sync_level = static_cast<uint8_t>(orcsdr::clock_sync::evaluate(sync));
+    snapshot.clock_sync_age_s = orcsdr::clock_sync::age_seconds(sync);
+  }
   if (clock.wallclock_valid) {
     timeval now{};
     gettimeofday(&now, nullptr);
@@ -13906,6 +14015,10 @@ void handle_ft8_dashboard_action(const orcsdr::ft8::Action& action) {
       }
       break;
     case Kind::free_memory: ft8_free_memory_and_retry(); break;
+    case Kind::sync_clock:
+      if (orcsdr::ntp_sync::start(wifi_connected)) Serial.println("ORC_NTP_START ft8 chip");
+      else Serial.println(wifi_connected ? "ORC_NTP_ERROR busy" : "ORC_NTP_ERROR no_wifi");
+      break;
     case Kind::clear_decodes: g_ft8_store.clear(); g_ft8_item = 0; break;
     case Kind::select_mode:
       // A mode is selectable only when the bound decoder reports it; the dashboard already enforces this.
@@ -14151,6 +14264,118 @@ void open_acars_dashboard() {
   orcsdr::acars_app::install(acars_app_hooks());
   orcsdr::acars_app::open();
 }
+// Dead Air logic lives in dead_air_app; these adapters hand it what only this file can reach. It rides the
+// general (BROWSE, NFM) receive path and never owns the radio, so every reading below is the live receiver's.
+orcsdr::dead_air_app::Hooks dead_air_app_hooks() {
+  orcsdr::dead_air_app::Hooks hooks;
+  hooks.receiver_ready = [] {
+    return rtl_device_ready() && rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running;
+  };
+  hooks.frequency_hz = [] { return rtl_ui_frequency_hz; };
+  hooks.demod = [] { return orcsdr::home_vfo::demod_name(effective_demod(rtl_ui_band)); };
+  hooks.set_demod = [](uint8_t index) {
+    static const HomeDemod kModes[] = {HomeDemod::nfm, HomeDemod::wfm, HomeDemod::am, HomeDemod::usb, HomeDemod::lsb};
+    if (index >= std::size(kModes)) return;
+    if (g_dead_air_demod.load(std::memory_order_relaxed) == 0)
+      g_dead_air_saved_filter_hz = rtl_filter_bandwidth_hz.load(std::memory_order_relaxed);
+    g_dead_air_demod.store(static_cast<uint8_t>(index + 1), std::memory_order_relaxed);
+    // Same rule as Home: the mode's standard filter width replaces whatever the previous mode left behind.
+    const auto kind = orcsdr::home_vfo::filter_kind(kModes[index], rtl_ui_frequency_hz);
+    rtl_filter_bandwidth_hz.store(rtl_clamp_filter_hz(RtlBand::browse, orcsdr::filter_standards::standards(kind).standard_hz),
+                                  std::memory_order_relaxed);
+    rtl_audio_reset_demod_filters();
+  };
+  hooks.release_demod = [] {
+    if (g_dead_air_demod.exchange(0, std::memory_order_relaxed) != 0 && g_dead_air_saved_filter_hz != 0) {
+      rtl_filter_bandwidth_hz.store(g_dead_air_saved_filter_hz, std::memory_order_relaxed);
+      rtl_audio_reset_demod_filters();
+    }
+  };
+  hooks.sample_rate = [] { return rtl_active_sample_rate_sps.load(std::memory_order_acquire); };
+  hooks.config_signature = [] {
+    uint32_t h = rtl_ui_frequency_hz * 2654435761u;
+    h ^= rtl_active_sample_rate_sps.load(std::memory_order_acquire) + 0x9e3779b9u + (h << 6) + (h >> 2);
+    h ^= static_cast<uint32_t>(rtl_ui_band) * 40503u + (h << 5);
+    h ^= (static_cast<uint32_t>(effective_demod(rtl_ui_band)) + 1u) * 668265263u;
+#if !RTL_USE_LEGACY_USB
+    if (g_rtl != nullptr) {
+      int gain = 0;
+      esp_rtl_sdr_gain_mode_t mode = ESP_RTL_SDR_GAIN_MODE_MANUAL;
+      if (esp_rtl_sdr_get_tuner_gain(g_rtl, &gain) == ESP_OK) h ^= static_cast<uint32_t>(gain) * 2246822519u;
+      if (esp_rtl_sdr_get_tuner_gain_mode(g_rtl, &mode) == ESP_OK) h ^= static_cast<uint32_t>(mode) * 3266489917u;
+    }
+#endif
+    return h;
+  };
+  hooks.rf_sample_counter = [] {
+    return static_cast<uint32_t>(rtl_iq_processed_samples.load(std::memory_order_relaxed) >> 8);
+  };
+  hooks.rf_level_dbfs = [](float* out) {
+    const float v = rtl_signal_dbfs.load(std::memory_order_relaxed);
+    if (v <= -89.9f) return false;  // -90 is the meter's "no data" reset value
+    *out = v;
+    return true;
+  };
+  hooks.tune = [](uint32_t hz) { (void)queue_local_rtl_listen(RtlBand::browse, hz, false); };
+  hooks.hot_retune = [](uint32_t hz) { return request_hot_retune(rtl_clamp_frequency(RtlBand::browse, hz)); };
+  hooks.step_frequency = [](uint32_t hz, int direction) { return rtl_step_frequency(RtlBand::browse, hz, direction); };
+  hooks.sound_enabled = [] { return rtl_audio_user_enabled.load(std::memory_order_relaxed); };
+  hooks.overlay_open = [] { return rtl_header_audio_control.expanded; };
+  hooks.battery_percent = [] { return static_cast<int>(M5.Power.getBatteryLevel()); };
+  hooks.utc_epoch = [] {
+    const auto clock = orcsdr::time_service::now();
+    return clock.wallclock_valid ? static_cast<uint32_t>(clock.utc) : 0u;
+  };
+  hooks.sd_ready = [] {
+    if (!orcsdr::storage::mounted()) (void)orcsdr::storage::mount_tab5_sd();
+    return orcsdr::storage::mounted();
+  };
+  hooks.toggle_mute = [] { set_rtl_audio_user_enabled(!rtl_audio_user_enabled.load(std::memory_order_acquire)); };
+  hooks.go_home = [] { show_home(); };
+  hooks.open_settings = [] { open_global_settings(orcsdr::settings::Section::system); };
+  hooks.replay_begin = [](const int16_t* pcm, size_t samples) {
+    g_dead_air_replay.store(true, std::memory_order_release);
+    const uint8_t volume = rtl_live_volume.load(std::memory_order_acquire);
+    if (!M5.Speaker.isRunning() && !ensure_speaker_running(volume)) {
+      g_dead_air_replay.store(false, std::memory_order_release);
+      return false;
+    }
+    apply_speaker_volume(volume);
+    // The channel needs the same level as the receiver's (channel 0); left alone it plays at full scale.
+    M5.Speaker.setChannelVolume(2, std::min(volume, kRtlSpeakerHardwareMax));
+    // Its own virtual channel (2): the receiver uses channel 0, so stopping one never cuts the other.
+    const bool queued = M5.Speaker.playRaw(pcm, samples, 48000, false, 1, 2, true);
+    if (!queued) g_dead_air_replay.store(false, std::memory_order_release);
+    return queued;
+  };
+  hooks.replay_playing = [] { return M5.Speaker.isPlaying(2) != 0; };
+  hooks.replay_stop = [] {
+    M5.Speaker.stop(2);
+    g_dead_air_replay.store(false, std::memory_order_release);
+    if (!rtl_audio_enabled.load(std::memory_order_acquire)) (void)end_rtl_speaker();  // sound is off: leave the speaker idle again
+  };
+  return hooks;
+}
+void open_dead_air_dashboard() {
+  persist_dashboard_open(orcsdr::dashboards::Id::dead_air);
+  // Dead Air rides the general (BROWSE, NFM) band. Remember where the radio was so Home can take it back to the right
+  // band and demodulator when Dead Air is left; 0 means there was nothing to return to.
+  if (!orcsdr::dead_air_app::active()) {
+    g_dead_air_return_hz = rtl_device_ready() ? rtl_ui_frequency_hz : 0u;
+    g_dead_air_return_band = rtl_ui_band;
+    g_dead_air_return_demod = rtl_home_demod.load(std::memory_order_acquire);
+  }
+  orcsdr::home::leave();
+  orcsdr::ft8::leave();
+  orcsdr::sstv_app::close();
+  orcsdr::acars_app::close();
+  rtl_rate_override_sps.store(0, std::memory_order_release);
+  orcsdr::dead_air_app::install(dead_air_app_hooks());
+  // Keep the current tuning when a receiver is running; otherwise start on the general receive default.
+  const uint32_t hz = rtl_ui_frequency_hz ? rtl_ui_frequency_hz : kRtlBrowseDefaultHz;
+  (void)queue_local_rtl_listen(RtlBand::browse, hz, false);
+  orcsdr::dead_air_app::open();
+}
 void open_sstv_dashboard() {
   persist_dashboard_open(orcsdr::dashboards::Id::sstv);
   orcsdr::home::leave();
@@ -14168,6 +14393,8 @@ const orcsdr::sstv_diag::Hooks kSstvDiagHooks = {
 void open_dashboard(orcsdr::dashboards::Id id) {
   using Id = orcsdr::dashboards::Id;
   if (id != Id::settings && orcsdr::settings::active()) close_global_settings();
+  if (id != Id::dead_air) orcsdr::dead_air_app::close();
+  if (id == Id::dead_air) { open_dead_air_dashboard(); return; }
   if (id == Id::rf_lab) {
     persist_dashboard_open(id);
     orcsdr::rf24::leave();
@@ -14745,7 +14972,9 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
 
 // Runs an optional network sync to its end and records that the RTC is now established. Called every UI loop.
 void service_clock() {
+  ft8_install_clock_hooks();
   orcsdr::ntp_sync::poll();
+  ft8_auto_clock_sync();
   bool ok = false;
   if (!orcsdr::ntp_sync::take_result(&ok)) return;
   if (ok && !preferences.putBool("rtc_est", true)) ok = false;
@@ -16725,7 +16954,8 @@ void poll_sdr_touch(bool from_stream) {
   const int scope_width = spectrum_draw_width();
 
   if ((orcsdr::sstv::ui_active() && orcsdr::screens::owns(orcsdr::screens::Id::sstv)) ||
-      (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars))) {
+      (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars)) ||
+      (orcsdr::dead_air_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::dead_air))) {
     if (pressed && !was_pressed) handle_sdr_touch(touch.x, touch.y);
     was_pressed = pressed;
     return;
@@ -17078,7 +17308,8 @@ void handle_sdr_touch(int32_t x, int32_t y) {
     return;
   }
   if (orcsdr::audio_header::settings_hit(x, y)) {
-    open_global_settings(orcsdr::ft8::active() || orcsdr::acars_app::active() ? orcsdr::settings::Section::system :
+    open_global_settings(orcsdr::ft8::active() || orcsdr::acars_app::active() || orcsdr::dead_air_app::active()
+                             ? orcsdr::settings::Section::system :
                          rtl_ui_band == RtlBand::adsb
                              ? orcsdr::settings::Section::location_adsb
                              : (rtl_ui_band == RtlBand::p25 || rtl_ui_band == RtlBand::lora)
@@ -17092,6 +17323,10 @@ void handle_sdr_touch(int32_t x, int32_t y) {
   }
   if (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars)) {
     orcsdr::acars_app::touch(x, y);
+    return;
+  }
+  if (orcsdr::dead_air_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::dead_air)) {
+    orcsdr::dead_air_app::touch(x, y);
     return;
   }
   if (orcsdr::ft8::active()) {
@@ -17929,7 +18164,15 @@ bool ui_doc_pause_reception() {
     orcsdr::settings::enter(global_settings_state(), ui_doc.settings_section);
     orcsdr::screens::finish_transition();
   } else if (ui_doc.was_ui_active) {
-    if (ui_doc.screen == orcsdr::screens::Id::acars) {
+    if (ui_doc.screen == orcsdr::screens::Id::dead_air) {
+      if (orcsdr::dead_air_app::active()) {
+        orcsdr::screens::begin_transition(orcsdr::screens::Id::dead_air, millis());
+        orcsdr::dead_air_app::draw(true);
+        orcsdr::screens::finish_transition();
+      } else {
+        orcsdr::dead_air_app::open();
+      }
+    } else if (ui_doc.screen == orcsdr::screens::Id::acars) {
       // ACARS rides the browse band, so the band-based fallback below would close it and show Home. The documentation
       // screen may have closed the app, so reopen it when it is no longer active; otherwise just redraw it as it was.
       if (orcsdr::acars_app::active()) {
@@ -18263,6 +18506,7 @@ const char* ui_touch_route() {
   const bool pocsag_ui = rtl_ui_band == RtlBand::pocsag && orcsdr::pocsag::active();
   if (orcsdr::sstv::ui_active() && orcsdr::screens::owns(orcsdr::screens::Id::sstv)) return "sstv";
   if (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars)) return "acars";
+  if (orcsdr::dead_air_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::dead_air)) return "dead_air";
   const bool radio_ui = rtl_ui_active.load(std::memory_order_acquire);
   const bool fm_ui = rtl_ui_band == RtlBand::fm && orcsdr::fm::active();
   const bool am_ui = rtl_ui_band == RtlBand::am && orcsdr::am::active();
@@ -18298,13 +18542,7 @@ bool ft8_native_ensure_started() {
   if (!orcsdr::ft8_runtime::start(g_ft8_mode, ft8_native_on_decode, nullptr, ft8_native_clock_valid, ft8_native_dial_offset_hz)) return false;
   Serial.println("ORC_FT8_NATIVE bound");
   orcsdr::ftx::snr::set_user_offset_db(static_cast<float>(preferences.getInt("ft8_snr_off10", 0)) / 10.0f);   // stored in tenths of a dB
-  // FT8 needs the clock within about half a second and the RTC drifts (about 10 ppm measured): ask for one network sync per boot.
-  static bool ntp_requested = false;
-  if (!ntp_requested && wifi_connected) {
-    ntp_requested = true;
-    if (orcsdr::ntp_sync::start(true)) Serial.println("ORC_FT8_NTP auto sync requested");
-    log_dram_budget("after_ft8_ntp");
-  }
+  // The network sync (first one, then every two hours) is requested by ft8_auto_clock_sync() while the decoder runs.
   return true;
 }
 
@@ -18374,9 +18612,9 @@ void process_ft8_command(const char* args) {
   };
 
   if (verb[0] == '\0' || strcmp(verb, "HELP") == 0) {
-    Serial.println("ORC_FT8_HELP queries: STATUS | DECODES [n] | BANDS | DUMP | TIME | HUNTSTATUS | HELP");
+    Serial.println("ORC_FT8_HELP queries: STATUS | DECODES [n] | BANDS | DUMP | TIME | CLOCK | HUNTSTATUS | HELP");
     Serial.println("ORC_FT8_HELP control (authenticated): OPEN | BAND <index|label|dial_hz> | MODE <FT8|FT4> | CLEAR | RUN <0|1> | "
-                   "CONFIG <k> <gate> <fine_rows 4|8> <deadline_ms> | INJECT BEGIN|RUN|<offset> <b64> | LOG [ON|OFF|FLUSH] | SNR [OFFSET <dB>|RESET] | NTP | HUNT <FAST|DECODE|STOP> | TAB <name> | SHOT <name> | SAVE <name> | ADIF <name>");
+                   "CONFIG <k> <gate> <fine_rows 4|8> <deadline_ms> | INJECT BEGIN|RUN|<offset> <b64> | LOG [ON|OFF|FLUSH] | SNR [OFFSET <dB>|RESET] | NTP | HUNT <FAST|DECODE|STOP> | TAB <name> | SHOT <name> | SNAP | SAVE <name> | ADIF <name> | DIAL <hz> | CLOCKTEST <ms>");
     return;
   }
 
@@ -18500,6 +18738,19 @@ void process_ft8_command(const char* args) {
     return;
   }
 
+  if (strcmp(verb, "CLOCK") == 0) {
+    // A query (no authentication): the clock's trust state and the decoded stations' view of it (median DT): positive dt_err_ms = our clock is fast.
+    const auto status = ft8_clock_sync_input();
+    const auto level = orcsdr::clock_sync::evaluate(status);
+    const auto dt = orcsdr::ft8_runtime::dt_report();
+    Serial.printf("ORC_FT8_CLOCK level=%u age_s=%lu ntp_utc=%lu signal_utc=%lu wide=%d last_slot_wide=%d dt_valid=%d dt_err_ms=%d dt_stations=%u hold=%d\n",
+                  static_cast<unsigned>(level), static_cast<unsigned long>(orcsdr::clock_sync::age_seconds(status)),
+                  static_cast<unsigned long>(status.last_sync_utc), static_cast<unsigned long>(status.last_signal_sync_utc),
+                  orcsdr::clock_sync::wants_wide_search(level) ? 1 : 0, dt.wide ? 1 : 0, dt.valid ? 1 : 0, static_cast<int>(dt.error_ms),
+                  static_cast<unsigned>(dt.stations), g_ft8_clock_test_hold ? 1 : 0);
+    return;
+  }
+
   // ---- everything below changes state
   if (need_auth()) return;
 
@@ -18619,6 +18870,16 @@ void process_ft8_command(const char* args) {
     return;
   }
 
+  if (strcmp(verb, "SNAP") == 0) {
+    // The screen as a PNG over serial: no SD card, no RTL_STOP, no retune (tools/tab5_ft8_shot.py uses this).
+    if (need_auth()) return;
+    (void)orcsdr::ui_capture::stream_png(M5.Display, [](const char* data, size_t size, void*) {
+      // Blocking (never drops while the host reads); a short write means the host stopped reading, so the capture aborts.
+      return Serial.writeBytes(reinterpret_cast<const uint8_t*>(data), size) == size;
+    }, nullptr);
+    return;
+  }
+
   if (strcmp(verb, "SHOT") == 0) {
     // Saves the screen as a BMP on the SD card without pausing reception (UI_CAPTURE needs documentation mode); fetch it with
     // SD_GET_BEGIN / tools/tab5_ft8.py shot.
@@ -18652,6 +18913,43 @@ void process_ft8_command(const char* args) {
       return;
     }
     Serial.println("ORC_FT8_ERROR HUNT invalid use HUNT <FAST|DECODE|STOP>");
+    return;
+  }
+
+  if (strcmp(verb, "DIAL") == 0) {
+    // Bench: tune an exact dial frequency in Hz (what the Live DIAL chip does with expert tuning), e.g. a time-signal station.
+    // FT8 BAND <label> returns to the band table.
+    if (need_auth()) return;
+    char* dial_end = nullptr;
+    const unsigned long hz = strtoul(rest, &dial_end, 10);
+    while (dial_end != nullptr && *dial_end == ' ') ++dial_end;
+    // The whole argument must be the number ("14074000oops" is rejected, not tuned as 14074000).
+    if (hz == 0 || dial_end == rest || *dial_end != '\0' || !ft8_tune_dial(static_cast<uint32_t>(hz)))
+      Serial.println("ORC_FT8_ERROR DIAL invalid use DIAL <hz> (0.5 MHz to the tuner limit)");
+    return;
+  }
+
+  if (strcmp(verb, "CLOCKTEST") == 0) {
+    // Bench only: FT8 CLOCKTEST <ms> steps the clock by ms (positive = later), forgets the last sync and holds the automatic network sync
+    // off, so the DT-based correction can be exercised. FT8 CLOCKTEST 0 releases the hold (then FT8 NTP, or the automatic sync, restores the clock).
+    if (need_auth()) return;
+    const long delta = strtol(rest, nullptr, 10);
+    if (delta < -5000 || delta > 5000) {
+      Serial.println("ORC_FT8_ERROR CLOCKTEST invalid use CLOCKTEST <-5000..5000 ms>");
+      return;
+    }
+    if (delta == 0) {
+      g_ft8_clock_test_hold = false;
+      Serial.println("ORC_FT8_CLOCKTEST released");
+      return;
+    }
+    g_ft8_clock_test_hold = true;
+    orcsdr::ntp_sync::forget_last_success();
+    g_ft8_signal_sync_utc = 0;
+    int32_t applied_ms = 0;
+    const bool ok = orcsdr::time_service::step_ms(static_cast<int32_t>(delta), &applied_ms);
+    if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
+    Serial.printf("ORC_FT8_CLOCKTEST %s step_ms=%ld\n", ok ? "OK" : "FAILED", delta);
     return;
   }
 
@@ -19179,7 +19477,8 @@ void process_command(char* command) {
     }
     if (strncmp(command, "UI_CAPTURE ", 11) == 0) {
       const char* slug = command + 11;
-      const bool visualizer_capture = orcsdr::visualizer::active();
+      // The live Visualizer and Dead Air screens capture as they are, without pausing reception.
+      const bool visualizer_capture = orcsdr::visualizer::active() || orcsdr::dead_air_app::active();
       const bool lab_capture = orcsdr::rf_lab::active();
       if ((!ui_doc.active || !ui_doc.current_screen[0]) && !visualizer_capture &&
           !lab_capture) {
@@ -19353,6 +19652,21 @@ void process_command(char* command) {
                   heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
     return;
   }
+  if (strncmp(command, "RTL_DEAD_AIR FLOOD ", 19) == 0) {
+    if (!authenticated) {
+      Serial.println("RTL_DEAD_AIR_FLOOD_ERROR auth_required");
+      return;
+    }
+    const uint32_t logged = orcsdr::dead_air_app::flood_manual_marks(static_cast<uint32_t>(atoi(command + 19)));
+    Serial.printf("RTL_DEAD_AIR_FLOOD logged=%lu\n", static_cast<unsigned long>(logged));
+    return;
+  }
+  if (strcmp(command, "RTL_DEAD_AIR STATUS") == 0) {
+    char line[768];
+    orcsdr::dead_air_app::describe(line, sizeof(line));
+    Serial.println(line);
+    return;
+  }
   if (strcmp(command, "RTL_ACARS STATUS") == 0) {
     char line[900];
     orcsdr::acars_app::describe(line, sizeof(line));
@@ -19425,10 +19739,11 @@ void process_command(char* command) {
     else if (strcmp(name, "WEATHER") == 0) open_dashboard(Id::weather);
     else if (strcmp(name, "POCSAG") == 0) open_dashboard(Id::pocsag);
     else if (strcmp(name, "ACARS") == 0) open_dashboard(Id::acars);
+    else if (strcmp(name, "DEAD_AIR") == 0) open_dashboard(Id::dead_air);
     else if (strcmp(name, "MARINE") == 0) open_dashboard(Id::marine);
     else if (strcmp(name, "SATELLITE") == 0) open_dashboard(Id::satellite);
     else if (strcmp(name, "UTILITIES") == 0) open_dashboard(Id::utilities);
-    else { Serial.println("RTL_UI_OPEN_INVALID use HOME|FM|AM|SHORTWAVE|P25|ADSB|LORA|RF_LAB|WIFI_ANALYSIS|FT8|SETTINGS|WEATHER|CB|POCSAG|AIRBAND|ACARS|MARINE|SATELLITE|UTILITIES"); return; }
+    else { Serial.println("RTL_UI_OPEN_INVALID use HOME|FM|AM|SHORTWAVE|P25|ADSB|LORA|RF_LAB|WIFI_ANALYSIS|FT8|SETTINGS|WEATHER|CB|POCSAG|AIRBAND|ACARS|DEAD_AIR|MARINE|SATELLITE|UTILITIES"); return; }
     Serial.printf("RTL_UI_OPEN_OK target=%s\n", name);
     return;
   }
@@ -22509,6 +22824,7 @@ void loop() {
   const bool rf_lab_ui = orcsdr::rf_lab::active();
   orcsdr::sstv_app::tick();
   orcsdr::acars_app::tick();
+  orcsdr::dead_air_app::tick();
   if (rtl_stream_ui_refresh_pending.exchange(false, std::memory_order_acq_rel) &&
       !settings_ui && !home_ui && !visualizer_ui && !rf_lab_ui) {
     refresh_active_screen();
@@ -22534,7 +22850,8 @@ void loop() {
   orcsdr::realtime_log::drain([](const char* line) { Serial.print(line); });
   if (rtl_stream_spectrum_pending.exchange(false, std::memory_order_acq_rel) &&
       !orcsdr::visualizer::active() && !orcsdr::rf_lab::active() &&
-      (orcsdr::web_console::spectrum_demanded() || sstv_tune_spectrum_wanted() || fm_ui || am_ui || shortwave_ui || cb_ui ||
+      (orcsdr::web_console::spectrum_demanded() || sstv_tune_spectrum_wanted() ||
+       orcsdr::dead_air_app::wants_spectrum() || fm_ui || am_ui || shortwave_ui || cb_ui ||
        (rtl_ui_band == RtlBand::cb &&
         rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running) ||
        p25_ui ||
@@ -22808,6 +23125,7 @@ void loop() {
        orcsdr::screens::status().active != orcsdr::screens::Id::sstv &&
       orcsdr::screens::status().active != orcsdr::screens::Id::acars &&
       orcsdr::screens::status().active != orcsdr::screens::Id::maps &&
+      orcsdr::screens::status().active != orcsdr::screens::Id::dead_air &&
       !orcsdr::screens::owns(screen_for_band(rtl_ui_band)) &&
       !orcsdr::home::active()) {
     draw_sdr_screen(rtl_ui_band, rtl_ui_frequency_hz,
@@ -22885,6 +23203,8 @@ void loop() {
     poll_sdr_touch(false);
     draw_sstv_dashboard(false);
   } else if (orcsdr::acars_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::acars)) {
+    poll_sdr_touch(false);
+  } else if (orcsdr::dead_air_app::active() && orcsdr::screens::owns(orcsdr::screens::Id::dead_air)) {
     poll_sdr_touch(false);
   } else if (pocsag_ui && orcsdr::screens::owns(orcsdr::screens::Id::pocsag)) {
     const auto touch = ui_touch_detail(0);

@@ -1,4 +1,6 @@
+#include <esp_attr.h>
 #include "ft8_dashboard.hpp"
+#include "clock_sync_status.hpp"
 #include "ft8_conditions.hpp"
 #include "ft8_map_source.hpp"
 #include "ft8_world_projection.hpp"
@@ -101,6 +103,8 @@ constexpr Rect kModePanel{246, 168, 540, 132};
 Rect mode_pick_rect(size_t i) { return {262 + static_cast<int>(i) * 172, 218, 164, 64}; }
 bool overlay_open() { return g_tune_open || g_info_open || g_mode_open || g_station_open || g_gain_open; }
 constexpr Rect kDialChip{24, 104, 212, 58};
+constexpr Rect kClockChipLive{626, 104, 190, 58};    // tap = sync the clock from the network
+constexpr Rect kClockChipDecodes{824, 104, 204, 58};
 constexpr Rect kTunePanel{240, 104, 800, 512};
 constexpr Rect kTuneEntry{260, 168, 300, 46};
 constexpr Rect kTuneEnter{260, 462, 300, 52};
@@ -285,6 +289,20 @@ void chip(const Rect& r, const char* title, const char* value, uint16_t color = 
   text(value, cx(r), r.y + 42, color, 2);
 }
 
+// The CLOCK chip shows whether the clock is known to be right (a recent network sync), not just whether a date exists.
+void draw_clock_chip(const Rect& r) {
+  const auto level = static_cast<clock_sync::Level>(g_snapshot.clock_sync_level);
+  char title[40]{};
+  char value[24]{};
+  clock_sync::chip_text(level, g_snapshot.clock_sync_age_s, title, sizeof(title), value, sizeof(value));
+  const uint16_t color = (level == clock_sync::Level::synced || level == clock_sync::Level::signal) ? kGreen : level == clock_sync::Level::syncing ? kCyan : kAmber;
+  chip(r, title, value, color);
+}
+
+uint32_t clock_chip_key(const Snapshot& v) {
+  return clock_sync::display_key(static_cast<clock_sync::Level>(v.clock_sync_level), v.clock_sync_age_s);
+}
+
 const Decode* decode_newest(size_t offset) {
   if (offset >= g_snapshot.decode_count || g_snapshot.decode_count > kDecodeCapacity) return nullptr;
   return &g_snapshot.decodes[g_snapshot.decode_count - 1 - offset];
@@ -432,7 +450,7 @@ void draw_waterfall() {
   const size_t rows = std::min<size_t>(g_snapshot.wf_rows, 112);
   const size_t bins = g_snapshot.wf_bins;
   if (g_snapshot.waterfall == nullptr || rows == 0 || bins == 0 || g_snapshot.wf_sequence == 0) return;
-  static uint16_t line[kWidth * kRowPx];
+  EXT_RAM_BSS_ATTR static uint16_t line[kWidth * kRowPx];
   const uint32_t seq = g_snapshot.wf_sequence;
   const size_t visible = std::min<size_t>(rows, seq);
   for (size_t r = 0; r < visible; ++r) {
@@ -486,7 +504,7 @@ void scroll_waterfall(size_t max_rows) {
     }
   }
   M5.Display.scroll(0, static_cast<int>(fresh) * kRowPx);
-  static uint16_t line[kWidth];
+  EXT_RAM_BSS_ATTR static uint16_t line[kWidth];
   for (size_t k = 0; k < fresh; ++k) {
     const uint8_t* src = g_snapshot.waterfall + ((target - 1 - k) % rows) * bins;
     for (int x = 0; x < kWidth; ++x) line[x] = waterfall_color(src[static_cast<size_t>(x) * bins / kWidth]);
@@ -528,8 +546,7 @@ void draw_live() {
   chip(kModeChip, "MODE - TAP", mode_name(g_snapshot.mode),
        mode_experimental(g_snapshot.mode) ? kAmber : TFT_WHITE);
   chip({406, 104, 210, 58}, "AUDIO PASS", "200-3000 Hz", TFT_WHITE);
-  chip({626, 104, 190, 58}, "CLOCK", g_snapshot.clock_valid ? "LOCKED" : "NEEDED",
-       g_snapshot.clock_valid ? kGreen : kAmber);
+  draw_clock_chip(kClockChipLive);
   chip({826, 104, 200, 58}, "DECODER", decoder_name(), decoder_color());
   if (g_snapshot.gain_auto) std::snprintf(value, sizeof(value), "AUTO");   // the readout under AUTO is not the effective gain
   else std::snprintf(value, sizeof(value), "MAN %.1f dB", g_snapshot.gain_tenth_db / 10.0);
@@ -615,8 +632,7 @@ void draw_decodes() {
     else std::snprintf(value, sizeof(value), "%s", g_snapshot.station_known ? "--" : "SET LOCATION");
     chip({624, 104, 190, 58}, "FARTHEST", value, g_snapshot.station_known ? kGreen : kAmber);
   }
-  chip({824, 104, 204, 58}, "CLOCK", g_snapshot.clock_valid ? "LOCKED" : "NEEDED",
-       g_snapshot.clock_valid ? kGreen : kAmber);
+  draw_clock_chip(kClockChipDecodes);
   chip({1038, 104, 218, 58}, "DECODER", decoder_name(), decoder_color());
 
   const Rect list{24, 176, 1232, 442};
@@ -1065,6 +1081,13 @@ void setup_row(int row, const char* label, const char* value, uint16_t color) {
   text(value, 1226, y + 18, color, 2, middle_right);
 }
 
+void draw_setup_clock_row() {
+  const auto level = static_cast<clock_sync::Level>(g_snapshot.clock_sync_level);
+  char value[40]{};
+  clock_sync::long_text(level, g_snapshot.clock_sync_age_s, value, sizeof(value));
+  setup_row(kSetupStatusRow + 1, "UTC SLOT CLOCK", value, (level == clock_sync::Level::synced || level == clock_sync::Level::signal) ? kGreen : kAmber);
+}
+
 // The rows whose value follows the decoder or the clock. Repainted alone (row background first) so a status change never repaints the page.
 void draw_setup_status_rows() {
   std::printf("ORC_FT8_UI setup_rows\n");
@@ -1073,8 +1096,7 @@ void draw_setup_status_rows() {
     M5.Display.fillRect(46, y, 1188, 41, kPanel);
   }
   setup_row(kSetupStatusRow, "DECODER BINDING", decoder_name(), decoder_color());
-  setup_row(kSetupStatusRow + 1, "UTC SLOT CLOCK", g_snapshot.clock_valid ? "READY" : "NOT ESTABLISHED",
-            g_snapshot.clock_valid ? kGreen : kAmber);
+  draw_setup_clock_row();
 }
 
 // What the selected standard is, as the decoder implements it. Shown in Setup so each mode's own parameters are visible when it is selected.
@@ -1129,8 +1151,7 @@ void draw_setup() {
   setup_row(2, "DECODED MESSAGES", facts.messages, TFT_WHITE);
   setup_row(3, "SNR", facts.snr, g_snapshot.mode == DigitalMode::ft8 || g_snapshot.mode == DigitalMode::ft4 ? kGreen : kAmber);
   setup_row(kSetupStatusRow, "DECODER BINDING", decoder_name(), decoder_color());
-  setup_row(kSetupStatusRow + 1, "UTC SLOT CLOCK", g_snapshot.clock_valid ? "READY" : "NOT ESTABLISHED",
-            g_snapshot.clock_valid ? kGreen : kAmber);
+  draw_setup_clock_row();
   draw_expert_checkbox();
 }
 
@@ -1152,6 +1173,7 @@ void draw_live_dynamic(const Snapshot& previous) {
   draw_dial_chip(band(g_snapshot.selected_band) != nullptr && mode_has_band_table(g_snapshot.mode));
   char value[48];
   chip({826, 104, 200, 58}, "DECODER", decoder_name(), decoder_color());
+  if (clock_chip_key(previous) != clock_chip_key(g_snapshot)) draw_clock_chip(kClockChipLive);
   if (previous.gain_auto != g_snapshot.gain_auto || previous.gain_tenth_db != g_snapshot.gain_tenth_db) {
     if (g_snapshot.gain_auto) std::snprintf(value, sizeof(value), "AUTO");
     else std::snprintf(value, sizeof(value), "MAN %.1f dB", g_snapshot.gain_tenth_db / 10.0);
@@ -1612,6 +1634,7 @@ namespace {
 bool same_content(const Snapshot& a, const Snapshot& b) {
   // Everything the body draws, except the running clock (utc_ms), which has its own partial updates.
   return a.mode == b.mode && a.decoder_capabilities == b.decoder_capabilities && a.clock_valid == b.clock_valid &&
+         clock_chip_key(a) == clock_chip_key(b) &&
          a.receiver_running == b.receiver_running && a.gain_auto == b.gain_auto &&
          a.gain_tenth_db == b.gain_tenth_db && a.candidate_count == b.candidate_count &&
          a.last_slot_decodes == b.last_slot_decodes && a.selected_band == b.selected_band &&
@@ -1633,7 +1656,7 @@ bool station_differs(const Snapshot& a, const Snapshot& b) {
 bool tab_content_changed(Tab tab, const Snapshot& a, const Snapshot& b) {
   switch (tab) {
     case Tab::decodes:
-      return decodes_differ(a, b) || station_differs(a, b) || a.clock_valid != b.clock_valid || a.decoder_state != b.decoder_state || a.mode != b.mode;
+      return decodes_differ(a, b) || station_differs(a, b) || a.clock_valid != b.clock_valid || clock_chip_key(a) != clock_chip_key(b) || a.decoder_state != b.decoder_state || a.mode != b.mode;
     case Tab::map: return decodes_differ(a, b) || station_differs(a, b) || a.mode != b.mode || a.selected_band != b.selected_band;
     case Tab::hunter:
       return std::memcmp(&a.hunter, &b.hunter, sizeof(a.hunter)) != 0 || a.mode != b.mode || a.selected_band != b.selected_band || a.dial_hz != b.dial_hz;
@@ -1792,6 +1815,8 @@ Action handle_touch(int32_t x, int32_t y) {
   }
   if (g_tab == Tab::live && g_snapshot.decoder_state == DecoderState::no_memory && has_holders(g_snapshot) && hit(x, y, kFreeMemory))
     return {ActionKind::free_memory, 0};
+  if ((g_tab == Tab::live && hit(x, y, kClockChipLive)) || (g_tab == Tab::decodes && hit(x, y, kClockChipDecodes)))
+    return {ActionKind::sync_clock, 0};
   if (g_tab == Tab::live && hit(x, y, kGainChip)) {
     open_gain_panel();
     return {};
