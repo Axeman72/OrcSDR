@@ -75,3 +75,50 @@ full-output equivalence across viewport edges and label changes. Prove those
 properties before another native candidate, then measure the unchanged COM17
 20-pan workload under reception. Current accepted firmware stays 30a00ce1;
 p95 4.552282 seconds still fails the required two seconds.
+
+## Compact geometry replay follow-up
+
+A host-only prototype delta-encodes classified tile-local geometry into varints,
+then reconstructs Features and calls the existing RenderOrderedFeatureAt and
+FinishOrderedTile for each new camera. It redraws geometry at the new camera;
+it does not shift the old raster or introduce a replacement rasterizer.
+Source snapshot: [prototype](probes/2026-10-23-feature-replay.cpp), SHA-256
+a797cc01ed08577cc77c8629e9345cddf4971c8c8d02db8549d5ddbf9f026d96.
+
+| View | Full-frame comparisons | Result | Encoded payload | Sum of vector capacities |
+|---|---:|---|---:|---:|
+| Reference zoom 9/source 8 | 5 | Zero differing pixels | 433,391 B | 573,440 B |
+| Antimeridian zoom 5 | 5 | Zero differing pixels | 4,547 B | 5,280 B |
+| Tokyo zoom 8 | 0 | Capacity miss before comparison | At least 634,309 B | Not accepted |
+
+Each passing group compares the starting view and independent pans 40,0;
+0,20; -40,0; 0,-20. Comparisons cover all 277,860 pixels, labels disabled.
+Synthetic checks reject every truncation of a small encoded polygon, an invalid
+kind and an impossible path count. These are focused prototype checks, not a
+production decoder validation suite. Feature properties and label data are not
+stored; this is not an implementation ready to replace the shared Pipeline.
+
+The reference payload fits 512 KiB, but its vector allocations do not. A real
+cache must use explicitly capped storage rather than accepting payload size as
+allocation size. Dense views need normal streaming fallback and eviction; the
+prototype deliberately reports a capacity miss instead of implementing either.
+Label-on reuse, allocation failures, cancellation, cache identity/invalidation,
+reclaim, P4 placement and hardware timing remain untested.
+
+Commands from the integration root:
+
+```text
+wsl -d Ubuntu -- bash .local/maps/run_feature_replay_probe_20261023.sh > maps-feature-replay-probe-expanded-20261023.log 2>&1
+wsl -d Ubuntu -- bash -c 'cd /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion && .local/maps/feature_replay_probe_20261023 /mnt/f/AI/OrcSDR-TEMP/orcmaps-quality-delivery/.local/global-assessment/global-z8-candidate.pmtiles 35.7 139.7 8' > maps-feature-replay-tokyo-20261023.log 2>&1
+wsl -d Ubuntu -- bash -c 'cd /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion && .local/maps/feature_replay_probe_20261023 /mnt/f/AI/OrcSDR-TEMP/orcmaps-quality-delivery/.local/global-assessment/global-z8-candidate.pmtiles 0 179.99 5' > maps-feature-replay-antimeridian-20261023.log 2>&1
+```
+
+First and third invocations exit 0. Tokyo's executable intentionally returns 3
+for capacity miss; the PowerShell/WSL wrapper reports exit 1, with the explicit
+REPLAY_CAPACITY_MISS marker in its log. An earlier prototype's invalid-count
+self-test changed a byte in the extent instead of the path count and failed;
+maps-feature-replay-probe-20261023.log preserves that harness mistake. Corrected
+the byte index and reran before obtaining these results. No firmware flashed,
+no device accessed, no speed claim. The next implementation candidate is bounded
+geometry replay with preserved label behavior and streaming fallback; it still
+must pass the unchanged native refill gate.

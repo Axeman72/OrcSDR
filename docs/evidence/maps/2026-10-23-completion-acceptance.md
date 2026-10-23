@@ -134,6 +134,13 @@ Eight of twelve label-off shifted overlaps differ from a complete redraw. The
 six-tile reference view has 1,509,416 bytes of point coordinates alone; neither
 naive overlap reuse nor an unbounded whole-geometry cache is accepted. No device
 operation or additional firmware change was made for these probes.
+
+The same evidence now includes a compact replay prototype: ten full-frame
+label-off comparisons have zero differing pixels at the reference and
+antimeridian views. The reference payload is 433,391 bytes, but vector capacity
+is 573,440 bytes; Tokyo exceeds a 512 KiB payload budget. Fixed-capacity storage,
+fallback/eviction, labels, cancellation/reclaim and native timing remain open.
+This is a host feasibility result, not an installed optimization.
 Current app remains 30a00ce1 / engine b59d478; consumer source revert ff31e14b restores
 that app tree exactly. Engine PR7's optional path was withdrawn after an 8.46 s
 completed frame and incomplete seven-second samples. No candidate percentiles
