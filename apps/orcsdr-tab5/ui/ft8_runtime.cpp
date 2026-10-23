@@ -177,6 +177,14 @@ void mark_discontinuity() {
   g.continuity_sequence.fetch_add(1, std::memory_order_release);
 }
 
+// The published clock-error estimate (FT8 CLOCK) must go with the evidence it came from.
+void reset_dt_report() {
+  g.dt_valid.store(false, std::memory_order_release);
+  g.dt_error_ms.store(0, std::memory_order_release);
+  g.dt_stations.store(0, std::memory_order_release);
+  g.last_slot_wide.store(false, std::memory_order_release);
+}
+
 void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint64_t total_now, bool wide) {
   const uint32_t lead_ms = wide ? kWideExtraMs : 0u;           // FT8 only; the caller never sets it for JS8
   const uint64_t lead_samples = static_cast<uint64_t>(lead_ms) * 12u;
@@ -352,6 +360,7 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
     if (step != 0) {
       g.pending_step_ms.store(step, std::memory_order_release);
       g.dt_estimator.clear();   // one request per body of evidence; the next estimate starts fresh
+      reset_dt_report();
       std::printf("ORC_FT8_CLOCK_DT correction_requested step_ms=%d stations=%u\n", static_cast<int>(step), static_cast<unsigned>(estimate.stations));
     }
   }
@@ -467,6 +476,8 @@ void decoder_task(void*) {
     }
     if (g.clock_stepped.exchange(false, std::memory_order_acq_rel)) {
       g.dt_estimator.clear();   // the old DTs were measured against the old clock
+      g.pending_step_ms.store(0, std::memory_order_release);   // a correction queued from those DTs is stale too
+      reset_dt_report();
       last_slot = UINT64_MAX;   // the slot index jumped with the clock: restart the schedule
     }
     if (g.mode_changed.exchange(false, std::memory_order_acq_rel)) {

@@ -13677,15 +13677,18 @@ orcsdr::clock_sync::Input ft8_clock_sync_input() {
   return in;
 }
 
+// A network sync steps the wall clock: the FT8 slot schedule and its timing evidence restart with it. Installed before the first sync can be polled.
+void ft8_install_clock_hooks() {
+  static bool installed = false;
+  if (installed) return;
+  installed = true;
+  orcsdr::ntp_sync::set_step_listener([](int32_t delta_ms) { orcsdr::ft8_runtime::clock_stepped(delta_ms); });
+}
+
 // While the decoder runs, keep the clock right: the RTC drifts about 0.9 s a day and FT8 needs a few hundred milliseconds.
 // Called every UI loop; the policy (age, retry delay, Wi-Fi) lives in clock_sync::auto_sync_due. Without a recent network sync the decoder
 // searches a wider time window and, from the DT of the stations it decodes, asks for the clock to be corrected (no Wi-Fi needed).
 void ft8_auto_clock_sync() {
-  static bool step_listener_installed = false;
-  if (!step_listener_installed) {   // a network sync steps the wall clock: the FT8 slot schedule and its timing evidence restart with it
-    step_listener_installed = true;
-    orcsdr::ntp_sync::set_step_listener([](int32_t delta_ms) { orcsdr::ft8_runtime::clock_stepped(delta_ms); });
-  }
   if (!orcsdr::ft8_runtime::active()) return;
   const auto status = ft8_clock_sync_input();
   const auto level = orcsdr::clock_sync::evaluate(status);
@@ -13694,12 +13697,17 @@ void ft8_auto_clock_sync() {
   if (orcsdr::ft8_runtime::take_clock_step(&step_ms)) {
     if (!orcsdr::clock_sync::may_apply_signal_correction(level)) {
       Serial.printf("ORC_FT8_CLOCK_DT ignored step_ms=%d (a network sync is recent)\n", static_cast<int>(step_ms));
-    } else if (orcsdr::time_service::step_ms(step_ms)) {
-      g_ft8_signal_sync_utc = orcsdr::time_service::now().utc;
-      orcsdr::ft8_runtime::clock_stepped(step_ms);
-      Serial.printf("ORC_FT8_CLOCK_DT applied step_ms=%d\n", static_cast<int>(step_ms));
     } else {
-      Serial.printf("ORC_FT8_CLOCK_DT step_failed step_ms=%d\n", static_cast<int>(step_ms));
+      int32_t applied_ms = 0;
+      const bool stepped = orcsdr::time_service::step_ms(step_ms, &applied_ms);
+      // Tell the decoder how far the wall clock really moved, also after a rolled-back step: its slot schedule and evidence follow the clock.
+      if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
+      if (stepped) {
+        g_ft8_signal_sync_utc = orcsdr::time_service::now().utc;
+        Serial.printf("ORC_FT8_CLOCK_DT applied step_ms=%d\n", static_cast<int>(step_ms));
+      } else {
+        Serial.printf("ORC_FT8_CLOCK_DT step_failed step_ms=%d moved_ms=%d\n", static_cast<int>(step_ms), static_cast<int>(applied_ms));
+      }
     }
   }
   if (g_ft8_clock_test_hold) return;
@@ -14856,6 +14864,7 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
 
 // Runs an optional network sync to its end and records that the RTC is now established. Called every UI loop.
 void service_clock() {
+  ft8_install_clock_hooks();
   orcsdr::ntp_sync::poll();
   ft8_auto_clock_sync();
   bool ok = false;
@@ -18805,8 +18814,9 @@ void process_ft8_command(const char* args) {
     g_ft8_clock_test_hold = true;
     orcsdr::ntp_sync::forget_last_success();
     g_ft8_signal_sync_utc = 0;
-    const bool ok = orcsdr::time_service::step_ms(static_cast<int32_t>(delta));
-    if (ok && orcsdr::ft8_runtime::active()) orcsdr::ft8_runtime::clock_stepped(static_cast<int32_t>(delta));
+    int32_t applied_ms = 0;
+    const bool ok = orcsdr::time_service::step_ms(static_cast<int32_t>(delta), &applied_ms);
+    if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
     Serial.printf("ORC_FT8_CLOCKTEST %s step_ms=%ld\n", ok ? "OK" : "FAILED", delta);
     return;
   }
