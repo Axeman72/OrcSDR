@@ -1,5 +1,13 @@
 # SD card reliability and regression checks
 
+October 23 replay-cache candidate f38b8601: COM17 passes a 16 KiB owned scratch
+write/SHA-256 readback while the completed map and 702,110-byte tile replay stay
+retained. Reception is paused because the existing serial file-transfer guard
+rejects active reception with radio_busy; the initial attempt stopped before
+upload. Reception resumes afterward, drops/overruns remain zero, and LoRa logging
+stays healthy. This does not qualify simultaneous RF file transfer or all cards.
+[Exact candidate, commands, hash and logs](evidence/maps/2026-10-23-feature-replay-integration.md).
+
 October 22 LoRa/map follow-up: after correcting decoder task startup in
 `7c48e358`, COM17 successfully reads its 881-byte RF packet CSV with SHA-256
 verification while the completed 555,720-byte map frame remains retained.

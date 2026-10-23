@@ -3,10 +3,12 @@
 Initial scout source 4d4f85a3 on codex/maps-integration-completion.
 Reconciled source 30a00ce1 now contains fetched main 629ba546; affected host/
 sanitizer, P4 syntax, native link, app-only COM17 preservation/startup and bounded
-map navigation checks pass. Current COM17 application is 30a00ce1; its dragging,
-colors and controls are physically accepted. Final performance and memory-pressure
-gates remain open. Decoder testing was subsequently excluded by the user.
-OrcMaps pin b59d47819cc3b81c1bbe50ed75b775275bb0218e. This current matrix supersedes
+map navigation checks pass. Current COM17 candidate is f38b8601 (replay engine
+2133547); the prior 30a00ce1 dragging/colors/controls were physically accepted.
+This exact candidate's appearance remains unverified. Its 20-pan p95 is 3.55 s,
+so the two-second gate still fails. Retained SD/reclaim/fallback checks pass.
+Decoder testing was excluded by the user.
+Current OrcMaps pin is 2133547bf8e003e2f4c52de3b8abf737261a8397. This matrix supersedes
 stale unchecked entries in the historical plan without deleting their evidence.
 
 | Area | Implementation | Recorded validation | Physical acceptance / remaining gate |
@@ -14,7 +16,7 @@ stale unchecked entries in the historical plan without deleting their evidence.
 | Location picker/save | Implemented; verified explicit lat/lon persistence and feedback | Bounded COM17 save/return/reboot checks | Prior controls, readable text, saving feedback and dragging accepted; retain on final candidate |
 | Shared map consumers and labels | LoRa, ADS-B and FT8 use shared service; independent preferences | Host and bounded COM17 checkpoints exist | Finish label persistence across all consumers, ADS-B aircraft/range and FT8 projection/whole-world/polar acceptance |
 | LoRa map overlays | Bounded priority names, markers, centering and Follow implemented | Controlled text/NODEINFO and bounded position/Follow checks | Prior dragging/flicker accepted; actual dashboard host regression passes identity retention across reordered/missing/returning nodes; native reordered-traffic proof remains open |
-| Detail refill/read cache | 256 KiB reclaimable aligned-PSRAM cache; runtime construction corrected | 20-pan baseline p50 3.65 s / p95 4.55 s / max 5.13 s; pixel equality, cancel/zoom/reclaim/SD checks | Dragging/colors/controls accepted; p95 fails the user-selected 2 s gate. Single-inflate experiment withdrawn; shifted-frame-only reuse fails pixel equivalence; full decoded geometry exceeds safe default headroom |
+| Detail refill/read cache | 256 KiB read cache plus optional 768 KiB reclaimable feature replay | f38b8601 20 pans: p50 3.31 s / p95 3.55 s / max 3.58 s; all six replay hits, zero tile reads; retained SD/reclaim/fallback pass | Two-second gate FAILS; cached motion remains separate. Replay currently disabled after reclaim by memory guard; exact candidate physical acceptance open. No isolated speed multiplier claimed |
 | Cached motion | Last-valid-frame preview and clipping implemented | Pan paint checks exist; representative continuous timing incomplete | Approximately 33 ms target remains open; paint-call timings are not full motion latency |
 | Worldwide quality | Profile, hierarchy, rings/clipping and bounded labels implemented | Fixed worldwide host views recorded | Device boundaries/contrast/international-script and fallback acceptance still open |
 | Setup | Wizard-owned methods and reception pause implemented | Bounded coordinate confirmation, IP proposal, exit/reception and graphics checks | Full first boot/rerun, credentials/address, Back/Skip/Cancel/recovery, audio and paused hotplug open |
@@ -147,6 +149,12 @@ Focused integration passes 2/2, including replay/streaming equivalence, fallback
 eviction and cancellation recovery; three P4 syntax checks pass. Engine dependency
 resolution, native link/placement and COM17 performance remain open. A full
 producer host run and development push are now explicitly approved.
+
+Latest native gate: [f38b8601 build, COM17, 20-pan failure and retained SD/reclaim](2026-10-23-feature-replay-integration.md).
+OrcMaps full suite passes 9/9 and approved producer revision 2133547 is published
+on the development branch. Consumer pin/lock resolve through the component
+manager. No main merge or release. COM17 is receiving with normal streaming
+fallback after reclaim; the complete goal and other acceptance rows remain open.
 Current app remains 30a00ce1 / engine b59d478; consumer source revert ff31e14b restores
 that app tree exactly. Engine PR7's optional path was withdrawn after an 8.46 s
 completed frame and incomplete seven-second samples. No candidate percentiles
