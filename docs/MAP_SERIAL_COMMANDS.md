@@ -187,3 +187,11 @@ catalog trust, archive verification, activation/recovery or storage checks.
 The production catalog URL/key are currently unconfigured. A rejected Check or
 empty list in that state is expected; these commands do not provide a new host,
 publish assets or prove an end-to-end HTTPS installation.
+
+### Detailed-frame worker timing
+
+`RTL_MAP_STATUS` also reports `ORC_MAP_WORKER yields=... wait_us=...
+included_in_total=1 tick_us=...`. The wait is wall time around cooperative
+`vTaskDelay(1)`, including time before the worker is scheduled again. It is
+already included in frame timings; do not add it to `total_us` or interpret
+the remainder as isolated CPU time. Counts reset for each render attempt.

@@ -81,6 +81,8 @@ std::atomic<bool> g_installed{false};
 std::atomic<uint32_t> g_serial{0}, g_revision{0};
 std::atomic<size_t> g_canvas_bytes{0};
 uint64_t g_yield_us = 0;
+EXT_RAM_BSS_ATTR uint64_t g_worker_wait_us;
+EXT_RAM_BSS_ATTR uint32_t g_worker_yields;
 struct WorkerLock {
   WorkerLock() {xSemaphoreTake(g_lock,portMAX_DELAY);}
   ~WorkerLock() {xSemaphoreGive(g_lock);}
@@ -177,7 +179,12 @@ uint64_t clock_us() { return static_cast<uint64_t>(esp_timer_get_time()); }
 bool service(void* context) {
   if(*static_cast<uint32_t*>(context)!=g_serial.load())return false;
   const uint64_t now=clock_us();
-  if(now-g_yield_us>=3000) { vTaskDelay(1);g_yield_us=clock_us(); }
+  if(now-g_yield_us>=3000) {
+    vTaskDelay(1);
+    g_yield_us=clock_us();
+    g_worker_wait_us+=g_yield_us-now;
+    ++g_worker_yields;
+  }
   return true;
 }
 // Bound the directory scan before allocating names, rather than collecting
@@ -376,12 +383,14 @@ void worker(void*) {
       if(ok) {g_canvas.setPsram(true);g_canvas.setColorDepth(16);ok=g_canvas.createSprite(view.width_px,view.height_px)!=nullptr;}
       if(ok)g_canvas_bytes.store(bytes);
     }
+    g_worker_wait_us=0;g_worker_yields=0;
     if(ok) {
       orcmap::m5gfx_adapter::DisplayTarget target(g_canvas);
       orcmap::m5gfx_adapter::LabelTarget text_target(g_canvas,fonts::DejaVu24);
       g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target,request.labels?&g_labels:nullptr,request.labels?&text_target:nullptr,request.view.zoom);
     }
     if(g_pipeline)g_frame.stats=g_pipeline->stats();
+    g_frame.worker_wait_us=g_worker_wait_us;g_frame.worker_yields=g_worker_yields;
     if(g_frame.stats.out_of_memory) {
       g_pipeline.reset();g_source.reset();g_archive[0]=0;
       g_canvas.deleteSprite();g_canvas_bytes.store(0);
@@ -531,6 +540,10 @@ void report(void (*write)(const char*)) {
       static_cast<unsigned long>(stats.features),static_cast<unsigned long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
       static_cast<unsigned long long>(stats.lookup_us),static_cast<unsigned long long>(stats.stream_us),
       static_cast<unsigned long long>(stats.render_us),static_cast<unsigned long long>(stats.total_us),static_cast<unsigned long long>(stats.io_us));
+  write(line);
+  std::snprintf(line,sizeof(line),"ORC_MAP_WORKER yields=%lu wait_us=%llu included_in_total=1 tick_us=%llu\n",
+      static_cast<unsigned long>(frame.worker_yields),static_cast<unsigned long long>(frame.worker_wait_us),
+      static_cast<unsigned long long>(portTICK_PERIOD_MS)*1000);
   write(line);
   std::snprintf(line,sizeof(line),"ORC_MAP_DEFERRED peak_bytes=%u retained_bytes=%u capacity_failures=%lu\n",
       static_cast<unsigned>(stats.deferred_peak_bytes),static_cast<unsigned>(stats.deferred_retained_bytes),
