@@ -83,6 +83,14 @@ std::atomic<size_t> g_canvas_bytes{0};
 uint64_t g_yield_us = 0;
 EXT_RAM_BSS_ATTR uint64_t g_worker_wait_us;
 EXT_RAM_BSS_ATTR uint32_t g_worker_yields;
+struct FreeReadBuffer { void operator()(uint8_t* p) const {heap_caps_free(p);} };
+EXT_RAM_BSS_ATTR std::unique_ptr<uint8_t,FreeReadBuffer> g_read_buffer;
+EXT_RAM_BSS_ATTR ReadCache g_read_cache;
+std::atomic<size_t> g_read_cache_bytes{0};
+void reset_source() {
+  g_pipeline.reset();g_read_cache.Reset();g_read_buffer.reset();
+  g_read_cache_bytes.store(0);g_source.reset();g_archive[0]=0;
+}
 struct WorkerLock {
   WorkerLock() {xSemaphoreTake(g_lock,portMAX_DELAY);}
   ~WorkerLock() {xSemaphoreGive(g_lock);}
@@ -316,7 +324,7 @@ void discover() {
   for(size_t i=0;i<next.count;++i)available|=next.packs[i].usable;
   g_installed.store(available);
   next.revision=g_snapshot.revision+1;g_snapshot=next;g_cached=false;
-  g_pipeline.reset();g_source.reset();g_archive[0]=0;
+  reset_source();
   // Metadata may select a different archive even for an unchanged camera.
   // Invalidate queued requests/previews and notify cached dashboard consumers.
   cancel();invalidate();
@@ -363,11 +371,12 @@ void worker(void*) {
     g_frame.camera_zoom=request.view.zoom;g_frame.source_zoom=view.zoom;
     if(info) {text(g_frame.title,info->title);text(g_frame.credit,info->credit);}
     if(ok && std::strcmp(path,g_archive)) {
-      g_pipeline.reset();g_source.reset();g_archive[0]=0;
+      reset_source();
       if(path[0]=='@')g_source.reset(new(std::nothrow) orcmap::esp_idf::PartitionByteSource(kWorld));
       else g_source.reset(new(std::nothrow) orcmap::esp_idf::FileByteSource(path));
       if(g_source && g_source->Valid()) {
-        g_pipeline.reset(new(std::nothrow) Pipeline(*g_source,{clock_us,service,&g_ready.serial}));
+        g_read_cache.Reset(g_source.get());
+        g_pipeline.reset(new(std::nothrow) Pipeline(g_read_cache,{clock_us,service,&g_ready.serial}));
         const char* profile=path[0]=='@' ? "orcmaps-overview-1" : nullptr;
         if(!profile)for(const auto& pack:g_inventory.catalog().Packs())if(pack.archive_path==path)profile=pack.schema_version.c_str();
         ok=g_pipeline && profile && g_pipeline->open(profile);
@@ -376,6 +385,8 @@ void worker(void*) {
     }
     g_ready=request; // service hook observes this request's immutable serial
     if(ok && (g_canvas.width()!=view.width_px || g_canvas.height()!=view.height_px)) {
+      // Mandatory frame storage takes priority over this optional read cache.
+      g_read_cache.Reset(g_source.get());g_read_buffer.reset();g_read_cache_bytes.store(0);
       g_canvas.deleteSprite();g_canvas_bytes.store(0);
       const size_t bytes=static_cast<size_t>(view.width_px)*view.height_px*2;
       ok=view.width_px>0 && view.height_px>0 && view.width_px<=1280 && view.height_px<=720 &&
@@ -383,7 +394,14 @@ void worker(void*) {
       if(ok) {g_canvas.setPsram(true);g_canvas.setColorDepth(16);ok=g_canvas.createSprite(view.width_px,view.height_px)!=nullptr;}
       if(ok)g_canvas_bytes.store(bytes);
     }
-    g_worker_wait_us=0;g_worker_yields=0;
+    // Optional SD acceleration: aligned PSRAM only, after mandatory frame/scratch.
+    if(ok && path[0]!='@' && !g_read_buffer &&
+       heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=ReadCache::kCapacity+128*1024) {
+      g_read_buffer.reset(static_cast<uint8_t*>(heap_caps_aligned_alloc(64,ReadCache::kCapacity,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)));
+      g_read_cache.Reset(g_source.get(),g_read_buffer.get(),g_read_buffer ? ReadCache::kCapacity : 0);
+      g_read_cache_bytes.store(g_read_cache.Capacity());
+    }
+    g_worker_wait_us=0;g_worker_yields=0;g_read_cache.ResetStats();
     if(ok) {
       orcmap::m5gfx_adapter::DisplayTarget target(g_canvas);
       orcmap::m5gfx_adapter::LabelTarget text_target(g_canvas,fonts::DejaVu24);
@@ -391,8 +409,9 @@ void worker(void*) {
     }
     if(g_pipeline)g_frame.stats=g_pipeline->stats();
     g_frame.worker_wait_us=g_worker_wait_us;g_frame.worker_yields=g_worker_yields;
+    g_frame.read_cache=g_read_cache.stats();g_frame.read_cache_bytes=g_read_cache.Capacity();
     if(g_frame.stats.out_of_memory) {
-      g_pipeline.reset();g_source.reset();g_archive[0]=0;
+      reset_source();
       g_canvas.deleteSprite();g_canvas_bytes.store(0);
     }
     if(request.serial==g_serial.load()) {
@@ -407,7 +426,7 @@ void worker(void*) {
     }
     } catch(const std::bad_alloc&) {
       WorkerLock lock;
-      g_pipeline.reset();g_source.reset();g_archive[0]=0;
+      reset_source();
       g_canvas.deleteSprite();g_canvas_bytes.store(0);g_cached=false;
       if(request.serial&&request.serial==g_serial.load()) {
         g_ready=request;g_frame={};g_frame.stats.out_of_memory=true;
@@ -419,15 +438,15 @@ void worker(void*) {
     }
   }
 }
-size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load(); }
+size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load()+g_read_cache_bytes.load(); }
 size_t release() {
   if(!g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return 0;
   if(g_preview_lock&&xSemaphoreTake(g_preview_lock,0)!=pdTRUE){xSemaphoreGive(g_lock);return 0;}
-  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0);
+  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0)+g_read_cache_bytes.load();
   g_canvas.deleteSprite();g_preview.deleteSprite();g_preview_valid=false;g_preview_lifetime.fetch_add(1);g_cached=false;
   if(g_preview_lock)xSemaphoreGive(g_preview_lock);
   g_serial.fetch_add(1); // the same camera must request a new frame after reclaim
-  g_pipeline.reset();g_source.reset();g_archive[0]=0;xSemaphoreGive(g_lock);return bytes;
+  reset_source();xSemaphoreGive(g_lock);return bytes;
 }
 } // namespace
 
@@ -540,6 +559,11 @@ void report(void (*write)(const char*)) {
       static_cast<unsigned long>(stats.features),static_cast<unsigned long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
       static_cast<unsigned long long>(stats.lookup_us),static_cast<unsigned long long>(stats.stream_us),
       static_cast<unsigned long long>(stats.render_us),static_cast<unsigned long long>(stats.total_us),static_cast<unsigned long long>(stats.io_us));
+  write(line);
+  std::snprintf(line,sizeof(line),"ORC_MAP_READ_CACHE capacity_bytes=%lu hits=%llu misses=%llu backing_reads=%llu backing_bytes=%llu\n",
+      static_cast<unsigned long>(frame.read_cache_bytes),static_cast<unsigned long long>(frame.read_cache.hits),
+      static_cast<unsigned long long>(frame.read_cache.misses),static_cast<unsigned long long>(frame.read_cache.backing_reads),
+      static_cast<unsigned long long>(frame.read_cache.backing_bytes));
   write(line);
   std::snprintf(line,sizeof(line),"ORC_MAP_WORKER yields=%lu wait_us=%llu included_in_total=1 tick_us=%llu\n",
       static_cast<unsigned long>(frame.worker_yields),static_cast<unsigned long long>(frame.worker_wait_us),

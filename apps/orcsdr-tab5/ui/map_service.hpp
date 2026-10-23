@@ -1,5 +1,6 @@
 #pragma once
 #include "map_pipeline.hpp"
+#include "map_read_cache.hpp"
 #include <cstddef>
 #include <cstdint>
 
@@ -28,6 +29,8 @@ struct FrameInfo {
   char title[64]{}, credit[192]{}, status[64]{};
   uint32_t revision = 0, cache_hits = 0;
   uint32_t push_us = 0;
+  ReadCache::Stats read_cache{};
+  uint32_t read_cache_bytes = 0;
   uint32_t worker_yields = 0;
   uint64_t worker_wait_us = 0; // Included in render timings; wall time around vTaskDelay.
   uint8_t camera_zoom = 0, source_zoom = 0;

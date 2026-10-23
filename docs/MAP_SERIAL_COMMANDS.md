@@ -195,3 +195,11 @@ included_in_total=1 tick_us=...`. The wait is wall time around cooperative
 `vTaskDelay(1)`, including time before the worker is scheduled again. It is
 already included in frame timings; do not add it to `total_us` or interpret
 the remainder as isolated CPU time. Counts reset for each render attempt.
+
+`ORC_MAP_READ_CACHE` reports the completed frame's optional compressed-byte
+cache capacity, block hits/misses, and actual backing read calls/bytes. Cache
+statistics reset per render; contents survive same-archive pans. Existing
+`ORC_MAP_STATUS reads/bytes` remain logical pipeline requests, and `io_us`
+includes cache lookup/copy plus any backing read time. A hit counts a 4 KiB
+block access, not a complete tile or a displayed frame. Capacity 0 is the
+supported direct-read fallback, not a map failure.

@@ -200,3 +200,19 @@ reset. This is a drawing-stack correction, not an SD driver change. No new SD
 transfer was run for it; retained PSRAM is still tight and broader combined
 workload acceptance remains open. Exact results, including stale test-assertion
 failures and corrected read-only final checks, are in the checkpoint above.
+
+## October 22 optional map read-cache candidate
+
+The shared map worker can retain up to 256 KiB of compressed archive bytes in
+64 aligned 4 KiB PSRAM blocks. This is a read-only application cache above the
+existing FileByteSource/libc/SD guards; it does not change mount, stdio buffering,
+DMA reserve, writes or logging. The archive is immutable during attachment.
+Discovery/rescan, archive changes, memory reclaim and failure cleanup invalidate
+and release it. Required frame storage takes priority; an absent/failed cache
+allocation keeps direct reads. No buffer is allocated from internal/DMA memory.
+
+Short backing reads are not cached as complete blocks and retry storage on the
+next request. Focused tests cover collisions, EOF/overflow, short-read recovery,
+source replacement, no-buffer fallback and identical rendered pixels. Native
+performance and retained-memory SD/reclaim results must be recorded separately;
+these source checks do not establish that historical card failures are solved.

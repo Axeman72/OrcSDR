@@ -1,4 +1,5 @@
 #include "map_pipeline.hpp"
+#include "map_read_cache.hpp"
 #include "file_byte_source.hpp"
 #include "framebuffer_target.hpp"
 #include <cassert>
@@ -38,6 +39,31 @@ struct MeasuredText final : orcmap::LabelTextTarget {
     names.emplace_back(name);
   }
 };
+void global_cache_test(const char* archive) {
+  using namespace orcsdr::maps;
+  orcmap::host::FileByteSource source(archive);
+  std::vector<uint8_t> buffer(ReadCache::kCapacity);
+  ReadCache cache;cache.Reset(&source,buffer.data(),buffer.size());
+  Pipeline direct(source),cached(cache);
+  assert(direct.open("protomaps-v4") && cached.open("protomaps-v4"));
+  orcmap::Viewport camera;camera.width_px=842;camera.height_px=330;camera.zoom=9;
+  camera.center_lat_deg=44.0173511;camera.center_lon_deg=-123.0054699;
+  orcmap::host::FramebufferTarget reference(842,330),actual(842,330);
+  for(int step=0;step<4;++step) {
+    if(step==1)camera.center_lon_deg+=.2533784;
+    if(step==2)camera.center_lon_deg-=.2533784;
+    if(step==3)camera.zoom=10;
+    orcmap::Viewport view;
+    assert(pack_source_view(camera,direct.header().min_zoom,direct.header().max_zoom,&view));
+    cache.ResetStats();
+    assert(direct.render(view,reference) && cached.render(view,actual));
+    assert(reference.Pixels()==actual.Pixels());
+    assert(direct.stats().tiles==cached.stats().tiles && direct.stats().features==cached.stats().features);
+    std::printf("GLOBAL_CACHE_IDENTICAL step=%d hits=%llu misses=%llu backing_bytes=%llu\n",step,
+      static_cast<unsigned long long>(cache.stats().hits),static_cast<unsigned long long>(cache.stats().misses),
+      static_cast<unsigned long long>(cache.stats().backing_bytes));
+  }
+}
 void global_label_test(const char* archive) {
   using namespace orcsdr::maps;
   orcmap::host::FileByteSource source(archive);
@@ -200,6 +226,13 @@ int main(int argc, char** argv) {
   assert(pipeline.open("openmaptiles-3.16"));
   assert(pipeline.render(view,frame));
   assert(pixels==frame.Pixels()); // repeated viewport produces identical pixels
+  std::vector<uint8_t> read_buffer(orcsdr::maps::ReadCache::kCapacity);
+  orcsdr::maps::ReadCache cached;cached.Reset(&source,read_buffer.data(),read_buffer.size());
+  Pipeline cached_pipeline(cached);assert(cached_pipeline.open("openmaptiles-3.16"));
+  assert(cached_pipeline.render(view,frame) && frame.Pixels()==pixels);
+  assert(cached_pipeline.render(view,frame) && frame.Pixels()==pixels && cached.stats().hits>0);
+  cached.Reset(&source); // optional cache allocation failed / reclaimed
+  assert(cached_pipeline.render(view,frame) && frame.Pixels()==pixels);
   FailingSource failing(source);Pipeline resilient(failing);
   failing.fail=true;
   assert(!resilient.open("openmaptiles-3.16")&&resilient.stats().out_of_memory);
@@ -219,6 +252,7 @@ int main(int argc, char** argv) {
   assert(!cancelled.render(view,frame) && cancelled.stats().cancelled);
   std::puts("MAP_PIPELINE_TEST_PASS");
   if(const char* archive=std::getenv("ORCSDR_LABEL_TEST_ARCHIVE")) {
+    global_cache_test(archive);
     global_label_test(archive);
     global_order_test(archive);
   }
