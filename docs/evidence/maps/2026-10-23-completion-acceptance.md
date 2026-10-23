@@ -3,8 +3,9 @@
 Initial scout source 4d4f85a3 on codex/maps-integration-completion.
 Reconciled source 30a00ce1 now contains fetched main 629ba546; affected host/
 sanitizer, P4 syntax, native link, app-only COM17 preservation/startup and bounded
-map navigation checks pass. Current COM17 application is 30a00ce1; final physical
-appearance, sustained pressure and band-qualified decoding remain separate gates.
+map navigation checks pass. Current COM17 application is 30a00ce1; its dragging,
+colors and controls are physically accepted. Final performance and memory-pressure
+gates remain open. Decoder testing was subsequently excluded by the user.
 OrcMaps pin b59d47819cc3b81c1bbe50ed75b775275bb0218e. This current matrix supersedes
 stale unchecked entries in the historical plan without deleting their evidence.
 
@@ -13,7 +14,7 @@ stale unchecked entries in the historical plan without deleting their evidence.
 | Location picker/save | Implemented; verified explicit lat/lon persistence and feedback | Bounded COM17 save/return/reboot checks | Prior controls, readable text, saving feedback and dragging accepted; retain on final candidate |
 | Shared map consumers and labels | LoRa, ADS-B and FT8 use shared service; independent preferences | Host and bounded COM17 checkpoints exist | Finish label persistence across all consumers, ADS-B aircraft/range and FT8 projection/whole-world/polar acceptance |
 | LoRa map overlays | Bounded priority names, markers, centering and Follow implemented | Controlled text/NODEINFO and bounded position/Follow checks | Prior dragging/flicker accepted; actual dashboard host regression passes identity retention across reordered/missing/returning nodes; native reordered-traffic proof remains open |
-| Detail refill/read cache | 256 KiB reclaimable aligned-PSRAM cache; runtime construction corrected | Four cached pans median 4.10 s versus 6.23 s direct fallback; pixel equality, cancel/zoom/reclaim/SD checks | Latest candidate physical feel pending; decoder work varies, isolated multiplier not proven; further decode/draw work and explicit budgets open |
+| Detail refill/read cache | 256 KiB reclaimable aligned-PSRAM cache; runtime construction corrected | 20-pan baseline p50 3.65 s / p95 4.55 s / max 5.13 s; pixel equality, cancel/zoom/reclaim/SD checks | Dragging/colors/controls accepted; p95 fails the user-selected 2 s gate. Single-inflate experiment withdrawn; shifted-frame-only reuse fails pixel equivalence; full decoded geometry exceeds safe default headroom |
 | Cached motion | Last-valid-frame preview and clipping implemented | Pan paint checks exist; representative continuous timing incomplete | Approximately 33 ms target remains open; paint-call timings are not full motion latency |
 | Worldwide quality | Profile, hierarchy, rings/clipping and bounded labels implemented | Fixed worldwide host views recorded | Device boundaries/contrast/international-script and fallback acceptance still open |
 | Setup | Wizard-owned methods and reception pause implemented | Bounded coordinate confirmation, IP proposal, exit/reception and graphics checks | Full first boot/rerun, credentials/address, Back/Skip/Cancel/recovery, audio and paused hotplug open |
@@ -51,8 +52,8 @@ production decisions, erase and main merge retain their separate approval gates.
 ## Next milestone
 
 Reconciled candidate has passed its bounded native gate; source acceptance does
-not close the remaining rows above. Define numeric motion/refill gates and profile repeated
-decode/draw work on authorized COM17. Do not add an arbitrary overnight soak or
+not close the remaining rows above. The numeric gates are defined below; reduce
+repeated decode/draw work within measured memory limits on authorized COM17. Do not add an arbitrary overnight soak or
 restore legacy geography. Production/publication choices remain decision-blocked,
 not reasons to stop independent authorized implementation.
 
@@ -127,6 +128,12 @@ User physical acceptance of reconciled application30a00ce1 during the pan run: â
 
 
 Latest experiment: [single-inflate rejected and accepted app restored](2026-10-23-single-inflate-rejected.md).
+
+Further feasibility evidence: [pan overlap and decoded-geometry footprint](2026-10-23-pan-reuse-feasibility.md).
+Eight of twelve label-off shifted overlaps differ from a complete redraw. The
+six-tile reference view has 1,509,416 bytes of point coordinates alone; neither
+naive overlap reuse nor an unbounded whole-geometry cache is accepted. No device
+operation or additional firmware change was made for these probes.
 Current app remains 30a00ce1 / engine b59d478; consumer source revert ff31e14b restores
 that app tree exactly. Engine PR7's optional path was withdrawn after an 8.46 s
 completed frame and incomplete seven-second samples. No candidate percentiles
