@@ -227,3 +227,13 @@ as SD corruption. The test harness's unsupported RTL_START command is also
 recorded and corrected to RTL_LISTEN LORA during final recovery. All failures,
 commands, hashes, logs, memory figures and limits are in the
 [read-cache evidence](evidence/maps/2026-10-22-lora-read-cache.md).
+
+## October 23 single-inflate candidate — source gate
+
+The optional shared-map inflate buffer is capped at256KiB and reclaimed with
+the map pipeline. It has no separate SD handle or internal DMA pool. Mandatory
+canvas/preview memory and128KiB headroom take priority; embedded fallback maps
+keep streaming. Map holder reporting includes the actual retained buffer capacity.
+Host frame comparisons and releasing its budget pass. Native placement, retained-
+map SD access and RF continuity still need the candidate's device results; the
+source change does not establish that historical SD issues are universally fixed.

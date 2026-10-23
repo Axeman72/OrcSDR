@@ -20,6 +20,12 @@ bool coordinates(int32_t lat, int32_t lon) {
 Pipeline::Pipeline(orcmap::ByteSource& source, WorkHooks hooks)
     : hooks_(hooks), source_(source, stats_, hooks_), reader_(&source_, 1) {}
 
+void Pipeline::set_buffered_tile_budget(size_t bytes) {
+  buffered_tile_budget_ = std::min(bytes, orcmap::kMaxBufferedTileBytes);
+  if (scratch_.inflated_tile.capacity() > buffered_tile_budget_)
+    std::vector<uint8_t>().swap(scratch_.inflated_tile);
+}
+
 size_t Pipeline::Source::Read(uint64_t offset, void* output, size_t size) {
   const uint64_t start = hooks_.now_us ? hooks_.now_us() : 0;
   const size_t bytes = source_.Read(offset, output, size);
@@ -120,6 +126,7 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     Context context{*this, viewport, target, placements, tile,
                     static_cast<uint8_t>(label_zoom), label_zoom >= 6 ? labels : nullptr, render_scratch_};
     orcmap::MvtStreamOptions options;
+    options.max_buffered_tile_bytes = buffered_tile_budget_;
     options.include_layer = [](const char* name,size_t size,void* opaque) {
       const auto& ctx=*static_cast<Context*>(opaque);
       const std::string_view layer(name,size);
@@ -131,6 +138,8 @@ bool Pipeline::render_impl(const orcmap::Viewport& viewport,orcmap::RenderTarget
     options.feature_sink_ctx = &context;
     const uint64_t stream = now(), render_before = stats_.render_us;
     bool ok = reader_.StreamTile(tile.z, tile.x, tile.y, options, &scratch_);
+    if (ok && scratch_.buffered_tile_used) ++stats_.buffered_tiles;
+    stats_.buffered_tile_bytes = scratch_.inflated_tile.capacity();
     stats_.stream_us += now() - stream - (stats_.render_us - render_before);
     if (ok) {
       const uint64_t flush = now();

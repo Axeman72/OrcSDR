@@ -87,9 +87,10 @@ struct FreeReadBuffer { void operator()(uint8_t* p) const {heap_caps_free(p);} }
 EXT_RAM_BSS_ATTR std::unique_ptr<uint8_t,FreeReadBuffer> g_read_buffer;
 EXT_RAM_BSS_ATTR ReadCache g_read_cache;
 std::atomic<size_t> g_read_cache_bytes{0};
+std::atomic<size_t> g_inflated_tile_bytes{0};
 void reset_source() {
   g_pipeline.reset();g_read_cache.Reset();g_read_buffer.reset();
-  g_read_cache_bytes.store(0);g_source.reset();g_archive[0]=0;
+  g_read_cache_bytes.store(0);g_inflated_tile_bytes.store(0);g_source.reset();g_archive[0]=0;
 }
 struct WorkerLock {
   WorkerLock() {xSemaphoreTake(g_lock,portMAX_DELAY);}
@@ -386,6 +387,7 @@ void worker(void*) {
     g_ready=request; // service hook observes this request's immutable serial
     if(ok && (g_canvas.width()!=view.width_px || g_canvas.height()!=view.height_px)) {
       // Mandatory frame storage takes priority over this optional read cache.
+      g_pipeline->set_buffered_tile_budget(0);g_inflated_tile_bytes.store(0);
       g_read_cache.Reset(g_source.get());g_read_buffer.reset();g_read_cache_bytes.store(0);
       g_canvas.deleteSprite();g_canvas_bytes.store(0);
       const size_t bytes=static_cast<size_t>(view.width_px)*view.height_px*2;
@@ -406,11 +408,17 @@ void worker(void*) {
     }
     g_worker_wait_us=0;g_worker_yields=0;g_read_cache.ResetStats();
     if(ok) {
+      const size_t inflate_extra=g_pipeline->buffered_tile_capacity() >= orcmap::kMaxBufferedTileBytes ?
+          0 : orcmap::kMaxBufferedTileBytes;
+      const bool can_buffer=path[0]!='@' && heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=
+          inflate_extra+preview_reserve+128*1024;
+      g_pipeline->set_buffered_tile_budget(can_buffer ? orcmap::kMaxBufferedTileBytes : 0);
       orcmap::m5gfx_adapter::DisplayTarget target(g_canvas);
       orcmap::m5gfx_adapter::LabelTarget text_target(g_canvas,fonts::DejaVu24);
       g_yield_us=clock_us();ok=g_pipeline && g_pipeline->render(view,target,request.labels?&g_labels:nullptr,request.labels?&text_target:nullptr,request.view.zoom);
     }
     if(g_pipeline)g_frame.stats=g_pipeline->stats();
+    g_inflated_tile_bytes.store(g_pipeline ? g_pipeline->buffered_tile_capacity() : 0);
     g_frame.worker_wait_us=g_worker_wait_us;g_frame.worker_yields=g_worker_yields;
     g_frame.read_cache=g_read_cache.stats();g_frame.read_cache_bytes=g_read_cache.Capacity();
     if(g_frame.stats.out_of_memory) {
@@ -441,11 +449,11 @@ void worker(void*) {
     }
   }
 }
-size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load()+g_read_cache_bytes.load(); }
+size_t held() { return g_canvas_bytes.load()+g_preview_bytes.load()+g_read_cache_bytes.load()+g_inflated_tile_bytes.load(); }
 size_t release() {
   if(!g_lock || xSemaphoreTake(g_lock,0)!=pdTRUE)return 0;
   if(g_preview_lock&&xSemaphoreTake(g_preview_lock,0)!=pdTRUE){xSemaphoreGive(g_lock);return 0;}
-  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0)+g_read_cache_bytes.load();
+  const size_t bytes=g_canvas_bytes.exchange(0)+g_preview_bytes.exchange(0)+g_read_cache_bytes.load()+g_inflated_tile_bytes.load();
   g_canvas.deleteSprite();g_preview.deleteSprite();g_preview_valid=false;g_preview_lifetime.fetch_add(1);g_cached=false;
   if(g_preview_lock)xSemaphoreGive(g_preview_lock);
   g_serial.fetch_add(1); // the same camera must request a new frame after reclaim
@@ -564,6 +572,9 @@ void report(void (*write)(const char*)) {
       static_cast<unsigned long>(stats.features),static_cast<unsigned long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
       static_cast<unsigned long long>(stats.lookup_us),static_cast<unsigned long long>(stats.stream_us),
       static_cast<unsigned long long>(stats.render_us),static_cast<unsigned long long>(stats.total_us),static_cast<unsigned long long>(stats.io_us));
+  write(line);
+  std::snprintf(line,sizeof(line),"ORC_MAP_BUFFERED tiles=%lu retained_bytes=%u\n",
+      static_cast<unsigned long>(stats.buffered_tiles),static_cast<unsigned>(stats.buffered_tile_bytes));
   write(line);
   std::snprintf(line,sizeof(line),"ORC_MAP_READ_CACHE capacity_bytes=%lu hits=%llu misses=%llu backing_reads=%llu backing_bytes=%llu\n",
       static_cast<unsigned long>(frame.read_cache_bytes),static_cast<unsigned long long>(frame.read_cache.hits),
