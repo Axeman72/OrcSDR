@@ -76,8 +76,10 @@ fresh backups, matching ELF boot and non-app preservation. A 12-second still-vie
 observation records only one extra cached push while generation/revision stays
 unchanged. Native capture shows separated node IDs and intact map controls;
 retained-map SD screenshot write/readback passes and radio resumes at about
-959 ksps, zero reported driver drops/overruns. Physical stationary/moving flicker
-and readability acceptance is pending; representative 33 ms remains open.
+959 ksps, zero reported driver drops/overruns. The user physically confirms on
+COM17: “Flicker stopped; movement looks good.” Stationary/moving flicker and
+visible-control acceptance pass for `51318792`; broader readability and measured
+representative 33 ms interaction remain open.
 [Flicker and name-layout evidence](../../evidence/maps/2026-10-22-lora-flicker-and-label-layout.md).
 [Retired row-batching evidence](../../evidence/maps/2026-10-22-scaled-preview-stripes.md).
 

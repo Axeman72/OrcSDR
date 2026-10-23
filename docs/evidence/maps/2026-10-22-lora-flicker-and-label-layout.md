@@ -98,5 +98,8 @@ Saved receiver E7 stays `440628866,-1230160273`. Final radio streams about
 largest 1,998,848; internal free 16,087, largest DMA 8,192; main stack high-water
 margin 1,128; reset reason unchanged. This is a bounded check, not a soak.
 
-Physical stationary/moving flicker and readability confirmation is requested and
-pending. The overall 33 ms interaction and integration goals remain open.
+Physical acceptance — October 22: the user confirms on COM17, “Flicker stopped;
+movement looks good.” This closes the stationary/moving flicker and visible-control
+check for installed `51318792`. It does not independently confirm every node-name
+readability case or measure physical touch latency. The overall 33 ms interaction
+and integration goals remain open.
