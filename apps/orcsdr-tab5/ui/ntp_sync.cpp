@@ -54,6 +54,11 @@ bool start(bool network_ready) {
 uint32_t last_success_utc() { return g_last_success_utc; }
 
 void forget_last_success() {
+  if (g_state == State::syncing) {   // an attempt in flight would finish later, rewrite the clock and mark it synced again
+    esp_sntp_stop();
+    time_service::resync_system_from_rtc();
+    g_state = State::idle;
+  }
   g_last_success_utc = 0;
   g_attempted = false;
 }
@@ -69,12 +74,7 @@ void poll() {
     // sub-second counter when it is written. Writing it mid-second would leave the RTC (and every later boot) off by the
     // fraction of a second, so wait for the next second boundary and write that second then (at most about 1 s once).
     timeval tv{};
-    gettimeofday(&tv, nullptr);
-    const uint32_t wait_us = 1000000u - static_cast<uint32_t>(tv.tv_usec);
-    if (wait_us > 2000u) vTaskDelay(pdMS_TO_TICKS((wait_us - 2000u) / 1000u));
-    do {
-      gettimeofday(&tv, nullptr);
-    } while (tv.tv_usec > 500000);   // spin the last couple of milliseconds until the second rolls over
+    time_service::wait_for_second_boundary(&tv);
     const time_t now = tv.tv_sec;
     finish(now > 0 && time_service::set_utc(static_cast<uint32_t>(now)));
   } else if (now_ms() - g_started_ms > kTimeoutMs) {

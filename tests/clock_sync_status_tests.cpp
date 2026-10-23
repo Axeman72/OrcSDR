@@ -75,9 +75,9 @@ void test_signal_correction() {
   in.syncing = true;
   CHECK(evaluate(in) == Level::syncing);
 
-  CHECK(wants_wide_search(Level::unsynced) && wants_wide_search(Level::failed) && wants_wide_search(Level::no_wifi));
-  CHECK(!wants_wide_search(Level::synced) && !wants_wide_search(Level::signal) && !wants_wide_search(Level::stale) &&
-        !wants_wide_search(Level::syncing));
+  CHECK(wants_wide_search(Level::unsynced) && wants_wide_search(Level::failed) && wants_wide_search(Level::no_wifi) &&
+        wants_wide_search(Level::stale));   // a sync older than 6 h may have drifted out of the normal window
+  CHECK(!wants_wide_search(Level::synced) && !wants_wide_search(Level::signal) && !wants_wide_search(Level::syncing));
   CHECK(may_apply_signal_correction(Level::unsynced) && may_apply_signal_correction(Level::stale) &&
         may_apply_signal_correction(Level::signal) && may_apply_signal_correction(Level::no_wifi));
   CHECK(!may_apply_signal_correction(Level::synced) && !may_apply_signal_correction(Level::syncing));

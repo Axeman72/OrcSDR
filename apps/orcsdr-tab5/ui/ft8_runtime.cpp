@@ -323,7 +323,7 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
   ++s.slots_decoded;
   if (!g.snapshot_hold.load(std::memory_order_acquire) && g.snapshot != nullptr) {
     // The saved slot is the nominal 15 s (without the wide-search lead and trail), so DUMP and SAVE keep their format.
-    const size_t kept = std::min<size_t>(g.backend->buffered() - static_cast<size_t>(lead_samples), 12000u * 16u);
+    const size_t kept = std::min<size_t>(g.backend->buffered() - static_cast<size_t>(lead_samples), static_cast<size_t>(slot_samples));
     std::memcpy(g.snapshot, g.backend->slot_audio() + lead_samples, kept * sizeof(int16_t));
     g.snapshot_count = kept;
     g.snapshot_slot_ms = slot_start_ms;

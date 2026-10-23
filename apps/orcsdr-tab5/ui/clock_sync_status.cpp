@@ -37,7 +37,8 @@ uint32_t age_seconds(const Input& in) {
 }
 
 bool wants_wide_search(Level level) {
-  return level == Level::unsynced || level == Level::failed || level == Level::no_wifi;
+  // A sync older than the stale limit may have drifted out of the normal window (about 0.9 s a day), so it searches wide too.
+  return level == Level::unsynced || level == Level::failed || level == Level::no_wifi || level == Level::stale;
 }
 
 bool may_apply_signal_correction(Level level) {

@@ -118,6 +118,19 @@ void resync_system_from_rtc() {
   if (M5.Rtc.isEnabled()) M5.Rtc.setSystemTimeFromRtc();
 }
 
+void wait_for_second_boundary(timeval* out) {
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    gettimeofday(out, nullptr);
+    const uint32_t wait_us = 1000000u - static_cast<uint32_t>(out->tv_usec);
+    if (wait_us > 3000u) vTaskDelay(pdMS_TO_TICKS((wait_us - 2000u) / 1000u));
+    do {
+      gettimeofday(out, nullptr);
+    } while (out->tv_usec > 500000);   // spin the last couple of milliseconds until the second rolls over
+    if (out->tv_usec < 20000) return;  // just past the boundary: write this second now
+    // A late wake-up missed the boundary (we are mid-second): writing now would move the clock by the fraction, so wait for the next one.
+  }
+}
+
 bool step_ms(int32_t delta_ms) {
   if (!g_wallclock_valid.load(std::memory_order_acquire) || !M5.Rtc.isEnabled()) return false;
   timeval tv{};
@@ -130,12 +143,7 @@ bool step_ms(int32_t delta_ms) {
   target.tv_usec = static_cast<suseconds_t>(us % 1000000);
   if (settimeofday(&target, nullptr) != 0) return false;
   // Same discipline as the network sync: write the RTC on a second boundary so it is not left off by the fraction of a second.
-  gettimeofday(&tv, nullptr);
-  const uint32_t wait_us = 1000000u - static_cast<uint32_t>(tv.tv_usec);
-  if (wait_us > 2000u) vTaskDelay(pdMS_TO_TICKS((wait_us - 2000u) / 1000u));
-  do {
-    gettimeofday(&tv, nullptr);
-  } while (tv.tv_usec > 500000);
+  wait_for_second_boundary(&tv);
   const bool ok = set_utc(static_cast<uint32_t>(tv.tv_sec));
   if (!ok) {   // leave the clocks in step with each other: the RTC (unchanged) wins
     resync_system_from_rtc();

@@ -18466,9 +18466,9 @@ void process_ft8_command(const char* args) {
   };
 
   if (verb[0] == '\0' || strcmp(verb, "HELP") == 0) {
-    Serial.println("ORC_FT8_HELP queries: STATUS | DECODES [n] | BANDS | DUMP | TIME | HUNTSTATUS | HELP");
+    Serial.println("ORC_FT8_HELP queries: STATUS | DECODES [n] | BANDS | DUMP | TIME | CLOCK | HUNTSTATUS | HELP");
     Serial.println("ORC_FT8_HELP control (authenticated): OPEN | BAND <index|label|dial_hz> | MODE <FT8|FT4> | CLEAR | RUN <0|1> | "
-                   "CONFIG <k> <gate> <fine_rows 4|8> <deadline_ms> | INJECT BEGIN|RUN|<offset> <b64> | LOG [ON|OFF|FLUSH] | SNR [OFFSET <dB>|RESET] | NTP | HUNT <FAST|DECODE|STOP> | TAB <name> | SHOT <name> | SAVE <name> | ADIF <name>");
+                   "CONFIG <k> <gate> <fine_rows 4|8> <deadline_ms> | INJECT BEGIN|RUN|<offset> <b64> | LOG [ON|OFF|FLUSH] | SNR [OFFSET <dB>|RESET] | NTP | HUNT <FAST|DECODE|STOP> | TAB <name> | SHOT <name> | SNAP | SAVE <name> | ADIF <name> | DIAL <hz> | CLOCKTEST <ms>");
     return;
   }
 
