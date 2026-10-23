@@ -13678,6 +13678,7 @@ void ft8_clock_trust_save() {
 void ft8_wwv_clock_changed();   // defined with the WWV state below
 
 void ft8_clock_trust_forget() {
+  orcsdr::ft8_runtime::clock_changed();   // a queued signal correction was decoded against the old clock
   ft8_wwv_clock_changed();   // every caller has just set or deliberately disturbed the clock: a WWV measurement spanning it means nothing
   orcsdr::ntp_sync::forget_last_success();
   g_ft8_signal_sync_utc = 0;
@@ -14973,6 +14974,10 @@ void ft8_wwv_service() {
                 static_cast<double>(r.carrier_hz), static_cast<double>(r.carrier_snr_db), r.ticks ? 1 : 0, static_cast<double>(r.tick_wall_ms),
                 static_cast<double>(r.tick_stream_ms), static_cast<double>(r.peak_z), r.halves_agree ? 1 : 0, static_cast<double>(r.even_ms),
                 static_cast<double>(r.odd_ms), bias == kNoBias ? 0L : static_cast<long>(bias));
+  if (r.note == 1 || r.note == 3 || r.note == 4) {   // stopped, interrupted or timed out: a partial fold is reported above but never applied
+    Serial.printf("ORC_FT8_WWV_RESULT incomplete note=%u (not applied)\n", static_cast<unsigned>(r.note));
+    return;
+  }
   if (!r.ticks) {
     Serial.println(r.carrier_found ? "ORC_FT8_WWV_RESULT no_tick (carrier heard, tick not found: too weak or too short)"
                                    : "ORC_FT8_WWV_RESULT no_carrier (no WWV carrier line near 1000 Hz)");

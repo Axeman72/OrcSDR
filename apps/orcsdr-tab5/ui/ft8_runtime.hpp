@@ -146,6 +146,8 @@ WwvReport wwv_report();
 bool take_clock_step(int32_t* delta_ms);
 // Tell the runtime the wall clock was stepped by `delta_ms` so the slot schedule and the DT evidence restart.
 void clock_stepped(int32_t delta_ms);
+// The clock was set by hand (or disturbed on purpose): drop a queued correction, restart the evidence and void a WWV measurement.
+void clock_changed();
 
 // A live waterfall of the tap's audio, 200-3000 Hz at 6.25 Hz per bin (one 1920-point FFT every 150 ms, each row normalised to its own
 // median so it adapts to any noise floor). Rows are 0-255 (8 counts per dB above the median plus 3 dB, so noise stays dark). Display only: it never feeds the decoder.

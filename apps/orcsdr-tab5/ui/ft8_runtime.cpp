@@ -251,6 +251,10 @@ void wwv_pump() {
   const uint64_t total_now = g.total.load(std::memory_order_acquire);
   const uint64_t cont_total = g.cont_total.load(std::memory_order_acquire);
   if (!g.wwv_running) {
+    if (g.wwv_step_count.load(std::memory_order_acquire) != g.wwv_step_at_start) {   // the clock was stepped since the request
+      wwv_finish(3);
+      return;
+    }
     // The caller retunes just before asking: wait for that retune to show up as a discontinuity (or 8 s), then for 3 s of settled audio.
     if (cont_total == g.wwv_cont_at_request && esp_timer_get_time() - g.wwv_requested_us < 8000000) return;
     if (esp_timer_get_time() - g.wwv_requested_us > 60000000) {   // no settled audio within 60 s: stop waiting
@@ -264,7 +268,6 @@ void wwv_pump() {
     g.wwv_tau_n = 0;
     g.wwv_tau_sum_ms = 0.0;
     g.wwv_progress_s.store(0, std::memory_order_release);
-    g.wwv_step_at_start = g.wwv_step_count.load(std::memory_order_acquire);
     g.wwv->reset(static_cast<uint32_t>(g.wwv_pos % kWwvStreamPeriod));
     g.wwv_running = true;
     return;
@@ -275,6 +278,7 @@ void wwv_pump() {
     return;
   }
   EXT_RAM_BSS_ATTR static int16_t block[1024];
+  const uint64_t pos_before = g.wwv_pos;
   while (g.wwv_pos < total_now) {
     const size_t n = static_cast<size_t>(std::min<uint64_t>(sizeof(block) / sizeof(block[0]), total_now - g.wwv_pos));
     for (size_t i = 0; i < n; ++i) block[i] = g.ring[(g.wwv_pos + i) % kRingSamples];
@@ -282,10 +286,12 @@ void wwv_pump() {
     g.wwv_pos += n;
   }
   g.wwv_progress_s.store(g.wwv->seconds(), std::memory_order_release);
-  const double tau = wall_ms_precise() - static_cast<double>(total_now) / 12.0;
-  if (g.wwv_tau_n == 0) g.wwv_tau_ref_ms = tau;
-  g.wwv_tau_sum_ms += tau - g.wwv_tau_ref_ms;
-  ++g.wwv_tau_n;
+  if (g.wwv_pos > pos_before) {   // only a poll that consumed audio says anything about the stream-to-wall offset
+    const double tau = wall_ms_precise() - static_cast<double>(total_now) / 12.0;
+    if (g.wwv_tau_n == 0) g.wwv_tau_ref_ms = tau;
+    g.wwv_tau_sum_ms += tau - g.wwv_tau_ref_ms;
+    ++g.wwv_tau_n;
+  }
   const int64_t elapsed_s = (esp_timer_get_time() - g.wwv_started_us) / 1000000;
   if (g.wwv->failed()) wwv_finish(2);
   else if (g.wwv->seconds() >= g.wwv_seconds) wwv_finish(0);
@@ -297,6 +303,7 @@ void wwv_pump() {
 void wwv_guard_check() {
   if (g.wwv_phase.load(std::memory_order_acquire) != 1) return;
   if (g.wwv_stop_req.exchange(false, std::memory_order_acq_rel)) wwv_finish(1);
+  else if (g.wwv_step_count.load(std::memory_order_acquire) != g.wwv_step_at_start) wwv_finish(3);
   else if (!g.wwv_running && esp_timer_get_time() - g.wwv_requested_us > 60000000) wwv_finish(4);
   else if (g.wwv_running && (esp_timer_get_time() - g.wwv_started_us) / 1000000 > static_cast<int64_t>(g.wwv_seconds) + 30) wwv_finish(4);
 }
@@ -865,6 +872,7 @@ bool wwv_start(uint32_t seconds) {
   g.wwv_running = false;
   g.wwv_cont_at_request = g.cont_total.load(std::memory_order_acquire);
   g.wwv_requested_us = esp_timer_get_time();
+  g.wwv_step_at_start = g.wwv_step_count.load(std::memory_order_acquire);   // a clock step between now and the end of the run voids it
   g.wwv_stop_req.store(false, std::memory_order_release);
   g.wwv_result = WwvReport{};
   g.wwv_phase.store(1, std::memory_order_release);
@@ -889,6 +897,13 @@ bool take_clock_step(int32_t* delta_ms) {
   if (step == 0) return false;
   if (delta_ms != nullptr) *delta_ms = step;
   return true;
+}
+
+void clock_changed() {
+  // The clock was set or disturbed by hand: corrections decoded against the old clock are void, and so is a WWV run spanning the change.
+  g.pending_step_ms.store(0, std::memory_order_release);
+  g.wwv_step_count.fetch_add(1, std::memory_order_acq_rel);
+  g.clock_stepped.store(true, std::memory_order_release);
 }
 
 void clock_stepped(int32_t delta_ms) {
