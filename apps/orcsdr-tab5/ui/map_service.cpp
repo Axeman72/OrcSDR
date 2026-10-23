@@ -453,6 +453,8 @@ size_t release() {
 
 bool begin(storage::FileSystem* sd) {
   if(g_task)return true;
+  // External BSS is NOLOAD: restore this polymorphic object's vtable at runtime.
+  new(&g_read_cache) ReadCache();
   preferences::load();
   g_sd=sd!=nullptr;
   g_storage=sd;

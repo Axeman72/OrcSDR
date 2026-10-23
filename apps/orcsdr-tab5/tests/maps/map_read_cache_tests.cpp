@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cstdio>
 #include <limits>
+#include <new>
 #include <vector>
 using orcsdr::maps::ReadCache;
 struct Source final:orcmap::ByteSource {
@@ -19,6 +20,16 @@ struct Source final:orcmap::ByteSource {
 };
 int main(){
   Source source;std::vector<uint8_t> buffer(ReadCache::kCapacity),out(13001);
+  // The P4 service explicitly constructs its polymorphic cache in zeroed PSRAM.
+  alignas(ReadCache) uint8_t zeroed[sizeof(ReadCache)]{};
+  auto* placed=new(zeroed) ReadCache();
+  orcmap::ByteSource* polymorphic=placed;
+  assert(!polymorphic->Valid());
+  placed->Reset(&source,buffer.data(),buffer.size());
+  assert(polymorphic->Valid() && polymorphic->Read(0,out.data(),111)==111);
+  assert(std::equal(out.begin(),out.begin()+111,source.data.begin()));
+  placed->~ReadCache();
+
   ReadCache cache;
   assert(cache.Read(0,out.data(),1)==0);
   cache.Reset(&source,buffer.data(),buffer.size());
