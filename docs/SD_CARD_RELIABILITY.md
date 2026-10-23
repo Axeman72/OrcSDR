@@ -208,8 +208,9 @@ The shared map worker can retain up to 256 KiB of compressed archive bytes in
 existing FileByteSource/libc/SD guards; it does not change mount, stdio buffering,
 DMA reserve, writes or logging. The archive is immutable during attachment.
 Discovery/rescan, archive changes, memory reclaim and failure cleanup invalidate
-and release it. Required frame storage takes priority; an absent/failed cache
-allocation keeps direct reads. No buffer is allocated from internal/DMA memory.
+and release it. Required frame/preview storage takes priority; reserve preview memory if a new
+preview must be allocated, while reusing a correctly sized existing preview. An
+absent/failed cache allocation keeps direct reads. No buffer is allocated from internal/DMA memory.
 
 Short backing reads are not cached as complete blocks and retry storage on the
 next request. Focused tests cover collisions, EOF/overflow, short-read recovery,

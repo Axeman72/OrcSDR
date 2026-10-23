@@ -53,6 +53,34 @@ follow is not accepted yet. Physical drag quality, representative 33 ms timing
 and full RF/overlay acceptance remain open.
 [LoRa implementation and test evidence](../../evidence/maps/2026-10-21-lora-map-controls.md).
 
+### Next responsiveness milestone: LoRa detail refill after panning — October 22
+
+The user accepts the current LoRa map and smooth cached dragging. The next
+milestone is shortening the wait for newly exposed detailed map areas, reported
+as 3–4 seconds. Preserve the accepted movement, colors, controls, node labels,
+last valid image and flicker protections; do not reduce detail silently.
+
+A bounded active-LoRa COM17 baseline on the existing app completes four serial
+pans (120 pixels east/west, returning to the original camera). Completed detail
+frames take 6.70–7.66 seconds in this particular test; image transfer takes only
+26–28 ms. SD reads consume 1.14–1.45 seconds within those frame times. Repeating
+the same views does not eliminate the work. This is measured render duration,
+not physical finger-to-display latency or a universal estimate for every area.
+
+Next engineering gate: separate cooperative worker-yield time from actual decode
+and drawing costs, then evaluate bounded reuse of compressed tiles or completed
+tile work in the shared engine/adapter. The current stream parses each tile twice
+and the service rebuilds a complete replacement frame. These are candidates,
+not proof that a particular cache will solve the delay. Retain cancellation,
+radio servicing, reclaim behavior and SD allocation protections. About 2.09 MB
+PSRAM remains free in this workload, so additional cache memory must be bounded
+and measured. Test cold views, repeated views and rapid cancellation separately.
+
+Acceptance requires comparable before/after COM17 measurements while receiving,
+correct newly exposed pixels and overlays, no flicker/blackouts, unchanged saved
+location, bounded memory and no reported radio drops/overruns. Hardware speedup
+is not yet implemented or accepted. [Baseline and exact commands](../../evidence/maps/2026-10-22-lora-detail-refill-baseline.md).
+
 ### October 22 approved download pilot and LoRa readability
 
 Retired experiment: a shared, reclaimable 40 KiB PSRAM row buffer batched enlarged
