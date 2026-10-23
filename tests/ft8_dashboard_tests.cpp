@@ -68,6 +68,29 @@ int main() {
   lgfx::paints.clear();
   update(s);
   assert(painted("DECODER NOT BOUND") && !painted("NOT ENOUGH MEMORY"));
+  // The CLOCK chip reports whether the clock is known to be right (a recent network sync), not just that a date exists; tapping it asks for a sync.
+  s.clock_valid = true;
+  s.clock_sync_level = 0;   // unsynced
+  lgfx::paints.clear();
+  update(s);
+  assert(painted("UNSYNCED") && painted("CLOCK - TAP"));
+  assert(handle_touch(700, 130).kind == ActionKind::sync_clock);
+  s.clock_sync_level = 2;   // synced
+  s.clock_sync_age_s = 12 * 60;
+  lgfx::paints.clear();
+  update(s);
+  assert(painted("SYNCED 12m"));
+  s.clock_sync_age_s = 13 * 60;   // the age text moves on with the minute
+  lgfx::paints.clear();
+  update(s);
+  assert(painted("SYNCED 13m"));
+  lgfx::paints.clear();
+  select_tab(Tab::decodes);
+  assert(painted("SYNCED 13m"));
+  assert(handle_touch(900, 130).kind == ActionKind::sync_clock);
+  lgfx::paints.clear();
+  select_tab(Tab::setup);
+  assert(painted("SYNCED 13 MIN AGO"));
   leave();
   std::puts("ft8_dashboard_tests: PASS");
 }

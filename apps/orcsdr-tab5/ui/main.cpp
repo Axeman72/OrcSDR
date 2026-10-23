@@ -134,6 +134,7 @@
 #include "rf_visualizer.hpp"
 #include "settings_app.hpp"
 #include "clock_settings.hpp"
+#include "clock_sync_status.hpp"
 #include "ntp_sync.hpp"
 #include "time_service.hpp"
 #include "ui_capture.hpp"
@@ -13660,10 +13661,72 @@ void ft8_free_memory_and_retry() {
     (void)ft8_select_band(ft8_selected_band());   // "queued or running" is exactly what that predicate tests
 }
 
+uint32_t g_ft8_signal_sync_utc = 0;       // when the clock was last corrected from the decoded stations' DT (0 = never)
+bool g_ft8_clock_test_hold = false;       // FT8 CLOCKTEST: the clock was set wrong on purpose; keep the network sync off until it is cleared
+
+orcsdr::clock_sync::Input ft8_clock_sync_input() {
+  const auto clock = orcsdr::time_service::now();
+  orcsdr::clock_sync::Input in;
+  in.clock_valid = clock.wallclock_valid;
+  in.wifi_connected = wifi_connected;
+  in.syncing = orcsdr::ntp_sync::state() == orcsdr::ntp_sync::State::syncing;
+  in.last_attempt_failed = orcsdr::ntp_sync::last_attempt_failed();
+  in.now_utc = clock.utc;
+  in.last_sync_utc = orcsdr::ntp_sync::last_success_utc();
+  in.last_signal_sync_utc = g_ft8_signal_sync_utc;
+  return in;
+}
+
+// A network sync steps the wall clock: the FT8 slot schedule and its timing evidence restart with it. Installed before the first sync can be polled.
+void ft8_install_clock_hooks() {
+  static bool installed = false;
+  if (installed) return;
+  installed = true;
+  orcsdr::ntp_sync::set_step_listener([](int32_t delta_ms) { orcsdr::ft8_runtime::clock_stepped(delta_ms); });
+}
+
+// While the decoder runs, keep the clock right: the RTC drifts about 0.9 s a day and FT8 needs a few hundred milliseconds.
+// Called every UI loop; the policy (age, retry delay, Wi-Fi) lives in clock_sync::auto_sync_due. Without a recent network sync the decoder
+// searches a wider time window and, from the DT of the stations it decodes, asks for the clock to be corrected (no Wi-Fi needed).
+void ft8_auto_clock_sync() {
+  if (!orcsdr::ft8_runtime::active()) return;
+  const auto status = ft8_clock_sync_input();
+  const auto level = orcsdr::clock_sync::evaluate(status);
+  orcsdr::ft8_runtime::set_wide_search(orcsdr::clock_sync::wants_wide_search(level));
+  int32_t step_ms = 0;
+  if (orcsdr::ft8_runtime::take_clock_step(&step_ms)) {
+    if (!orcsdr::clock_sync::may_apply_signal_correction(level)) {
+      Serial.printf("ORC_FT8_CLOCK_DT ignored step_ms=%d (a network sync is recent)\n", static_cast<int>(step_ms));
+    } else {
+      int32_t applied_ms = 0;
+      const bool stepped = orcsdr::time_service::step_ms(step_ms, &applied_ms);
+      // Tell the decoder how far the wall clock really moved, also after a rolled-back step: its slot schedule and evidence follow the clock.
+      if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
+      if (stepped) {
+        g_ft8_signal_sync_utc = orcsdr::time_service::now().utc;
+        Serial.printf("ORC_FT8_CLOCK_DT applied step_ms=%d\n", static_cast<int>(step_ms));
+      } else {
+        Serial.printf("ORC_FT8_CLOCK_DT step_failed step_ms=%d moved_ms=%d\n", static_cast<int>(step_ms), static_cast<int>(applied_ms));
+      }
+    }
+  }
+  if (g_ft8_clock_test_hold) return;
+  orcsdr::clock_sync::DueInput due;
+  due.status = status;
+  due.decoder_running = true;
+  due.ms_since_last_attempt = orcsdr::ntp_sync::ms_since_last_attempt();
+  if (orcsdr::clock_sync::auto_sync_due(due) && orcsdr::ntp_sync::start(true)) Serial.println("ORC_FT8_NTP auto sync requested");
+}
+
 void ft8_dashboard_fill_snapshot(orcsdr::ft8::Snapshot& snapshot) {
   new (&snapshot) orcsdr::ft8::Snapshot();
   const auto clock = orcsdr::time_service::now();
   snapshot.clock_valid = clock.wallclock_valid;
+  {
+    const auto sync = ft8_clock_sync_input();
+    snapshot.clock_sync_level = static_cast<uint8_t>(orcsdr::clock_sync::evaluate(sync));
+    snapshot.clock_sync_age_s = orcsdr::clock_sync::age_seconds(sync);
+  }
   if (clock.wallclock_valid) {
     timeval now{};
     gettimeofday(&now, nullptr);
@@ -13851,6 +13914,10 @@ void handle_ft8_dashboard_action(const orcsdr::ft8::Action& action) {
       }
       break;
     case Kind::free_memory: ft8_free_memory_and_retry(); break;
+    case Kind::sync_clock:
+      if (orcsdr::ntp_sync::start(wifi_connected)) Serial.println("ORC_NTP_START ft8 chip");
+      else Serial.println(wifi_connected ? "ORC_NTP_ERROR busy" : "ORC_NTP_ERROR no_wifi");
+      break;
     case Kind::clear_decodes: g_ft8_store.clear(); g_ft8_item = 0; break;
     case Kind::select_mode:
       // A mode is selectable only when the bound decoder reports it; the dashboard already enforces this.
@@ -14797,7 +14864,9 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
 
 // Runs an optional network sync to its end and records that the RTC is now established. Called every UI loop.
 void service_clock() {
+  ft8_install_clock_hooks();
   orcsdr::ntp_sync::poll();
+  ft8_auto_clock_sync();
   bool ok = false;
   if (!orcsdr::ntp_sync::take_result(&ok)) return;
   if (ok && !preferences.putBool("rtc_est", true)) ok = false;
@@ -18341,13 +18410,7 @@ bool ft8_native_ensure_started() {
   if (!orcsdr::ft8_runtime::start(g_ft8_mode, ft8_native_on_decode, nullptr, ft8_native_clock_valid, ft8_native_dial_offset_hz)) return false;
   Serial.println("ORC_FT8_NATIVE bound");
   orcsdr::ftx::snr::set_user_offset_db(static_cast<float>(preferences.getInt("ft8_snr_off10", 0)) / 10.0f);   // stored in tenths of a dB
-  // FT8 needs the clock within about half a second and the RTC drifts (about 10 ppm measured): ask for one network sync per boot.
-  static bool ntp_requested = false;
-  if (!ntp_requested && wifi_connected) {
-    ntp_requested = true;
-    if (orcsdr::ntp_sync::start(true)) Serial.println("ORC_FT8_NTP auto sync requested");
-    log_dram_budget("after_ft8_ntp");
-  }
+  // The network sync (first one, then every two hours) is requested by ft8_auto_clock_sync() while the decoder runs.
   return true;
 }
 
@@ -18417,9 +18480,9 @@ void process_ft8_command(const char* args) {
   };
 
   if (verb[0] == '\0' || strcmp(verb, "HELP") == 0) {
-    Serial.println("ORC_FT8_HELP queries: STATUS | DECODES [n] | BANDS | DUMP | TIME | HUNTSTATUS | HELP");
+    Serial.println("ORC_FT8_HELP queries: STATUS | DECODES [n] | BANDS | DUMP | TIME | CLOCK | HUNTSTATUS | HELP");
     Serial.println("ORC_FT8_HELP control (authenticated): OPEN | BAND <index|label|dial_hz> | MODE <FT8|FT4> | CLEAR | RUN <0|1> | "
-                   "CONFIG <k> <gate> <fine_rows 4|8> <deadline_ms> | INJECT BEGIN|RUN|<offset> <b64> | LOG [ON|OFF|FLUSH] | SNR [OFFSET <dB>|RESET] | NTP | HUNT <FAST|DECODE|STOP> | TAB <name> | SHOT <name> | SAVE <name> | ADIF <name>");
+                   "CONFIG <k> <gate> <fine_rows 4|8> <deadline_ms> | INJECT BEGIN|RUN|<offset> <b64> | LOG [ON|OFF|FLUSH] | SNR [OFFSET <dB>|RESET] | NTP | HUNT <FAST|DECODE|STOP> | TAB <name> | SHOT <name> | SNAP | SAVE <name> | ADIF <name> | DIAL <hz> | CLOCKTEST <ms>");
     return;
   }
 
@@ -18543,6 +18606,19 @@ void process_ft8_command(const char* args) {
     return;
   }
 
+  if (strcmp(verb, "CLOCK") == 0) {
+    // A query (no authentication): the clock's trust state and the decoded stations' view of it (median DT): positive dt_err_ms = our clock is fast.
+    const auto status = ft8_clock_sync_input();
+    const auto level = orcsdr::clock_sync::evaluate(status);
+    const auto dt = orcsdr::ft8_runtime::dt_report();
+    Serial.printf("ORC_FT8_CLOCK level=%u age_s=%lu ntp_utc=%lu signal_utc=%lu wide=%d last_slot_wide=%d dt_valid=%d dt_err_ms=%d dt_stations=%u hold=%d\n",
+                  static_cast<unsigned>(level), static_cast<unsigned long>(orcsdr::clock_sync::age_seconds(status)),
+                  static_cast<unsigned long>(status.last_sync_utc), static_cast<unsigned long>(status.last_signal_sync_utc),
+                  orcsdr::clock_sync::wants_wide_search(level) ? 1 : 0, dt.wide ? 1 : 0, dt.valid ? 1 : 0, static_cast<int>(dt.error_ms),
+                  static_cast<unsigned>(dt.stations), g_ft8_clock_test_hold ? 1 : 0);
+    return;
+  }
+
   // ---- everything below changes state
   if (need_auth()) return;
 
@@ -18662,6 +18738,16 @@ void process_ft8_command(const char* args) {
     return;
   }
 
+  if (strcmp(verb, "SNAP") == 0) {
+    // The screen as a PNG over serial: no SD card, no RTL_STOP, no retune (tools/tab5_ft8_shot.py uses this).
+    if (need_auth()) return;
+    (void)orcsdr::ui_capture::stream_png(M5.Display, [](const char* data, size_t size, void*) {
+      // Blocking (never drops while the host reads); a short write means the host stopped reading, so the capture aborts.
+      return Serial.writeBytes(reinterpret_cast<const uint8_t*>(data), size) == size;
+    }, nullptr);
+    return;
+  }
+
   if (strcmp(verb, "SHOT") == 0) {
     // Saves the screen as a BMP on the SD card without pausing reception (UI_CAPTURE needs documentation mode); fetch it with
     // SD_GET_BEGIN / tools/tab5_ft8.py shot.
@@ -18695,6 +18781,43 @@ void process_ft8_command(const char* args) {
       return;
     }
     Serial.println("ORC_FT8_ERROR HUNT invalid use HUNT <FAST|DECODE|STOP>");
+    return;
+  }
+
+  if (strcmp(verb, "DIAL") == 0) {
+    // Bench: tune an exact dial frequency in Hz (what the Live DIAL chip does with expert tuning), e.g. a time-signal station.
+    // FT8 BAND <label> returns to the band table.
+    if (need_auth()) return;
+    char* dial_end = nullptr;
+    const unsigned long hz = strtoul(rest, &dial_end, 10);
+    while (dial_end != nullptr && *dial_end == ' ') ++dial_end;
+    // The whole argument must be the number ("14074000oops" is rejected, not tuned as 14074000).
+    if (hz == 0 || dial_end == rest || *dial_end != '\0' || !ft8_tune_dial(static_cast<uint32_t>(hz)))
+      Serial.println("ORC_FT8_ERROR DIAL invalid use DIAL <hz> (0.5 MHz to the tuner limit)");
+    return;
+  }
+
+  if (strcmp(verb, "CLOCKTEST") == 0) {
+    // Bench only: FT8 CLOCKTEST <ms> steps the clock by ms (positive = later), forgets the last sync and holds the automatic network sync
+    // off, so the DT-based correction can be exercised. FT8 CLOCKTEST 0 releases the hold (then FT8 NTP, or the automatic sync, restores the clock).
+    if (need_auth()) return;
+    const long delta = strtol(rest, nullptr, 10);
+    if (delta < -5000 || delta > 5000) {
+      Serial.println("ORC_FT8_ERROR CLOCKTEST invalid use CLOCKTEST <-5000..5000 ms>");
+      return;
+    }
+    if (delta == 0) {
+      g_ft8_clock_test_hold = false;
+      Serial.println("ORC_FT8_CLOCKTEST released");
+      return;
+    }
+    g_ft8_clock_test_hold = true;
+    orcsdr::ntp_sync::forget_last_success();
+    g_ft8_signal_sync_utc = 0;
+    int32_t applied_ms = 0;
+    const bool ok = orcsdr::time_service::step_ms(static_cast<int32_t>(delta), &applied_ms);
+    if (applied_ms > 50 || applied_ms < -50) orcsdr::ft8_runtime::clock_stepped(applied_ms);
+    Serial.printf("ORC_FT8_CLOCKTEST %s step_ms=%ld\n", ok ? "OK" : "FAILED", delta);
     return;
   }
 

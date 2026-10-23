@@ -3,6 +3,7 @@
 
 #include "ft8_audio_tap.hpp"
 #include "ft8_native_backend.hpp"
+#include "ft8_clock_estimator.hpp"
 #include "ft8_spectral_fft.hpp"
 
 #include <algorithm>
@@ -28,6 +29,10 @@ namespace tap_ns = orcsdr::ftx::audio_tap;
 constexpr size_t kRingSamples = 12000u * 32u;    // 32 s of 12 kS/s audio, PSRAM
 constexpr size_t kDecodeCapacity = 24;
 constexpr uint32_t kStartDelayMs = 400;          // ring must hold the last samples of a slot before it is cut
+// Wide search (FT8 only): the slot is cut with this much audio before and after it, so stations still decode when the clock is seconds
+// off (a clock error e puts a station e seconds into the slot; the lead covers a slow clock, the trail a fast one). The decode waits for
+// the trail, so it costs this long on top of the decode time; the 15 s slot has room for both.
+constexpr uint32_t kWideExtraMs = 3000;
 
 struct Runtime {
   std::atomic<bool> active{false};
@@ -49,6 +54,14 @@ struct Runtime {
   std::atomic<int64_t> last_touch_us{0};
   std::atomic<bool> headless{false};
   std::atomic<bool> config_dirty{false};
+  std::atomic<bool> wide_search{false};
+  std::atomic<int32_t> pending_step_ms{0};       // clock correction the decoded stations ask for (0 = none)
+  std::atomic<bool> clock_stepped{false};        // the wall clock was just stepped: the slot schedule and the evidence restart
+  std::atomic<int32_t> dt_error_ms{0};           // latest estimate of our clock error from decoded DTs
+  std::atomic<uint16_t> dt_stations{0};
+  std::atomic<bool> dt_valid{false};
+  std::atomic<bool> last_slot_wide{false};
+  orcsdr::ft8::clock_dt::Estimator dt_estimator;
   uint16_t cfg_k = 64;
   uint16_t cfg_gate = 32;
   uint8_t cfg_fine_rows = 4;
@@ -164,7 +177,18 @@ void mark_discontinuity() {
   g.continuity_sequence.fetch_add(1, std::memory_order_release);
 }
 
-void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint64_t total_now) {
+// The published clock-error estimate (FT8 CLOCK) must go with the evidence it came from.
+void reset_dt_report() {
+  g.dt_valid.store(false, std::memory_order_release);
+  g.dt_error_ms.store(0, std::memory_order_release);
+  g.dt_stations.store(0, std::memory_order_release);
+  g.last_slot_wide.store(false, std::memory_order_release);
+}
+
+void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint64_t total_now, bool wide) {
+  const uint32_t lead_ms = wide ? kWideExtraMs : 0u;           // FT8 only; the caller never sets it for JS8
+  const uint64_t lead_samples = static_cast<uint64_t>(lead_ms) * 12u;
+  const uint64_t window_samples = static_cast<uint64_t>(slot_ms + 2u * lead_ms) * 12u;
   const uint32_t continuity = g.continuity_sequence.load(std::memory_order_acquire);
   const uint64_t radio = g.captured_radio_context.load(std::memory_order_acquire);
   const uint64_t ms_since_start = now_ms - slot_start_ms;
@@ -175,7 +199,8 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
   const uint64_t cont_ms = g.cont_ms.load(std::memory_order_acquire);
   const uint64_t cont_total = g.cont_total.load(std::memory_order_acquire);
   bool incomplete = (continuity & 1u) != 0 || g.continuity_sequence.load(std::memory_order_acquire) != continuity;
-  if (start_total < 0 || slot_start_ms < cont_ms + 100u || total_now - static_cast<uint64_t>(start_total) > kRingSamples - 12000u) {
+  if (start_total < static_cast<int64_t>(lead_samples) || slot_start_ms < cont_ms + 100u + lead_ms ||
+      total_now - static_cast<uint64_t>(start_total) + lead_samples > kRingSamples - 12000u) {
     incomplete = true;
   } else if (now_ms - cont_ms > 5000u) {
     // The tap must have delivered samples at the real 12 kS/s since the last discontinuity, or a block was lost.
@@ -199,7 +224,7 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
     uint64_t jsumsq = 0;
     uint32_t jpeak = 0, jclipped = 0;
     while (jremaining > 0) {
-      const size_t take = jremaining > 4096 ? 4096 : static_cast<size_t>(jremaining);
+      const size_t take = jremaining > sizeof(chunk) / sizeof(chunk[0]) ? sizeof(chunk) / sizeof(chunk[0]) : static_cast<size_t>(jremaining);
       for (size_t i = 0; i < take; ++i) {
         const int16_t v = g.ring[(jpos + i) % kRingSamples];
         chunk[i] = v;
@@ -274,11 +299,11 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
   }
 
   set_state(State::decoding);
-  g.backend->begin_slot(slot_start_ms);
+  g.backend->begin_slot(slot_start_ms, static_cast<size_t>(lead_samples));
   uint64_t sumsq = 0;
   uint32_t peak = 0, clipped = 0;
-  uint64_t pos = static_cast<uint64_t>(start_total);
-  uint64_t remaining = slot_samples;
+  uint64_t pos = static_cast<uint64_t>(start_total) - lead_samples;
+  uint64_t remaining = window_samples;
   while (remaining > 0) {
     const size_t take = remaining > sizeof(chunk) / sizeof(chunk[0]) ? sizeof(chunk) / sizeof(chunk[0]) : static_cast<size_t>(remaining);
     for (size_t i = 0; i < take; ++i) chunk[i] = g.ring[(pos + i) % kRingSamples];
@@ -300,13 +325,15 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
   }
   const size_t n = g.backend->finish_slot(out, kDecodeCapacity);
   const auto& st = g.backend->stats();
-  s.slot_rms = static_cast<uint32_t>(std::sqrt(static_cast<double>(sumsq) / static_cast<double>(slot_samples)));
+  s.slot_rms = static_cast<uint32_t>(std::sqrt(static_cast<double>(sumsq) / static_cast<double>(window_samples)));
   s.slot_peak = peak;
   s.slot_clipped = clipped;
   ++s.slots_decoded;
   if (!g.snapshot_hold.load(std::memory_order_acquire) && g.snapshot != nullptr) {
-    std::memcpy(g.snapshot, g.backend->slot_audio(), g.backend->buffered() * sizeof(int16_t));
-    g.snapshot_count = g.backend->buffered();
+    // The saved slot is the nominal 15 s (without the wide-search lead and trail), so DUMP and SAVE keep their format.
+    const size_t kept = std::min<size_t>(g.backend->buffered() - static_cast<size_t>(lead_samples), static_cast<size_t>(slot_samples));
+    std::memcpy(g.snapshot, g.backend->slot_audio() + lead_samples, kept * sizeof(int16_t));
+    g.snapshot_count = kept;
     g.snapshot_slot_ms = slot_start_ms;
     g.have_slot = true;
   }
@@ -318,6 +345,25 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
   s.last_deadline_hit = st.deadline_hit;
   s.last_coarse = st.coarse_candidates;
   s.last_strong = st.strong_candidates;
+  {   // Our clock error as the decoded stations see it (median DT): evidence for a correction, and a cross-check on a network sync.
+    orcsdr::ft8::clock_dt::Sample samples[kDecodeCapacity];
+    size_t sample_count = 0;
+    for (size_t i = 0; i < n && sample_count < kDecodeCapacity; ++i)
+      samples[sample_count++] = orcsdr::ft8::clock_dt::Sample{out[i].dt_ms, orcsdr::ft8::clock_dt::station_id(out[i].callsign)};
+    g.dt_estimator.add_slot(samples, sample_count);
+    const auto estimate = g.dt_estimator.estimate();
+    g.dt_valid.store(estimate.valid, std::memory_order_release);
+    g.dt_error_ms.store(estimate.error_ms, std::memory_order_release);
+    g.dt_stations.store(estimate.stations, std::memory_order_release);
+    g.last_slot_wide.store(wide, std::memory_order_release);
+    const int32_t step = g.dt_estimator.step_ms();
+    if (step != 0) {
+      g.pending_step_ms.store(step, std::memory_order_release);
+      g.dt_estimator.clear();   // one request per body of evidence; the next estimate starts fresh
+      reset_dt_report();
+      std::printf("ORC_FT8_CLOCK_DT correction_requested step_ms=%d stations=%u\n", static_cast<int>(step), static_cast<unsigned>(estimate.stations));
+    }
+  }
   std::printf("ORC_FT8_RT slot=%llu decodes=%u total_ms=%u spectral=%u search=%u refine=%u gates=%u coarse=%u attempted=%u deadline=%d\n",
               static_cast<unsigned long long>(slot_start_ms / 1000u), static_cast<unsigned>(n), static_cast<unsigned>(st.total_ms),
               static_cast<unsigned>(st.spectral_ms), static_cast<unsigned>(st.search_ms), static_cast<unsigned>(st.refine_ms),
@@ -425,7 +471,14 @@ void decoder_task(void*) {
       c.gate = g.cfg_gate;
       c.fine_rows = g.cfg_fine_rows;
       c.deadline_ms = g.cfg_deadline_ms;
+      c.window_extra_ms = kWideExtraMs;
       g.backend->set_config(c);
+    }
+    if (g.clock_stepped.exchange(false, std::memory_order_acq_rel)) {
+      g.dt_estimator.clear();   // the old DTs were measured against the old clock
+      g.pending_step_ms.store(0, std::memory_order_release);   // a correction queued from those DTs is stale too
+      reset_dt_report();
+      last_slot = UINT64_MAX;   // the slot index jumped with the clock: restart the schedule
     }
     if (g.mode_changed.exchange(false, std::memory_order_acq_rel)) {
       if (is_js8(g.mode)) {
@@ -459,10 +512,11 @@ void decoder_task(void*) {
       last_slot = current;
       continue;
     }
-    if (current > last_slot && (now_ms % slot_ms) >= kStartDelayMs) {
+    const bool wide = g.wide_search.load(std::memory_order_acquire) && g.mode == orcsdr::ft8::DigitalMode::ft8;
+    if (current > last_slot && (now_ms % slot_ms) >= kStartDelayMs + (wide ? kWideExtraMs : 0u)) {
       const uint64_t finished = current - 1;
       last_slot = current;
-      decode_slot(finished * slot_ms, slot_ms, now_ms, total_now);
+      decode_slot(finished * slot_ms, slot_ms, now_ms, total_now, wide);
     }
   }
   g.task_alive.store(false, std::memory_order_release);
@@ -572,6 +626,7 @@ bool start(orcsdr::ft8::DigitalMode mode, DecodeCallback on_decode, void* contex
   config.gate = g.cfg_gate;
   config.fine_rows = g.cfg_fine_rows;
   config.deadline_ms = g.cfg_deadline_ms;       // finish inside the slot that follows
+  config.window_extra_ms = kWideExtraMs;        // buffers sized for the wide search; a normal slot does not use the extra
   config.now_us = now_us_fn;
   orcsdr::ftx::native::Memory memory;
   memory.alloc = psram_alloc;
@@ -605,6 +660,13 @@ bool start(orcsdr::ft8::DigitalMode mode, DecodeCallback on_decode, void* contex
   g.blocks_us_sum.store(0);
   g.blocks_us_n.store(0);
   g.tap_blocks.store(0);
+  g.dt_estimator.clear();   // evidence, a queued correction and the estimate from an earlier session must not carry over: the clock or band may have changed
+  g.pending_step_ms.store(0, std::memory_order_release);
+  g.clock_stepped.store(false, std::memory_order_release);
+  g.dt_valid.store(false, std::memory_order_release);
+  g.dt_error_ms.store(0, std::memory_order_release);
+  g.dt_stations.store(0, std::memory_order_release);
+  g.last_slot_wide.store(false, std::memory_order_release);
   g.reset_pending.store(true, std::memory_order_release);
   g.last_touch_us.store(esp_timer_get_time(), std::memory_order_release);
   set_state(State::waiting_signal);
@@ -657,6 +719,31 @@ bool set_mode(orcsdr::ft8::DigitalMode mode) {
 void touch() { g.last_touch_us.store(esp_timer_get_time(), std::memory_order_release); }
 
 void note_discontinuity() { g.reset_pending.store(true, std::memory_order_release); }
+
+void set_wide_search(bool wide) { g.wide_search.store(wide, std::memory_order_release); }
+
+bool take_clock_step(int32_t* delta_ms) {
+  const int32_t step = g.pending_step_ms.exchange(0, std::memory_order_acq_rel);
+  if (step == 0) return false;
+  if (delta_ms != nullptr) *delta_ms = step;
+  return true;
+}
+
+void clock_stepped(int32_t delta_ms) {
+  // The ring is indexed by sample count and the discontinuity stamp by wall time: move the stamp with the clock so the "samples since the
+  // last discontinuity" rate check stays valid, and have the decoder task restart its slot schedule and evidence.
+  g.cont_ms.fetch_add(static_cast<uint64_t>(static_cast<int64_t>(delta_ms)), std::memory_order_acq_rel);
+  g.clock_stepped.store(true, std::memory_order_release);
+}
+
+DtReport dt_report() {
+  DtReport r;
+  r.valid = g.dt_valid.load(std::memory_order_acquire);
+  r.error_ms = g.dt_error_ms.load(std::memory_order_acquire);
+  r.stations = g.dt_stations.load(std::memory_order_acquire);
+  r.wide = g.last_slot_wide.load(std::memory_order_acquire);
+  return r;
+}
 void set_radio_context(uint8_t band_index, uint32_t dial_hz) {
   g.radio_context.store((uint64_t{band_index} << 32) | dial_hz, std::memory_order_release);
   note_discontinuity();
