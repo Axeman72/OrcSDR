@@ -394,10 +394,12 @@ void worker(void*) {
       if(ok) {g_canvas.setPsram(true);g_canvas.setColorDepth(16);ok=g_canvas.createSprite(view.width_px,view.height_px)!=nullptr;}
       if(ok)g_canvas_bytes.store(bytes);
     }
-    // Leave room for the completed-frame preview too; dragging takes priority.
+    // Reserve a preview only if publication will need to allocate one.
+    const size_t preview_reserve=g_preview_bytes.load() &&
+        g_preview.width()==request.view.width_px && g_preview.height()==request.view.height_px ? 0 :
+        static_cast<size_t>(request.view.width_px)*request.view.height_px*2;
     if(ok && path[0]!='@' && !g_read_buffer &&
-       heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=ReadCache::kCapacity+128*1024+
-           static_cast<size_t>(request.view.width_px)*request.view.height_px*2) {
+       heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=ReadCache::kCapacity+128*1024+preview_reserve) {
       g_read_buffer.reset(static_cast<uint8_t*>(heap_caps_aligned_alloc(64,ReadCache::kCapacity,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)));
       g_read_cache.Reset(g_source.get(),g_read_buffer.get(),g_read_buffer ? ReadCache::kCapacity : 0);
       g_read_cache_bytes.store(g_read_cache.Capacity());
