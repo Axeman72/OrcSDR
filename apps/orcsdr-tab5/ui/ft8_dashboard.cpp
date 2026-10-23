@@ -1,3 +1,4 @@
+#include <esp_attr.h>
 #include "ft8_dashboard.hpp"
 #include "ft8_conditions.hpp"
 #include "ft8_world_data.hpp"
@@ -421,7 +422,7 @@ void draw_waterfall() {
   const size_t rows = std::min<size_t>(g_snapshot.wf_rows, 112);
   const size_t bins = g_snapshot.wf_bins;
   if (g_snapshot.waterfall == nullptr || rows == 0 || bins == 0 || g_snapshot.wf_sequence == 0) return;
-  static uint16_t line[kWidth * kRowPx];
+  EXT_RAM_BSS_ATTR static uint16_t line[kWidth * kRowPx];
   const uint32_t seq = g_snapshot.wf_sequence;
   const size_t visible = std::min<size_t>(rows, seq);
   for (size_t r = 0; r < visible; ++r) {
@@ -475,7 +476,7 @@ void scroll_waterfall(size_t max_rows) {
     }
   }
   M5.Display.scroll(0, static_cast<int>(fresh) * kRowPx);
-  static uint16_t line[kWidth];
+  EXT_RAM_BSS_ATTR static uint16_t line[kWidth];
   for (size_t k = 0; k < fresh; ++k) {
     const uint8_t* src = g_snapshot.waterfall + ((target - 1 - k) % rows) * bins;
     for (int x = 0; x < kWidth; ++x) line[x] = waterfall_color(src[static_cast<size_t>(x) * bins / kWidth]);
