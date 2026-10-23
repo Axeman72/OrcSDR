@@ -13678,8 +13678,13 @@ void ft8_clock_trust_save() {
 void ft8_clock_trust_forget() {
   orcsdr::ntp_sync::forget_last_success();
   g_ft8_signal_sync_utc = 0;
-  (void)preferences.remove(kClockNtpKey);
-  (void)preferences.remove(kClockSignalKey);
+  // A stamp that stays in flash would be believed again after a restart: if the erase fails, overwrite it with zero (which restore ignores).
+  for (const char* key : {kClockNtpKey, kClockSignalKey}) {
+    if (!preferences.remove(key)) {
+      Serial.printf("ORC_FT8_CLOCK_TRUST_ERASE_FAILED key=%s\n", key);
+      (void)preferences.putUInt(key, 0);
+    }
+  }
 }
 
 void ft8_clock_trust_restore() {
@@ -13840,8 +13845,12 @@ void ft8_dashboard_fill_snapshot(orcsdr::ft8::Snapshot& snapshot) {
   }
   // The RTL2832's own AGC (V3/V4 dongles) is independent of the tuner gain, so the button does not depend on tuner gain being available.
   if (g_rtl != nullptr && rtl_has_device_capability(ESP_RTL_SDR_CAP_RTL_AGC)) {
-    snapshot.rtl_agc_available = true;
-    (void)esp_rtl_sdr_get_rtl_agc(g_rtl, &snapshot.rtl_agc);
+    // Only offer the button when the state could be read: a failed read must not show OFF and then send an ON request on a guess.
+    bool agc = false;
+    if (esp_rtl_sdr_get_rtl_agc(g_rtl, &agc) == ESP_OK) {
+      snapshot.rtl_agc_available = true;
+      snapshot.rtl_agc = agc;
+    }
   }
 #endif
   snapshot.decode_count = std::min(g_ft8_store.size(), orcsdr::ft8::kDecodeCapacity);
