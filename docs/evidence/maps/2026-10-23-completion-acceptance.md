@@ -124,3 +124,12 @@ UI ownership, retained memory and radio continuity only.
 Measured follow-up: [20-pan refill baseline](2026-10-23-refill-baseline.md) records p50 3.65 s / p95 4.55 s / max 5.13 s; the 2-second gate fails.
 
 User physical acceptance of reconciled application30a00ce1 during the pan run: “Dragging, colors and controls look good.” This does not accept the separate, uninstalled single-inflate experiment.
+
+
+Latest experiment: [single-inflate rejected and accepted app restored](2026-10-23-single-inflate-rejected.md).
+Current app remains 30a00ce1 / engine b59d478; consumer source revert ff31e14b restores
+that app tree exactly. Engine PR7's optional path was withdrawn after an 8.46 s
+completed frame and incomplete seven-second samples. No candidate percentiles
+are claimed. Restoration, four bounded pans, saved point/preferences, map reclaim
+and RF/logger checks pass. CodeRabbit's full review completed with 4 actionable
+comments; bounded triage awaits the separately requested AGENTS approval.
