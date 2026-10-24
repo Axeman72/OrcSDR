@@ -1,5 +1,11 @@
 # OrcMaps completion acceptance — October 23, 2026
 
+Latest source reconciliation: local merge `97f48640` includes fetched main
+`fb70e969` (nine clock/WWV follow-up commits). Seven selected host checks and
+six P4 syntax checks pass; no build or hardware operation in this step.
+See [reconciliation evidence](2026-10-23-mainline-clock-reconciliation.md).
+COM17 remains on `f38b8601`. Earlier reconciliation entries below are historical.
+
 Initial scout source 4d4f85a3 on codex/maps-integration-completion.
 Reconciled source 30a00ce1 now contains fetched main 629ba546; affected host/
 sanitizer, P4 syntax, native link, app-only COM17 preservation/startup and bounded
