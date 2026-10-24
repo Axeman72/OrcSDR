@@ -226,11 +226,11 @@ void draw_quick_controls() {
   snprintf(value, sizeof(value), "STEP %lu Hz",
            static_cast<unsigned long>(g_snapshot.step_hz));
   button(kStep, value);
-  button(kFilterDown, "<");
+  button(kFilterDown, "<", false, !ssb_mode());
   snprintf(value, sizeof(value), "FILTER %.1f kHz",
            static_cast<double>(g_snapshot.filter_bandwidth_hz) / 1000.0);
-  button(kFilterValue, value);
-  button(kFilterUp, ">");
+  button(kFilterValue, value, false, !ssb_mode());
+  button(kFilterUp, ">", false, !ssb_mode());
   snprintf(value, sizeof(value), g_snapshot.mode_auto ? "AUTO %s" : "%s", g_snapshot.mode);
   button(kMode, value, ssb_mode());
   const auto boost = receiver_controls::item(receiver_controls::Control::audio_boost,

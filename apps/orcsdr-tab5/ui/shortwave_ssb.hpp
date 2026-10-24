@@ -73,10 +73,12 @@ void reset(Demod& demod);
 // Demodulate a block. `emit(float)` receives one 48 kHz audio sample at a time.
 // sideband: Mode::usb or Mode::lsb (already corrected for the fold). clarifier_hz shifts the pitch by the
 // usual amount: raising the dial frequency lowers USB pitch and raises LSB pitch.
+// carrier_offset_hz: dial frequency minus the IQ centre frequency (0 when the LO sits on the dial).
 // Returns the number of audio samples emitted; clipped_pairs counts samples at the 8-bit rails.
 template <typename Emit>
 size_t process(Demod& demod, const uint8_t* iq, size_t bytes, uint8_t rf_decimation, Mode sideband,
-               int32_t clarifier_hz, float rf_rate_hz, Emit&& emit, uint32_t* clipped_pairs = nullptr) {
+               int32_t clarifier_hz, float rf_rate_hz, Emit&& emit, uint32_t* clipped_pairs = nullptr,
+               int32_t carrier_offset_hz = 0) {
   if (rf_decimation == 0 || (sideband != Mode::usb && sideband != Mode::lsb)) return 0;
   if (demod.active != static_cast<uint8_t>(sideband) + 1u) {
     demod = Demod{};
@@ -90,7 +92,10 @@ size_t process(Demod& demod, const uint8_t* iq, size_t bytes, uint8_t rf_decimat
   // USB sits above the dial, LSB below: shift it down (USB) or up (LSB) onto the filter centre.
   const float direction = sideband == Mode::usb ? -1.0f : 1.0f;
   const float clar = static_cast<float>(sideband == Mode::usb ? clarifier_hz : -clarifier_hz);
-  const float front_step = direction * 2.0f * kPi * (kCentreHz + clar) / kAudioRate;
+  // The dial can sit off the IQ centre (hot retunes quantize the LO): the carrier is at +offset, so USB must
+  // shift down by that much more and LSB by that much less.
+  const float offset = static_cast<float>(sideband == Mode::usb ? carrier_offset_hz : -carrier_offset_hz);
+  const float front_step = direction * 2.0f * kPi * (kCentreHz + clar + offset) / kAudioRate;
   const float back_step = -direction * 2.0f * kPi * kCentreHz / kAudioRate;
   const float fc = cosf(front_step), fs = sinf(front_step);
   const float bc = cosf(back_step), bs = sinf(back_step);

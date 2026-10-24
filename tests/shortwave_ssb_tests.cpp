@@ -124,6 +124,26 @@ int main() {
   const auto lsb_clar = run(below, Mode::lsb, +200);
   CHECK(power_at(lsb_clar, 1200.0) > 0.01);
 
+  // The dial can sit off the IQ centre (hot retunes quantize the LO). A USB tone at 1 kHz above a dial that is
+  // 3 kHz above the centre sits at +4 kHz in the IQ: telling the demodulator the offset restores 1 kHz audio.
+  {
+    const auto off_iq = tone_iq(+4000.0, 0.5);
+    Demod d{};
+    std::vector<float> out;
+    process(d, off_iq.data(), off_iq.size(), 4, Mode::usb, 0, static_cast<float>(kRate), [&](float s) { out.push_back(s); }, nullptr, 3000);
+    CHECK(power_at(out, 1000.0) > 0.01);
+    Demod d2{};
+    std::vector<float> wrong;
+    process(d2, off_iq.data(), off_iq.size(), 4, Mode::usb, 0, static_cast<float>(kRate), [&](float s) { wrong.push_back(s); });
+    CHECK(power_at(wrong, 1000.0) < 0.001);  // without the offset the same IQ is far off-pitch
+    // LSB: dial 2 kHz below the centre, tone 1.5 kHz below the dial.
+    const auto lsb_iq = tone_iq(-2000.0 - 1500.0, 0.5);
+    Demod d3{};
+    std::vector<float> lo;
+    process(d3, lsb_iq.data(), lsb_iq.size(), 4, Mode::lsb, 0, static_cast<float>(kRate), [&](float s) { lo.push_back(s); }, nullptr, -2000);
+    CHECK(power_at(lo, 1500.0) > 0.01);
+  }
+
   // Block boundaries must not change the output (state carried across calls).
   {
     Demod whole{}, split{};

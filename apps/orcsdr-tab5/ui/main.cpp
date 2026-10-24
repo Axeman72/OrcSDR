@@ -8703,6 +8703,12 @@ __attribute__((noinline)) void demodulate_shortwave_ssb(RtlBand band, const uint
   const Mode wanted = effective_demod(band) == HomeDemod::lsb ? Mode::lsb : Mode::usb;
   const bool direct_sampling = g_rtl_profile.load(std::memory_order_acquire) == ESP_RTL_SDR_PROFILE_BLOG_V3;
   const Mode sideband = demod_sideband(wanted, tuned_hz, direct_sampling);
+  // Hot retunes quantize the LO to 5 kHz while the dial moves in 100 Hz steps: pass the dial's offset from the IQ centre.
+  uint32_t centre_hz = 0;
+  int32_t carrier_offset = 0;
+  if (g_rtl != nullptr && esp_rtl_sdr_get_center_freq(g_rtl, &centre_hz) == ESP_OK && centre_hz != 0)
+    carrier_offset = std::clamp<int32_t>(static_cast<int32_t>(tuned_hz) - static_cast<int32_t>(centre_hz), -6000, 6000);
+  if (sideband != wanted) carrier_offset = -carrier_offset;  // a folded spectrum is mirrored about the centre
   audio_scale *= 3.0f;  // SSB has no carrier: the same station is about 10 dB below its AM level
   process(demod_state(), iq, bytes, rtl_rf_decimation(sample_rate_sps), sideband,
           control().clarifier_hz.load(std::memory_order_relaxed), static_cast<float>(sample_rate_sps),
@@ -8714,7 +8720,7 @@ __attribute__((noinline)) void demodulate_shortwave_ssb(RtlBand band, const uint
             square_sum += static_cast<uint32_t>(sample * sample);
             ++samples;
           },
-          &clipped_pairs);
+          &clipped_pairs, carrier_offset);
   rtl_audio.peak = peak;
   rtl_audio.square_sum = square_sum;
   rtl_audio.samples = samples;
