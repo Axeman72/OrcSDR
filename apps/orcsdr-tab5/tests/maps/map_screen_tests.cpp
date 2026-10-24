@@ -265,6 +265,19 @@ void screen_tests() {
   for(int i=0;i<4;++i){test_millis+=300;map_screen::tick();map_screen::tick();}
   assert(M5.Display.screen_clears==verifying_clears);
   assert(visible("Verifying map integrity and installing... Please wait."));
+  download_status.verify_total_bytes=100ull*1024*1024;download_status.verify_pass=1;
+  for(unsigned i=1;i<=4;++i) {
+    download_status.verified_bytes=i*25ull*1024*1024;++download_status.revision;
+    test_millis+=300;map_screen::tick();map_screen::tick();
+    assert(M5.Display.screen_clears==verifying_clears);
+  }
+  assert(visible("Verifying map, pass 1: 100.0 MB / 100.0 MB (100%)"));
+  download_status.verify_pass=2;download_status.verified_bytes=25ull*1024*1024;++download_status.revision;
+  test_millis+=300;map_screen::tick();map_screen::tick();
+  assert(visible("Verifying map, pass 2: 25.0 MB / 100.0 MB (25%)"));
+  assert(M5.Display.screen_clears==verifying_clears);
+  serial_command("RTL_MAP DOWNLOAD LIST",false);
+  assert(serial_output.find("verified=26214400 verify_total=104857600 verify_pass=2")!=std::string::npos);
   click(100,548);assert(visible("Choose an offline map"));
   const int inventory_clears=M5.Display.screen_clears;
   for(int i=0;i<4;++i) {

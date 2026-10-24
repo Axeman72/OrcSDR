@@ -60,9 +60,11 @@ bool handle(const char* command,bool authenticated,void (*write)(const char*)) {
     downloads::Snapshot status;
     if(!downloads::snapshot(&status)){write("RTL_MAP_ERROR busy\n");return true;}
     char line[320];
-    std::snprintf(line,sizeof(line),"RTL_MAP_DOWNLOAD phase=%u busy=%u configured=%u ready=%u count=%u done=%llu total=%llu\n",
+    std::snprintf(line,sizeof(line),"RTL_MAP_DOWNLOAD phase=%u busy=%u configured=%u ready=%u count=%u done=%llu total=%llu verified=%llu verify_total=%llu verify_pass=%lu\n",
         static_cast<unsigned>(status.phase),status.busy,status.configured,status.catalog_ready,status.count,
-        static_cast<unsigned long long>(status.completed_bytes),static_cast<unsigned long long>(status.total_bytes));write(line);
+        static_cast<unsigned long long>(status.completed_bytes),static_cast<unsigned long long>(status.total_bytes),
+        static_cast<unsigned long long>(status.verified_bytes),static_cast<unsigned long long>(status.verify_total_bytes),
+        static_cast<unsigned long>(status.verify_pass));write(line);
     for(unsigned i=0;i<status.count;++i) {
       downloads::Entry entry;if(!downloads::entry(i,&entry))continue;
       std::snprintf(line,sizeof(line),"RTL_MAP_DOWNLOAD_ENTRY index=%u installed=%u recommended=%u product=%s bytes=%llu title=\"%s\"\n",

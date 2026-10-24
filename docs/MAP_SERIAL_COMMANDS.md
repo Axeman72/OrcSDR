@@ -194,6 +194,14 @@ and retry use the same installer APIs and eligibility checks as the UI. Already
 installed entries are not reinstalled through this command. Nothing bypasses
 catalog trust, archive verification, activation/recovery or storage checks.
 
+Prepared verification-feedback source adds `verified`, `verify_total` and
+`verify_pass` to the read-only `RTL_MAP DOWNLOAD LIST` status line. These are
+bytes checked in the current full-file scan and its pass number, not a promise
+that the archive is valid: 100% can still end in a hash/format failure. A later
+scan resets checked bytes and increments the pass number. Installed success
+still requires phase=2, busy=0 and the installed entry. This source change is
+host/P4-syntax tested; COM17's `137e244a` benchmark firmware lacks these fields.
+
 The production catalog URL/key are currently unconfigured. A rejected Check or
 empty list in that state is expected; these commands do not provide a new host,
 publish assets or prove an end-to-end HTTPS installation.

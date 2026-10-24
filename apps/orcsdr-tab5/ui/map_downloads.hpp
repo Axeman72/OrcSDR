@@ -17,6 +17,8 @@ struct Snapshot {
   bool configured=false,connected=false,catalog_ready=false,sd_available=false;
   uint8_t count=0;
   uint64_t completed_bytes=0,total_bytes=0;
+  uint64_t verified_bytes=0,verify_total_bytes=0;
+  uint32_t verify_pass=0;
   char message[96]{};
 };
 // Shared by UI and worker so offline recovery cannot be hidden by UI gating.

@@ -14,6 +14,8 @@ Latest loaded result: [October 24 reconciled 20-pan measurement](2026-10-24-reco
 
 [October 24 clean GitHub installation baseline](download-benchmarks/2026-10-24-com17-pny32/README.md) passed on the spare PNY 32 GB U1 card: transfer 19m40.3s, verification/activation 21m21.2s, total 41m02.6s. Controlled resume, reboot/offline regional rendering and physical appearance passed. Reception began partway through verification; this is a mixed-load observation. Three driver drops/overruns in the separate post-reboot follow-up remain recorded; timed-install final counters were zero.
 
+[Prepared verification progress feedback](2026-10-24-verification-progress-feedback.md) adds real checked-byte/pass display and serial fields. Focused UI/integrity tests and six P4 syntax checks pass; no native build/flash or physical acceptance for this source yet. Baseline firmware/timing records remain unchanged.
+
 Production delivery proposal prepared: [hosting, signing and 20,000-user model](../../maps-delivery/2026-10-23-production-decision.md).
 GitHub Releases is approved as the initial hosting choice; production key creation and publication remain unapproved.
 Arithmetic and local links pass `maps-production-decision-check-20261023.log`.

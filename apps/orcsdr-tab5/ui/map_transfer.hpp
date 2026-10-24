@@ -21,6 +21,8 @@ struct Hooks {
   bool (*cancelled)(void*)=nullptr;
   void (*progress)(void*,uint64_t,uint64_t)=nullptr;
   void (*verifying)(void*)=nullptr; // Worker callback; never draw UI here.
+  // Per full-file check: starts at zero, advances after hashing each block.
+  void (*verify_progress)(void*,uint64_t,uint64_t)=nullptr;
 };
 struct Paths {std::string directory,partial,archive,manifest,record[2];};
 Paths paths(const catalog::Pack&);

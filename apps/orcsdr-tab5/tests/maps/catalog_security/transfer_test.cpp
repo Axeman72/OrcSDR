@@ -188,6 +188,27 @@ int main(int argc,char** argv){
   check(fs.exists(paths.manifest.c_str()),"verified staging manifest prepared");
   check(!std::filesystem::exists(testfs::root/"orcmaps/pack.manifest.json"),"staging stays outside flat discovery");
   check(load(testfs::root/"orcmaps/old.pmtiles")=="valuable map","old packs preserved");
+  struct Verification {std::vector<uint64_t> used;uint64_t total=0;bool cancel=false,stop=false;};
+  Verification measured;
+  t::Hooks measured_hooks{&measured,[](void* p){return static_cast<Verification*>(p)->cancel;},nullptr,nullptr,
+    [](void* p,uint64_t used,uint64_t total){
+      auto& v=*static_cast<Verification*>(p);v.used.push_back(used);v.total=total;
+      if(v.stop&&used>=65536)v.cancel=true;
+    }};
+  check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::none&&
+        measured.used.size()>2&&measured.used.front()==0&&measured.used.back()==body.size()&&
+        measured.total==body.size()&&std::is_sorted(measured.used.begin(),measured.used.end()),
+        "verification reports actual monotonic checked bytes from zero to full file");
+  const auto verified_bytes=load(testfs::path(paths.archive.c_str()));
+  measured.used.clear();measured.stop=true;
+  check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::cancelled&&
+        measured.used.front()==0&&measured.used.back()<body.size()&&
+        load(testfs::path(paths.archive.c_str()))==verified_bytes,"verification progress retains cancellation and read-only archive");
+  measured={};auto damaged=verified_bytes;damaged.back()^=1;
+  {std::ofstream out(testfs::path(paths.archive.c_str()),std::ios::binary);out.write(damaged.data(),damaged.size());}
+  check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::hash&&
+        !measured.used.empty()&&measured.used.back()==body.size(),"100 percent checked still rejects a bad archive hash");
+  {std::ofstream out(testfs::path(paths.archive.c_str()),std::ios::binary);out.write(verified_bytes.data(),verified_bytes.size());}
   Stream again;
   check(run(again)==t::Error::none&&again.opens==0,"prepared pack revalidated without network");
   reset();Stream corrupted;corrupted.corrupt_after=true;

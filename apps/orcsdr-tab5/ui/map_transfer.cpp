@@ -80,12 +80,14 @@ Error verify_file(storage::FileSystem& fs,const std::string& path,const orcmap::
   struct HashClose {mbedtls_sha256_context& sha;~HashClose(){mbedtls_sha256_free(&sha);}} hash_close{sha};
   if(mbedtls_sha256_starts(&sha,0))return Error::hash;
   uint64_t used=0;
+  if(hooks.verify_progress)hooks.verify_progress(hooks.context,0,expected.size_bytes);
   while(used<expected.size_bytes) {
     if(hooks.cancelled&&hooks.cancelled(hooks.context))return Error::cancelled;
     const size_t take=static_cast<size_t>(std::min<uint64_t>(capacity,expected.size_bytes-used));
     if(file.read(buffer,take)!=take)return Error::storage;
     if(mbedtls_sha256_update(&sha,buffer,take))return Error::hash;
     used+=take;
+    if(hooks.verify_progress)hooks.verify_progress(hooks.context,used,expected.size_bytes);
   }
   uint8_t hash[32]{};
   if(mbedtls_sha256_finish(&sha,hash)||!file.close())return Error::storage;

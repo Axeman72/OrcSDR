@@ -237,7 +237,14 @@ void draw_download_progress() {
   M5.Display.fillRect(32,580,1216,44,kBg);
   const bool verifying=g_downloads.phase==maps::downloads::Phase::verifying;
   char status[120]{};
-  if(verifying)std::snprintf(status,sizeof(status),"Verifying map integrity and installing... Please wait.");
+  if(verifying&&g_downloads.verify_total_bytes) {
+    char checked[24],total[24];
+    download_size(g_downloads.verified_bytes,checked,sizeof(checked));
+    download_size(g_downloads.verify_total_bytes,total,sizeof(total));
+    const auto percent=std::min(g_downloads.verified_bytes,g_downloads.verify_total_bytes)*100/g_downloads.verify_total_bytes;
+    std::snprintf(status,sizeof(status),"Verifying map, pass %lu: %s / %s (%u%%)",
+        static_cast<unsigned long>(g_downloads.verify_pass),checked,total,static_cast<unsigned>(percent));
+  } else if(verifying)std::snprintf(status,sizeof(status),"Verifying map integrity and installing... Please wait.");
   else if(g_downloads.phase==maps::downloads::Phase::downloading) {
     char received[24],total[24];download_size(g_downloads.completed_bytes,received,sizeof(received));
     download_size(g_downloads.total_bytes,total,sizeof(total));
@@ -248,9 +255,11 @@ void draw_download_progress() {
   text(status,32,584,2,g_downloads.phase==maps::downloads::Phase::failed?TFT_ORANGE:kInk);
   if(verifying||g_downloads.phase==maps::downloads::Phase::downloading) {
     M5.Display.drawRect(32,612,1216,10,kAccent);
-    if(verifying)M5.Display.fillRect(34+static_cast<int>((millis()/40)%1010),614,200,6,kAccent);
-    else if(g_downloads.total_bytes) {
-      const double fraction=std::min(1.0,static_cast<double>(g_downloads.completed_bytes)/g_downloads.total_bytes);
+    if(verifying&&!g_downloads.verify_total_bytes)M5.Display.fillRect(34+static_cast<int>((millis()/40)%1010),614,200,6,kAccent);
+    else if(verifying?g_downloads.verify_total_bytes:g_downloads.total_bytes) {
+      const auto used=verifying?g_downloads.verified_bytes:g_downloads.completed_bytes;
+      const auto total=verifying?g_downloads.verify_total_bytes:g_downloads.total_bytes;
+      const double fraction=std::min(1.0,static_cast<double>(used)/total);
       M5.Display.fillRect(34,614,static_cast<int>(1212*fraction),6,kGreen);
     }
   }
@@ -444,7 +453,9 @@ void tick() {
           std::strcmp(before.message,after.message);
       if(layout_changed)g_dirty=true;
       else if(!g_dirty&&g_download_view&&(before.completed_bytes!=after.completed_bytes||
-          before.total_bytes!=after.total_bytes||after.phase==maps::downloads::Phase::verifying))
+          before.total_bytes!=after.total_bytes||before.verified_bytes!=after.verified_bytes||
+          before.verify_total_bytes!=after.verify_total_bytes||before.verify_pass!=after.verify_pass||
+          (after.phase==maps::downloads::Phase::verifying&&!after.verify_total_bytes)))
         draw_download_progress();
     }
   }

@@ -53,11 +53,24 @@ void progress(void*,uint64_t used,uint64_t total) {
   portEXIT_CRITICAL(&g_lock);
 }
 void verifying(void*){publish(Phase::verifying,true,"Verifying saved map and installing...");}
-const transfer::Hooks kHooks{nullptr,cancelled,progress,verifying};
+void verify_progress(void*,uint64_t used,uint64_t total) {
+  const auto now=static_cast<uint64_t>(esp_timer_get_time());
+  if(used&&used!=total&&now-g_last_progress<100000)return;
+  g_last_progress=now;
+  portENTER_CRITICAL(&g_lock);
+  if(!used)++g_snapshot.verify_pass;
+  g_snapshot.verified_bytes=used;g_snapshot.verify_total_bytes=total;
+  ++g_snapshot.revision;
+  portEXIT_CRITICAL(&g_lock);
+}
+const transfer::Hooks kHooks{nullptr,cancelled,progress,verifying,verify_progress};
 bool queue(uint32_t command,Phase phase,const char* message) {
   bool expected=false;
   if(!g_busy.compare_exchange_strong(expected,true))return false;
   g_cancel.store(false);
+  portENTER_CRITICAL(&g_lock);
+  g_snapshot.verified_bytes=g_snapshot.verify_total_bytes=0;g_snapshot.verify_pass=0;
+  portEXIT_CRITICAL(&g_lock);
   Snapshot current;snapshot(&current);publish(phase,current.pending,message);
   g_command.store(command);return true;
 }
