@@ -4,10 +4,10 @@ Latest source reconciliation: local merge `97f48640` includes fetched main
 `fb70e969` (nine clock/WWV follow-up commits). Seven selected host checks and
 six P4 syntax checks pass; no build or hardware operation in this step.
 See [reconciliation evidence](2026-10-23-mainline-clock-reconciliation.md).
-COM17 remains on `f38b8601`. Earlier reconciliation entries below are historical.
+COM17 now runs source `137e244a`: [native build/preservation/startup evidence](2026-10-23-reconciled-native-candidate.md). Build, inspection and app-only preservation/startup pass; loaded timing and physical acceptance remain open. Earlier candidate entries below are historical.
 
 Production delivery proposal prepared: [hosting, signing and 20,000-user model](../../maps-delivery/2026-10-23-production-decision.md).
-Recommendation is GitHub Releases initially; it is not production authorization.
+GitHub Releases is approved as the initial hosting choice; production key creation and publication remain unapproved.
 Arithmetic and local links pass `maps-production-decision-check-20261023.log`.
 No account, domain, key, publication or device change was made for the proposal.
 

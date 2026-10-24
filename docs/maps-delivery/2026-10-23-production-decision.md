@@ -3,6 +3,10 @@
 Prepared October 23, 2026. Recommendation only: no production publication,
 account, payment, domain, key generation or firmware configuration change.
 
+**Decision recorded:** the user approved GitHub Releases as the initial hosting
+choice on October 23. This authorizes the transport choice, not production key
+creation, publication or a main merge. Those approval gates remain open.
+
 ## Recommended first release
 
 Keep the OrcMaps-owned signed catalog and use **GitHub Releases initially**.
@@ -107,8 +111,8 @@ Manual discovery checks metadata/size, not a full archive hash.
 
 ## Decisions and release gates still open
 
-1. Approve GitHub Releases as the initial production transport; any R2 account,
-   paid service or owned-domain configuration needs separate authorization.
+1. GitHub Releases is approved as the initial production transport. Any R2 account,
+   paid service or owned-domain configuration still needs separate authorization.
 2. Approve production key creation/custody, catalog lifetime/maintenance and
    test-to-production trust migration after reviewing the concrete procedure.
 3. Accept source/derivation/license/attribution provenance from the existing
