@@ -3293,7 +3293,14 @@ bool home_tune_to(uint32_t frequency_hz, bool any_band = false) {
   const uint32_t hz = constrain(frequency_hz, kRtlBrowseMinHz, kRtlBrowseMaxHz);
   if (!validate_rtl_tune_frequency(hz)) return false;
   const auto& profile = orcsdr::band_profile::resolve(kBandRegion, hz);
-  const RtlBand band = home_band_for(profile);
+  // Below the tuner's own floor the dongle runs its HF path, which the Shortwave band owns (AM/USB/LSB, HF filters).
+  const RtlBand band = hz < kRtlNoHfMinHz ? RtlBand::shortwave : home_band_for(profile);
+  if (band == RtlBand::shortwave) {
+    g_home_memory.forget_band();
+    if (band == rtl_ui_band && rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running)
+      return request_hot_retune(hz);
+    return queue_local_rtl_listen(band, hz, false);
+  }
   home_apply_auto(profile, band);
   if (band == rtl_ui_band &&
       rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running) {
@@ -12867,6 +12874,8 @@ orcsdr::home::Snapshot home_dashboard_snapshot(bool demo) {
   const auto device = orcsdr::device_status::collect(
       wifi_connected, wifi_ssid, rtl_device_ready(), rtl_sdr_status);
   snapshot.frequency_hz = demo ? 145700000 : rtl_ui_frequency_hz;
+  // The keypad accepts whatever the attached dongle can tune: HF too when it has direct sampling or an upconverter.
+  snapshot.tune_min_hz = demo || !rtl_frequency_supported(kRtlBrowseMinHz) ? kRtlNoHfMinHz : kRtlBrowseMinHz;
   snapshot.requested_frequency_hz = demo
                                         ? snapshot.frequency_hz
                                         : rtl_requested_frequency_hz.load(
@@ -16345,7 +16354,7 @@ bool orcdial_apply(const orc::Packet& p) {
     if (p.value < 24000 || p.value > 1766000000) return false;
     const uint32_t hz = static_cast<uint32_t>(p.value);
     if (active == Dash::sstv) return orcsdr::sstv_app::tune_to(hz);   // the SSTV tuner owns its frequency and demodulator
-    if (active == Dash::home) return p.value >= 24000000 && home_tune_to(hz, true);
+    if (active == Dash::home) return home_tune_to(hz, true);   // validates against the dongle's own range
     if (active == Dash::fm) {
       if (hz < kRtlFmMinHz || hz > kRtlFmMaxHz) return false;
       handle_fm_dashboard_action({orcsdr::fm::ActionKind::tune_hz, hz});

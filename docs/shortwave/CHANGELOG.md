@@ -15,6 +15,7 @@ Changes to the Shortwave Explorer dashboard. Newest first.
 
 ### Changed
 
+- **Home accepts any frequency the attached dongle can tune.** The Home keypad was fixed at 24 - 1766 MHz; it now follows the dongle (from 24 kHz on a V3/V4 with direct sampling or an upconverter, 24 MHz on a dongle without HF). A frequency below 24 MHz opens on the Shortwave band, so AM/USB/LSB, the HF filters and the band-plan AUTO mode apply. The OrcDial keypad uses the same rule.
 - The Shortwave control row is re-spaced to make room for MODE (STEP, FILTER and the other buttons are narrower).
 - In SSB the FILTER readout shows the fixed 2.7 kHz passband; the AM width presets do not apply.
 - Shortwave memories and log entries accept the modes AM, USB and LSB (existing AM records remain valid).
