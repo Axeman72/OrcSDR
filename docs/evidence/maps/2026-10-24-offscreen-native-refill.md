@@ -89,7 +89,10 @@ Machine result: `maps-offscreen-refill-summary-20261024.json`.
 
 ## Next gate
 
-Physical appearance/cached dragging for this engine candidate remains separate.
+The user physically checked this COM17 candidate and confirmed:
+"Dragging, colors and controls look correct." This accepts visible behavior;
+it does not establish the approximately 33 ms motion timing or pass the failed
+two-second detail-refill gate.
 Full-file verification counters are compiled/installed but not exercised by
 this pan run; no second 543 MB download was performed. Further refill work must
 explain the render/flush tail and scheduling variance before another broad

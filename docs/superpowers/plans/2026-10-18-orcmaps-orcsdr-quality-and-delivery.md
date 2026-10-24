@@ -13,8 +13,9 @@ preservation and 20-pan evidence](../../evidence/maps/2026-10-24-offscreen-nativ
 passes correctness/continuity checks, but **p95 3.148265s fails the ≤2s gate**
 (p50 2.645144s). No overall speed improvement is established. Installed numeric
 verification/cost instrumentation remains unexercised on a real file scan.
-Earlier `c552111f` physical header acceptance remains recorded; current engine
-physical dragging is separate. Full engine regressions passed 9/9 and the approved
+Earlier `c552111f` physical header acceptance remains recorded; the user also
+accepted dragging, colors and controls on current `77a8cdce`. This does not prove
+33 ms motion timing or close the failed detail-refill gate. Full engine regressions passed 9/9 and the approved
 development push is remote-verified; no main merge/release. Next performance work
 must address measured render/flush tail and scheduling, not claim this gate passed.
 
