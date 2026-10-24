@@ -1,5 +1,7 @@
 # Offscreen rejection engine — resolved consumer candidate
 
+Follow-up: [COM17 native candidate and 20-pan result](2026-10-24-offscreen-native-refill.md). Build/flash/continuity pass; p95 refill fails. Earlier prepared-source statements below are historical checkpoints. Full-file verification profiling is installed but still unexercised.
+
 User approved one full nine-program OrcMaps regression and a conditional
 development-branch push. The configured host run passed **9/9** (0.27 seconds):
 

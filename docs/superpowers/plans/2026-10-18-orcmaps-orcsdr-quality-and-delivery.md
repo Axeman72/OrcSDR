@@ -6,6 +6,18 @@
 
 Current COM17 app-only candidate is `c552111f`; [native download-feedback validation](../../evidence/maps/2026-10-24-download-feedback-device.md) passes build, preservation, boot, header-touch/named-command navigation, reception continuity and physical header readability. The refill and clean-install measurements below used earlier `137e244a`. The [new 20-pan run](../../evidence/maps/2026-10-24-reconciled-refill.md) records p95 2.891 seconds, still above the two-second gate. GitHub Releases is approved as initial hosting; production keys/publication remain open. The [clean GitHub spare-card installation baseline](../../evidence/maps/download-benchmarks/2026-10-24-com17-pny32/README.md) now passes controlled resume, full installation, reboot/offline draw and physical appearance. Observed total 41m02.6s; verification includes later reception load. [Numeric verification feedback](../../evidence/maps/2026-10-24-verification-progress-feedback.md) is installed, with host/P4/link checks passing; a real device file scan remains untested. The [background-download indicator and direct Get Maps action](../../evidence/maps/2026-10-24-background-download-notice.md) also pass native navigation/catalog cancellation/recovery and physical readability checks. [Per-pass verification-cost instrumentation](../../evidence/maps/2026-10-24-verification-cost-profile.md) passes the focused transfer regression and four P4 syntax checks, but is not installed; the long verification cost remains unresolved. Retry counter continuity remains open; concurrent active reception during HTTPS transfer is still untested. Phase 3 performance and Phase 4 delivery acceptance remain open.
 
+### Latest performance candidate — October 24
+
+COM17 now runs `77a8cdce`, with published engine `6a621a7`. [Native build,
+preservation and 20-pan evidence](../../evidence/maps/2026-10-24-offscreen-native-refill.md)
+passes correctness/continuity checks, but **p95 3.148265s fails the ≤2s gate**
+(p50 2.645144s). No overall speed improvement is established. Installed numeric
+verification/cost instrumentation remains unexercised on a real file scan.
+Earlier `c552111f` physical header acceptance remains recorded; current engine
+physical dragging is separate. Full engine regressions passed 9/9 and the approved
+development push is remote-verified; no main merge/release. Next performance work
+must address measured render/flush tail and scheduling, not claim this gate passed.
+
 ## Current acceptance — October 23, 2026
 
 The [current completion matrix](../../evidence/maps/2026-10-23-completion-acceptance.md)

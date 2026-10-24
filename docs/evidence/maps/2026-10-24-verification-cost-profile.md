@@ -1,5 +1,7 @@
 # Verification cost profile — prepared source
 
+Follow-up: [COM17 native candidate and 20-pan result](2026-10-24-offscreen-native-refill.md). Build/flash/continuity pass; p95 refill fails. Earlier prepared-source statements below are historical checkpoints. Full-file verification profiling is installed but still unexercised.
+
 ## Scout finding
 
 Worktree: `maps-integration-completion`, branch
