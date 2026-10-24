@@ -2,6 +2,10 @@
 
 > **For agentic workers:** Continue the existing implementation under applicable repository instructions and available skills. The user approved execution on October 18, 2026 ("approved. please enable this."). Current delivery work is Phase 4; Phase 2 map quality, Phase 3 responsiveness and outstanding Phase 1 gates remain open. This approval does not authorize paid services, publication, destructive operations, or bypass the user's approval requirement for high-usage work.
 
+## October 24 update
+
+Reconciled source `137e244a` is app-only installed on COM17; build, preservation and startup pass. The [new 20-pan run](../../evidence/maps/2026-10-24-reconciled-refill.md) records p95 2.891 seconds, still above the two-second gate. GitHub Releases is approved as initial hosting; production keys/publication remain open. A new clean download/resume/timing test awaits card preparation. Phase 3 performance and Phase 4 delivery acceptance remain open.
+
 ## Current acceptance — October 23, 2026
 
 The [current completion matrix](../../evidence/maps/2026-10-23-completion-acceptance.md)
