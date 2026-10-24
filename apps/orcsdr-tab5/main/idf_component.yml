@@ -15,8 +15,8 @@ dependencies:
     version: 31a159df4f006a837d5041029bc6d1bc63520234
   orcmaps:
     git: https://github.com/hardcoreerik/OrcMaps.git
-    # Development candidate: bounded feature replay; native acceptance pending.
-    version: 2133547bf8e003e2f4c52de3b8abf737261a8397
+    # Development candidate: offscreen feature rejection; native timing pending.
+    version: 6a621a70ebbf7906b1d6c089bd61dbbc456475ed
   m5stack/m5unified:
     version: "0.2.20"
   m5stack/m5gfx:
