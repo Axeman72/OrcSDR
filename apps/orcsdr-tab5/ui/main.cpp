@@ -3474,7 +3474,8 @@ void log_lora_memory(const char* stage) {
 
 void apply_speaker_volume(uint8_t volume) {
   // Keep master and virtual-channel levels aligned; some M5 paths only honor one.
-  const uint8_t physical_volume = std::min(volume, kRtlSpeakerHardwareMax);
+  // Only the P25 voice burst tripped the amp's rail detector; every other band gets the speaker's full range.
+  const uint8_t physical_volume = rtl_ui_band == RtlBand::p25 ? std::min(volume, kRtlSpeakerHardwareMax) : volume;
   M5.Speaker.setVolume(physical_volume);
   M5.Speaker.setChannelVolume(0, physical_volume);
 }
@@ -8693,6 +8694,7 @@ __attribute__((noinline)) void demodulate_shortwave_ssb(const uint8_t* iq, size_
   uint32_t clipped_pairs = 0;
   const uint32_t tuned_hz = rtl_requested_frequency_hz.load(std::memory_order_relaxed);
   const Mode sideband = demod_sideband(shortwave_mode(), tuned_hz);
+  audio_scale *= 3.0f;  // SSB has no carrier: the same station is about 10 dB below its AM level
   process(demod_state(), iq, bytes, rtl_rf_decimation(sample_rate_sps), sideband,
           control().clarifier_hz.load(std::memory_order_relaxed), static_cast<float>(sample_rate_sps),
           [&](float demodulated) {
