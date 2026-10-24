@@ -122,6 +122,7 @@
 #include "navigation_service.hpp"
 #include "map_service.hpp"
 #include "map_screen.hpp"
+#include "map_download_notice.hpp"
 #include "map_serial.hpp"
 #include "location_store.hpp"
 #include "nvs_store.hpp"
@@ -2577,6 +2578,7 @@ void update_global_settings();
 void redraw_global_settings();
 void draw_global_header_controls();
 bool handle_global_header_audio_touch(int32_t x, int32_t y);
+bool shared_keypad_open();
 void navigation_restore_screen(orcsdr::screens::Id restore);
 void draw_global_bias_warning();
 void draw_ft8_dashboard(bool static_panel);
@@ -6551,7 +6553,16 @@ void draw_global_header_controls() {
   draw_global_bias_warning();
 }
 
+bool map_download_notice_blocked() {
+  return g_suppress_home_paint||ui_documentation_mode||orcsdr::text_editor::active()||
+      rtl_header_audio_control.expanded||shared_keypad_open()||orcsdr::home::popup_open();
+}
 bool handle_global_header_audio_touch(int32_t x, int32_t y) {
+  const bool blocked=map_download_notice_blocked();
+  if(orcsdr::map_download_notice::hit(x,y,orcsdr::screens::status().active,blocked)) {
+    (void)orcsdr::map_screen::open(orcsdr::map_screen::Mode::downloads);
+    return true;
+  }
   const auto action = orcsdr::audio_header::handle_touch(
       rtl_header_audio_control, x, y, millis(),
       rtl_live_volume.load(std::memory_order_acquire));
@@ -23468,6 +23479,15 @@ void loop() {
   }
 
   const uint32_t now = millis();
+  static uint32_t last_map_notice_ms=0;
+  if(now-last_map_notice_ms>=250) {
+    last_map_notice_ms=now;
+    EXT_RAM_BSS_ATTR static orcsdr::maps::downloads::Snapshot notice;
+    if(orcsdr::maps::downloads::snapshot(&notice)) {
+      const bool blocked=map_download_notice_blocked();
+      orcsdr::map_download_notice::update(notice,orcsdr::screens::status().active,blocked);
+    }
+  }
   if (!rtl_ui_active.load(std::memory_order_acquire) &&
       now - last_power_draw_ms >= 10000) {
     last_power_draw_ms = now;

@@ -29,6 +29,11 @@ does not mean an asynchronous render or download has finished.
 
 ## Inspect state
 
+Prepared background-status navigation: authenticated `RTL_MAP OPEN DOWNLOADS`
+opens Get Maps directly, matching the new dashboard-header map status button.
+`RTL_MAP STATUS` reports `downloads=1` while that view is active. Native and
+physical validation of this prepared change remains pending.
+
 ```text
 RTL_MAP STATUS
 RTL_MAP LIST

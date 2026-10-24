@@ -4,7 +4,7 @@
 #include "screen_controller.hpp"
 
 namespace orcsdr::map_screen {
-enum class Mode { picker, inventory, setup };
+enum class Mode { picker, inventory, setup, downloads };
 struct Hooks {
   void (*restore)(screens::Id) = nullptr;
   bool (*location)(int32_t latitude_e7,int32_t longitude_e7) = nullptr;
@@ -23,6 +23,7 @@ struct State {
   Mode mode=Mode::inventory;
   uint8_t step=0,zoom=0;
   int32_t latitude_e7=0,longitude_e7=0;
+  bool downloads=false;
 };
 State state();
 // UI-task only. Pan deltas move the camera east/south in screen pixels.

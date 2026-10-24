@@ -276,6 +276,14 @@ void screen_tests() {
   test_millis+=300;map_screen::tick();map_screen::tick();
   assert(visible("Verifying map, pass 2: 25.0 MB / 100.0 MB (25%)"));
   assert(M5.Display.screen_clears==verifying_clears);
+  serial_command("RTL_MAP OPEN DOWNLOADS",false);
+  assert(serial_output=="RTL_MAP_ERROR auth_required\n");
+  const int before_download_entry=M5.Display.screen_clears;
+  serial_command("RTL_MAP OPEN DOWNLOADS");assert(serial_ok());
+  assert(M5.Display.screen_clears==before_download_entry+1);
+  assert(map_screen::state().downloads&&visible("Get offline maps"));
+  serial_command("RTL_MAP STATUS",false);
+  assert(serial_output.find("downloads=1")!=std::string::npos);
   serial_command("RTL_MAP DOWNLOAD LIST",false);
   assert(serial_output.find("verified=26214400 verify_total=104857600 verify_pass=2")!=std::string::npos);
   click(100,548);assert(visible("Choose an offline map"));

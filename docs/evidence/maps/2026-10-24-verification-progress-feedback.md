@@ -64,7 +64,8 @@ progress on the physical display and verification overhead are untested.
 Combine the next native validation with the remaining downloader work rather
 than repeating the entire 543 MB benchmark for this edit alone.
 
-The background indicator/return-to-progress action and Retry initialization
-counter continuity are still open. Downloads and fresh map rendering still
+The [background indicator/return-to-progress action](2026-10-24-background-download-notice.md)
+now has focused host and P4 syntax coverage; native/physical validation and Retry
+initialization counter continuity are still open. Downloads and fresh map rendering still
 share a worker; this progress change does not establish simultaneous smooth
 map rendering or active reception during HTTPS transfer.

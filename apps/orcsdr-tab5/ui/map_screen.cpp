@@ -306,6 +306,8 @@ void load(NvsStore& preferences) {
 }
 bool first_run_pending() {return g_saved.automatic;}
 bool open(Mode mode,bool automatic) {
+  const bool download_view=mode==Mode::downloads;
+  if(download_view)mode=Mode::inventory;
   if(mode==Mode::setup&&!g_setup_paused&&g_hooks.setup_reception) {
     if(!g_hooks.setup_reception(true))return false;
     g_setup_paused=true;
@@ -324,7 +326,7 @@ bool open(Mode mode,bool automatic) {
   g_mode=mode;g_auto=automatic;g_flow=automatic?g_saved:setup::Flow{};
   g_flow.writable=g_saved.writable;g_saved.automatic=false;
   setup_ui::reset();g_edit=0;g_message[0]=0;g_dirty=true;g_index=0;g_scroll=0;g_drag=false;g_map_touch=false;g_map_moved=false;g_location_menu=true;g_details=false;
-  g_download_view=false;g_download_index=0;g_download_scroll=0;
+  g_download_view=download_view;g_download_index=0;g_download_scroll=0;
   const auto location=receiver_location::snapshot();g_lat=location.latitude_e7;g_lon=location.longitude_e7;
   g_lat_set=g_lon_set=g_has_proposal=location.configured;
   picker_at(g_lat,g_lon);maps::cancel();draw();screens::finish_transition();
@@ -332,7 +334,7 @@ bool open(Mode mode,bool automatic) {
 }
 State state() {
   return {screens::owns(screens::Id::maps),g_has_proposal,g_edit!=0,g_mode,
-      static_cast<uint8_t>(g_flow.step),g_picker_ready?g_picker.Zoom():uint8_t{0},g_lat,g_lon};
+      static_cast<uint8_t>(g_flow.step),g_picker_ready?g_picker.Zoom():uint8_t{0},g_lat,g_lon,g_download_view};
 }
 void refresh() {if(screens::is_active(screens::Id::maps)){g_dirty=true;g_keep_map=true;}}
 bool control(Control action,int32_t first,int32_t second,const char* identity) {

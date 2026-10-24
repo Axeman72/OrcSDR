@@ -26,7 +26,7 @@ bool handle(const char* command,bool authenticated,void (*write)(const char*)) {
   char op[16]{},arg[256]{},value[32]{},extra[32]{},trailing=0;
   const int count=std::sscanf(command+8,"%15s %255s %31s %31s %c",op,arg,value,extra,&trailing);
   if(count==1&&equal(op,"HELP")) {
-    write("RTL_MAP HELP|STATUS|LIST|RESCAN|OPEN <PICKER|LIST|SETUP>|CANCEL\n");
+    write("RTL_MAP HELP|STATUS|LIST|RESCAN|OPEN <PICKER|LIST|SETUP|DOWNLOADS>|CANCEL\n");
     write("RTL_MAP PICKER SET <latitude_e7> <longitude_e7>|PAN <east_px> <south_px>|ZOOM <IN|OUT>|SAVE\n");
     write("RTL_MAP SETUP NEXT|SKIP|BACK|QUICK|FINISH; RTL_MAP SELECT <pack_id>\n");
     write("RTL_MAP LABELS <PICKER|LORA|ADSB|FT8> <ON|OFF>\n");
@@ -37,9 +37,9 @@ bool handle(const char* command,bool authenticated,void (*write)(const char*)) {
   if(count==1&&equal(op,"STATUS")) {
     const auto view=map_screen::state();const auto saved=receiver_location::snapshot();
     char line[256];
-    std::snprintf(line,sizeof(line),"RTL_MAP_VIEW active=%u mode=%u step=%u proposal=%u editing=%u latitude_e7=%ld longitude_e7=%ld zoom=%u\n",
+    std::snprintf(line,sizeof(line),"RTL_MAP_VIEW active=%u mode=%u step=%u proposal=%u editing=%u latitude_e7=%ld longitude_e7=%ld zoom=%u downloads=%u\n",
         view.active,static_cast<unsigned>(view.mode),view.step,view.proposal,view.editing,
-        static_cast<long>(view.latitude_e7),static_cast<long>(view.longitude_e7),view.zoom);write(line);
+        static_cast<long>(view.latitude_e7),static_cast<long>(view.longitude_e7),view.zoom,view.downloads);write(line);
     std::snprintf(line,sizeof(line),"RTL_MAP_SAVED configured=%u latitude_e7=%ld longitude_e7=%ld\n",
         saved.configured,static_cast<long>(saved.latitude_e7),static_cast<long>(saved.longitude_e7));write(line);
     report(write);return true;
@@ -79,6 +79,7 @@ bool handle(const char* command,bool authenticated,void (*write)(const char*)) {
     if(equal(arg,"PICKER"))ok=map_screen::open(map_screen::Mode::picker);
     else if(equal(arg,"LIST"))ok=map_screen::open(map_screen::Mode::inventory);
     else if(equal(arg,"SETUP"))ok=map_screen::open(map_screen::Mode::setup);
+    else if(equal(arg,"DOWNLOADS"))ok=map_screen::open(map_screen::Mode::downloads);
     else valid=false;
   } else if(count==1&&equal(op,"CANCEL"))ok=map_screen::control(C::cancel);
   else if(count==1&&equal(op,"RESCAN")){rescan();map_screen::refresh();ok=true;}
