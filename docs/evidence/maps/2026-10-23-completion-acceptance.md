@@ -6,6 +6,11 @@ six P4 syntax checks pass; no build or hardware operation in this step.
 See [reconciliation evidence](2026-10-23-mainline-clock-reconciliation.md).
 COM17 remains on `f38b8601`. Earlier reconciliation entries below are historical.
 
+Production delivery proposal prepared: [hosting, signing and 20,000-user model](../../maps-delivery/2026-10-23-production-decision.md).
+Recommendation is GitHub Releases initially; it is not production authorization.
+Arithmetic and local links pass `maps-production-decision-check-20261023.log`.
+No account, domain, key, publication or device change was made for the proposal.
+
 Initial scout source 4d4f85a3 on codex/maps-integration-completion.
 Reconciled source 30a00ce1 now contains fetched main 629ba546; affected host/
 sanitizer, P4 syntax, native link, app-only COM17 preservation/startup and bounded
