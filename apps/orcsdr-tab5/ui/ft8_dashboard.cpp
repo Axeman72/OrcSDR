@@ -82,6 +82,7 @@ constexpr Rect kGainChip{1036, 104, 220, 58};
 constexpr Rect kGainPanel{180, 104, 920, 512};
 constexpr Rect kGainAuto{200, 150, 200, 56};
 constexpr Rect kGainManual{420, 150, 200, 56};
+constexpr Rect kGainRtlAgc{640, 150, 220, 56};
 constexpr Rect kGainClose{880, 150, 200, 56};
 constexpr Rect kGainMinus{200, 262, 70, 64};
 constexpr Rect kGainPlus{1010, 262, 70, 64};
@@ -1365,6 +1366,7 @@ void draw_gain_panel() {
   const bool usable = g_snapshot.gain_available;
   button(kGainAuto, "AUTO", g_snapshot.gain_auto, usable, 1);
   button(kGainManual, "MANUAL", !g_snapshot.gain_auto, usable && g_snapshot.gain_step_count > 1, 1);
+  if (g_snapshot.rtl_agc_available) button(kGainRtlAgc, g_snapshot.rtl_agc ? "RTL AGC ON" : "RTL AGC OFF", g_snapshot.rtl_agc, true, 1);
   button(kGainClose, "CLOSE", false, true, 1);
   if (usable && g_snapshot.gain_step_count > 1) {
     button(kGainMinus, "-", false, true, 2);
@@ -1450,6 +1452,10 @@ bool handle_overlay_touch(int32_t x, int32_t y, Action* out) {
   if (g_gain_open) {
     if (hit(x, y, kGainClose) || !hit(x, y, kGainPanel)) {
       close_overlays();
+      return true;
+    }
+    if (g_snapshot.rtl_agc_available && hit(x, y, kGainRtlAgc)) {
+      *out = {ActionKind::rtl_agc, g_snapshot.rtl_agc ? 0u : 1u};
       return true;
     }
     if (!g_snapshot.gain_available) return true;
@@ -1636,7 +1642,8 @@ bool same_content(const Snapshot& a, const Snapshot& b) {
   return a.mode == b.mode && a.decoder_capabilities == b.decoder_capabilities && a.clock_valid == b.clock_valid &&
          clock_chip_key(a) == clock_chip_key(b) &&
          a.receiver_running == b.receiver_running && a.gain_auto == b.gain_auto &&
-         a.gain_tenth_db == b.gain_tenth_db && a.candidate_count == b.candidate_count &&
+         a.gain_tenth_db == b.gain_tenth_db && a.rtl_agc == b.rtl_agc && a.rtl_agc_available == b.rtl_agc_available &&
+         a.candidate_count == b.candidate_count &&
          a.last_slot_decodes == b.last_slot_decodes && a.selected_band == b.selected_band &&
          a.decoder_state == b.decoder_state && a.decode_count == b.decode_count &&
          same_memory_text(a, b) &&
@@ -1722,6 +1729,7 @@ void update(const Snapshot& snapshot_value) {
     if (header_changed) draw_header();
     if (g_gain_open) {   // the gain popup keeps its readout and level meter live
       if (previous.gain_auto != g_snapshot.gain_auto || previous.gain_tenth_db != g_snapshot.gain_tenth_db ||
+          previous.rtl_agc != g_snapshot.rtl_agc || previous.rtl_agc_available != g_snapshot.rtl_agc_available ||
           previous.gain_available != g_snapshot.gain_available || previous.gain_step_count != g_snapshot.gain_step_count)
         draw_gain_panel();
       else draw_gain_readout();

@@ -103,7 +103,7 @@ void test_text() {
   CHECK(std::strcmp(value, "SYNCING") == 0 && std::strcmp(title, "CLOCK") == 0);
   // Widest cases must still fit the 190 px chip (title about 16 characters, value about 14).
   chip_text(Level::signal, 12 * 60, title, sizeof(title), value, sizeof(value));
-  CHECK(std::strcmp(value, "VIA FT8 12m") == 0);
+  CHECK(std::strcmp(value, "VIA RF 12m") == 0);
   for (int l = 0; l <= 6; ++l) {
     chip_text(static_cast<Level>(l), 59 * 60, title, sizeof(title), value, sizeof(value));
     CHECK(std::strlen(title) <= 16 && std::strlen(value) <= 12);
@@ -121,6 +121,20 @@ void test_text() {
   chip_text(Level::stale, 99999, tiny, sizeof(tiny), tiny, sizeof(tiny));
   long_text(Level::stale, 99999, tiny, sizeof(tiny));
   CHECK(std::strlen(tiny) < sizeof(tiny));
+}
+
+void test_restore_stamp() {
+  CHECK(restore_stamp(kNow - 600, kNow) == kNow - 600);                              // a recent sync survives a restart
+  CHECK(restore_stamp(kNow - kStaleAfterSeconds - 5, kNow) == kNow - kStaleAfterSeconds - 5);   // an old one too: it then reads as stale, not synced
+  CHECK(restore_stamp(0, kNow) == 0);                                                // never synced
+  CHECK(restore_stamp(kNow + 1, kNow) == 0);                                         // the clock was set back since: cannot vouch
+  CHECK(restore_stamp(kNow - kRestoreMaxAgeSeconds - 1, kNow) == 0);                 // too old to mean anything
+  CHECK(restore_stamp(kNow - kRestoreMaxAgeSeconds, kNow) == kNow - kRestoreMaxAgeSeconds);
+  CHECK(restore_stamp(kNow, 0) == 0);                                                // no valid clock yet
+  // A restored stamp feeds evaluate() like a fresh one.
+  Input in = base();
+  in.last_sync_utc = restore_stamp(kNow - 3600, kNow);
+  CHECK(evaluate(in) == Level::synced && age_seconds(in) == 3600);
 }
 
 void test_display_key() {
@@ -182,6 +196,7 @@ int main() {
   test_levels();
   test_signal_correction();
   test_text();
+  test_restore_stamp();
   test_display_key();
   test_auto_sync();
   std::puts("clock_sync_status_tests: all passed");

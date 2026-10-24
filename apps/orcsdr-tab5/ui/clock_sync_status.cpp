@@ -66,7 +66,7 @@ void chip_text(Level level, uint32_t age, char* title, size_t title_size, char* 
     case Level::stale: std::snprintf(value, value_size, "STALE %s", age_text); break;
     case Level::failed: std::snprintf(value, value_size, "FAILED"); break;
     case Level::no_wifi: std::snprintf(value, value_size, "NO WI-FI"); break;
-    case Level::signal: std::snprintf(value, value_size, "VIA FT8 %s", age_text); break;
+    case Level::signal: std::snprintf(value, value_size, "VIA RF %s", age_text); break;
     case Level::unsynced:
     default: std::snprintf(value, value_size, "UNSYNCED"); break;
   }
@@ -81,7 +81,7 @@ void long_text(Level level, uint32_t age, char* out, size_t size) {
     case Level::stale: std::snprintf(out, size, "STALE, SYNCED %s", age_text); break;
     case Level::failed: std::snprintf(out, size, "SYNC FAILED"); break;
     case Level::no_wifi: std::snprintf(out, size, "NOT SYNCED, NO WI-FI"); break;
-    case Level::signal: std::snprintf(out, size, "FROM FT8 SIGNALS %s", age_text); break;
+    case Level::signal: std::snprintf(out, size, "FROM RF SIGNALS %s", age_text); break;
     case Level::unsynced:
     default: std::snprintf(out, size, "NOT SYNCED"); break;
   }
@@ -99,6 +99,11 @@ bool auto_sync_due(const DueInput& in) {
   if (have_sync && in.status.now_utc - in.status.last_sync_utc < kResyncAfterSeconds) return false;
   const uint32_t wait = in.status.last_attempt_failed ? kRetryAfterFailureMs : kRetryAfterAttemptMs;
   return in.ms_since_last_attempt >= wait;
+}
+
+uint32_t restore_stamp(uint32_t stored, uint32_t now_utc) {
+  if (stored == 0 || now_utc == 0 || stored > now_utc || now_utc - stored > kRestoreMaxAgeSeconds) return 0;
+  return stored;
 }
 
 bool self_check() {

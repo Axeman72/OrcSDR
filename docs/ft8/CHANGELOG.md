@@ -2,6 +2,26 @@
 
 This file tracks changes made specifically by the native OrcSDR FT8 decoder workstream. The main branch did not contain a repository-wide CHANGELOG.md when this workstream started.
 
+## 2026-10-23 - WWV tick detector, FT8 WWV command, RTL AGC button on the Live gain popup
+
+- **WWV tick detector on the device (1000 Hz tick; WWVH uses 1200 Hz and is not handled) (`wwv_tick`, host-tested in `tests/wwv_tick_tests.cpp` on synthetic signals and on a real 10 MHz capture, `tests/fixtures/wwv/`):** the receiver is tuned 1 kHz below the WWV carrier, so the carrier is a steady line near 1000 Hz in the USB audio and serves as the phase reference for a synchronous AM detector; the 5 ms 1000 Hz tick is folded over one second for about a minute in two independent looks (even and odd seconds, which must agree). The decoder task pumps the audio ring through it while it runs, so no slot is decoded meanwhile.
+- **`FT8 WWV <MHz> <seconds> [CAL|SYNC]`** (`FT8 WWV` = status, `FT8 WWV STOP`): retunes, measures, reports `ORC_FT8_WWV` / `ORC_FT8_WWV_RESULT` and puts the band back. `CAL` (right after a fresh network sync) learns this site's fixed receive delay per frequency (NVS `wwvb*`); `SYNC` then steps the clock by the measured error when it is between 20 and 400 ms, and the CLOCK chip reads "VIA RF". `tools/wwv_probe.py` is now a thin driver for this command.
+- Not yet run on a device; build and host tests pass. 5 and 2.5 MHz carriers are far weaker than 10 MHz, so expect those to fail at night.
+- **WWV robustness (review fixes):** a measurement now ends (and the band comes back) if the wall clock is stepped during it, if no settled audio arrives within 60 s, if STOP arrives while the clock or tap guard is false, or if the decoder stops because the FT8 screen was left; `FT8 WWV` accepts only the exact frequencies 2.5, 5, 10, 15, 20; a custom expert dial is restored afterwards, and a retune made during the measurement is kept. Setting the clock by hand forgets the stored sync stamps even if saving the setting fails, and an erase that fails overwrites the stamp with zero. The RTL AGC button is shown only when the AGC state could be read.
+- **WWV, more review fixes:** a measurement is also ended if the decoder is stopped, if it times out while the clock or audio is unavailable, or if the clock is set by hand (a hand-set clock also drops any queued signal correction); polls that consumed no audio no longer feed the wall-clock average; a stopped, interrupted or timed-out measurement is reported but never applied by CAL or SYNC.
+- **RTL AGC button on the FT8 Live GAIN popup:** dongles that expose the RTL2832 AGC (V3C, V4) already had the toggle on Home and AM, but not in FT8. The popup now shows RTL AGC ON/OFF next to AUTO and MANUAL (hidden when the dongle lacks it; independent of the tuner gain controls). Host-tested in `tests/ft8_dashboard_tests.cpp`.
+
+## 2026-10-23 - FT8 clock: the sync status survives a restart
+
+- The time of the last good sync (network, or a correction from decoded stations) is kept in flash (`clk_ntp`, `clk_sig`) and restored at boot, so a restart no longer shows UNSYNCED until the next sync. The RTC keeps counting through a restart and drifts only slowly, so the restored age stays meaningful (an age over 6 h reads STALE).
+- A stored time is believed only if it is not zero, not in the future (the clock was set back) and not older than 30 days (`clock_sync::restore_stamp`, host-tested); anything else is dropped.
+- It is erased whenever something changes the clock without vouching for it: setting the clock by hand (touch or serial) and `FT8 CLOCKTEST`. Written after each network sync and each signal correction (about every 2 hours at most).
+- Not yet run on a device (the unit was unavailable): the host tests and the firmware build pass.
+- **WWV tick probe (old audio-capture version) (`tools/wwv_probe.py`, bench only, no firmware change):** captures one 15 s audio slot on 5, 10 and 15 MHz through `FT8 DIAL` and `FT8 DUMP`, and checks whether the once-per-second 5 ms tick is there (folds the 1000/1200 Hz envelope over one second;
+  needs the same position in at least 60 percent of the seconds and 8 dB over the median). (That first version has since been replaced by the thin driver for `FT8 WWV` described above; it no longer has offline modes.)
+  First result, 2026-10-23 about 08:20 UTC (1:20 AM local), Tab5 on COM39 with the MLA-30+ loop: **no WWV tick and no WWV tones heard on 5, 10 or 15 MHz** (the apparent lines at 600 and 1000 Hz on 15 MHz were isolated broadband noise bursts).
+  That is one hour of the night on one antenna, so it does not say WWV is unusable: 10 and 15 MHz are normally daytime frequencies. (The on-device detector described above was built afterwards.)
+
 ## 2026-10-21 - FT8 clock: visible sync status, one-tap sync, automatic re-sync while decoding
 
 - **Problem found on the bench:** two Tab5s stopped decoding 40 m because their clocks were wrong (one 1.1 s slow, one 3.5 s fast), while the Live CLOCK chip still said LOCKED. The RTC keeps the date through power-offs but drifts about 0.9 s per day, and the one network sync per boot was only

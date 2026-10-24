@@ -26,6 +26,8 @@ uint32_t last_success_utc();
 // Milliseconds since the last attempt started (0xFFFFFFFF = none since power-up) and whether that attempt failed.
 uint32_t ms_since_last_attempt();
 bool last_attempt_failed();
+// Boot: put back the stamp of the last successful sync that was kept in flash (already checked by clock_sync::restore_stamp).
+void restore_last_success(uint32_t utc);
 // Bench use (FT8 CLOCKTEST): forget that a sync ever succeeded, so the clock reads as unsynced.
 void forget_last_success();
 

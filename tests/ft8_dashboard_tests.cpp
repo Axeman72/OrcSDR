@@ -73,6 +73,30 @@ int main() {
   s.gain_tenth_db = 100;
   update(s);
   assert(painted("AUTO") && painted("MANUAL"));
+  // The RTL2832 AGC (V3/V4 dongles) has its own button in the gain popup: hidden when the dongle lacks it, a toggle when present.
+  assert(!painted("RTL AGC"));
+  assert(handle_touch(750, 178).kind != ActionKind::rtl_agc);
+  s.rtl_agc_available = true;
+  lgfx::paints.clear();
+  update(s);
+  assert(painted("RTL AGC OFF"));
+  const Action agc_on = handle_touch(750, 178);
+  assert(agc_on.kind == ActionKind::rtl_agc && agc_on.value == 1);
+  s.rtl_agc = true;
+  lgfx::paints.clear();
+  update(s);
+  assert(painted("RTL AGC ON"));
+  const Action agc_off = handle_touch(750, 178);
+  assert(agc_off.kind == ActionKind::rtl_agc && agc_off.value == 0);
+  // The button does not depend on the tuner gain being available (dongles whose tuner gain is unusable still have the RTL2832 AGC).
+  s.gain_available = false;
+  s.rtl_agc = false;   // changes with gain_available so the popup repaints
+  lgfx::paints.clear();
+  update(s);
+  assert(painted("RTL AGC OFF"));
+  const Action agc_no_gain = handle_touch(750, 178);
+  assert(agc_no_gain.kind == ActionKind::rtl_agc && agc_no_gain.value == 1);
+  s.gain_available = true;
   // The decoder could not start for lack of memory: the screen says so (not "not bound"), shows the numbers and who holds memory,
   // and the FREE MEMORY button works only when something can actually be released.
   leave();   // closes the gain popup left open above
