@@ -225,6 +225,11 @@ void screen_tests() {
   map_screen::configure({nullptr,save,select_pack});
   map_screen::open(map_screen::Mode::inventory);
   assert(visible("Map 0")&&visible("Map 3")&&!visible("Map 4"));
+  assert(visible("Manual SD: copy matching .pmtiles + .manifest.json to /orcmaps/."));
+  assert(visible("Files + checksum: github.com/hardcoreerik/OrcMaps/releases"));
+  serial_command("RTL_MAP HELP",false);
+  assert(serial_output.find("matching .pmtiles + .manifest.json in /orcmaps/")!=std::string::npos);
+  assert(serial_output.find("https://github.com/hardcoreerik/OrcMaps/releases")!=std::string::npos);
   click(600,548);assert(visible("Get offline maps")&&visible("Map source is not configured. Installed maps remain available."));
   // Transfer bytes and verification animation must never clear the whole page.
   download_status.configured=true;download_status.connected=true;
@@ -255,6 +260,14 @@ void screen_tests() {
   assert(M5.Display.screen_clears==inventory_clears);
   download_status={};++download_status.revision;
   test_millis+=300;map_screen::tick();map_screen::tick();
+  const int guidance_clears=M5.Display.screen_clears;
+  for(int i=0;i<4;++i) {
+    ++download_status.revision;download_status.completed_bytes+=1000000;
+    test_millis+=300;map_screen::tick();map_screen::tick();
+  }
+  assert(M5.Display.screen_clears==guidance_clears);
+  assert(visible("Manual SD: copy matching .pmtiles + .manifest.json to /orcmaps/."));
+  assert(visible("Files + checksum: github.com/hardcoreerik/OrcMaps/releases"));
 
   map_screen::touch(300,450,true,true);map_screen::touch(300,300,true,false);map_screen::touch(300,300,false,false);map_screen::tick();
   assert(visible("Map 4")&&!visible("Map 0"));

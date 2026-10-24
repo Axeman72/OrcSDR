@@ -30,7 +30,9 @@ bool handle(const char* command,bool authenticated,void (*write)(const char*)) {
     write("RTL_MAP PICKER SET <latitude_e7> <longitude_e7>|PAN <east_px> <south_px>|ZOOM <IN|OUT>|SAVE\n");
     write("RTL_MAP SETUP NEXT|SKIP|BACK|QUICK|FINISH; RTL_MAP SELECT <pack_id>\n");
     write("RTL_MAP LABELS <PICKER|LORA|ADSB|FT8> <ON|OFF>\n");
-    write("RTL_MAP DOWNLOAD LIST|CHECK|INSTALL <index>|RETRY|CANCEL\n");return true;
+    write("RTL_MAP DOWNLOAD LIST|CHECK|INSTALL <index>|RETRY|CANCEL\n");
+    write("Manual SD: matching .pmtiles + .manifest.json in /orcmaps/; RESCAN, then SELECT.\n");
+    write("Files and checksums: https://github.com/hardcoreerik/OrcMaps/releases\n");return true;
   }
   if(count==1&&equal(op,"STATUS")) {
     const auto view=map_screen::state();const auto saved=receiver_location::snapshot();

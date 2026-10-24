@@ -5,6 +5,10 @@ status and lists do not require authentication. Every operation that changes
 state requires the existing authenticated serial session; this interface never
 pairs a new key. Responses end in a newline.
 
+The prepared manual-guidance update adds the SD folder, matching filename
+requirements and OrcMaps release-page address to the read-only `RTL_MAP HELP`
+response. It introduces no new state-changing command or authentication path.
+
 The prepared feature-replay candidate adds `ORC_MAP_REPLAY` to `RTL_MAP STATUS`:
 `capacity_bytes` is the optional arena size, `retained_bytes` its complete tile
 payload, `tile_hits` the last frame's replayed tiles, and `fallbacks` the tiles

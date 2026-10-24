@@ -183,6 +183,9 @@ void draw_inventory() {
   if(g_downloads.message[0]) {
     char message[64];std::snprintf(message,sizeof(message),"%.63s",g_downloads.message);
     text(message,32,582,3,g_downloads.phase==maps::downloads::Phase::failed?TFT_ORANGE:kInk);
+  } else if(!g_downloads.busy&&!g_packs.overflow&&!g_packs.out_of_memory) {
+    text("Manual SD: copy matching .pmtiles + .manifest.json to /orcmaps/.",32,582,2);
+    text("Files + checksum: github.com/hardcoreerik/OrcMaps/releases",32,606,2);
   }
 }
 bool download_busy() {return g_downloads.busy;}

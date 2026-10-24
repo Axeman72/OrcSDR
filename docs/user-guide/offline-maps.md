@@ -102,6 +102,12 @@ these published files onto an already compatible device.
 
 The **GET MAPS** page explains catalog checking, connection/card requirements,
 download/resume and installed-map selection. After installation it tells you to
-open **INSTALLED** and use **USE THIS MAP**. It does not yet contain this manual
-copy guide, a download-page link/QR code, or a ready-to-copy bundle. Those are
-remaining user-guidance improvements, not controls already installed on COM17.
+open **INSTALLED** and use **USE THIS MAP**.
+
+A prepared firmware change adds the manual-copy filenames/folder and a plain-text
+release-page address to the Local Maps footer when no transfer/error notice needs
+that space. The same information is available through `RTL_MAP HELP`. Its focused
+host and P4 syntax checks pass; it is not yet installed on COM17 at this checkpoint.
+
+The full manual guide remains this document. The app does not yet offer a
+clickable download link/QR code or a ready-to-copy bundle.
