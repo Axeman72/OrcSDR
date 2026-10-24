@@ -1,5 +1,7 @@
 # Real verification feedback — prepared source
 
+October 24 follow-up: [native COM17 build, preservation and navigation pass](2026-10-24-download-feedback-device.md), with physical header readability accepted. The source-only status below is the earlier checkpoint; real full-file numeric progress remains open.
+
 The clean installation baseline spent 21m21.2s in verification/activation with
 only an animated wait message. This change reports actual bytes checked and
 the current scan number through Get Maps and `RTL_MAP DOWNLOAD LIST`.

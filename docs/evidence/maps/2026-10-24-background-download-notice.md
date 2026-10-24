@@ -1,5 +1,7 @@
 # Background download notice — source validation
 
+October 24 follow-up: [native COM17 build, preservation and navigation pass](2026-10-24-download-feedback-device.md), with physical header readability accepted. The source-only status below is the earlier checkpoint; real full-file numeric progress remains open.
+
 The clean GitHub installation and offline physical appearance passed on COM17.
 The installed firmware remains `137e244a`. The following changes are prepared
 source, not yet installed or physically accepted.
