@@ -109,7 +109,7 @@ Pack pack(const char* manifest){
   result.urls={"https://maps.example.test/"+hash(body)+"/fixture.pmtiles"};return result;
 }
 struct Stream:t::Stream {
-  size_t position=0,fail_after=SIZE_MAX;int opens=0;uint64_t requested=0;
+  size_t position=0,fail_after=SIZE_MAX,read_bytes=0;int opens=0;uint64_t requested=0;
   bool changed_tag=false,corrupt_after=false;
   bool open(std::string_view,const orcsdr::maps::download::Request& r,t::Headers& h)override{
     ++opens;requested=r.offset;position=static_cast<size_t>(r.offset);
@@ -121,7 +121,7 @@ struct Stream:t::Stream {
   int read(uint8_t* p,size_t n)override{
     if(position>=fail_after)return -1;
     const auto take=std::min({n,body.size()-position,fail_after-position,size_t(7000)});
-    std::memcpy(p,body.data()+position,take);position+=take;
+    std::memcpy(p,body.data()+position,take);position+=take;read_bytes+=take;
     if(position==body.size()&&corrupt_after)testfs::corrupt_read=true;
     return static_cast<int>(take);
   }
@@ -211,8 +211,22 @@ int main(int argc,char** argv){
     [](void* p,uint64_t used,uint64_t){if(used>=65000)*static_cast<bool*>(p)=true;}};
   check(t::stage(fs,p,0,cancel_stream,100000000,buffer.data(),buffer.size(),hooks)==t::Error::cancelled,
         "cancellation checkpoints prefix");
+  const auto prefix=load(testfs::path(paths.partial.c_str()));
+  struct SecondPause {bool cancelled=false;uint64_t stop;};
+  SecondPause second{false,prefix.size()+14000};
+  t::Hooks second_hooks{&second,[](void* p){return static_cast<SecondPause*>(p)->cancelled;},
+    [](void* p,uint64_t used,uint64_t){auto& s=*static_cast<SecondPause*>(p);if(used>=s.stop)s.cancelled=true;}};
+  Stream interrupted_resume;
+  check(t::stage(fs,p,0,interrupted_resume,100000000,buffer.data(),buffer.size(),second_hooks)==t::Error::cancelled&&
+        interrupted_resume.requested==prefix.size(),"second pause resumes from exact saved prefix");
+  const auto second_prefix=load(testfs::path(paths.partial.c_str()));
+  check(second_prefix.size()>prefix.size()&&second_prefix.compare(0,prefix.size(),prefix)==0,
+        "second pause grows checkpoint without replacing saved bytes");
   Stream cancelled_resume;
-  check(run(cancelled_resume)==t::Error::none&&cancelled_resume.requested>0,"cancelled staging resumes");
+  check(run(cancelled_resume)==t::Error::none&&cancelled_resume.requested==second_prefix.size()&&
+        cancelled_resume.read_bytes==body.size()-second_prefix.size(),"repeated cancellation fetches only remaining bytes");
+  check(load(testfs::path(paths.archive.c_str()))==std::string(body.begin(),body.end()),
+        "resumed archive is byte-identical to complete source");
   reset();const auto good=body;body[0]=0;
   const auto invalid=pack(argv[2]);Stream bad_archive;
   check(t::stage(fs,invalid,0,bad_archive,100000000,buffer.data(),buffer.size(),{})==t::Error::archive,

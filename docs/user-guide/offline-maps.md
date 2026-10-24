@@ -39,6 +39,14 @@ remain available while a replacement is being prepared. If the app says
 **Map source is not configured**, that firmware has no configured remote
 catalog; manual installation remains an option on builds supporting OrcMaps.
 
+To pause a download, press **STOP TRANSFER** and wait for it to stop. Keep that
+SD card and its partial-download files. Reconnect to Wi-Fi when needed, then
+select the same pack and press **DOWNLOAD/RESUME** (or **RETRY LAST** after an
+error). The device resumes from its last saved checkpoint; a small amount of
+unsaved progress may need downloading again. It checks that the remote file
+still matches before appending, then verifies the entire completed archive.
+An interrupted download is not an installed map until verification finishes.
+
 ## Copy the map onto the SD card using a computer
 
 1. Open the [global-map download page](https://github.com/hardcoreerik/OrcMaps/releases/tag/sha256/16adde0b4f67734535db6871b89949e68c7e1dabf1c34d2bd7bd23842a9e5991).
