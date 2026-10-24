@@ -56,7 +56,7 @@ Choice next_choice(Choice choice) {
   }
 }
 
-bool spectrum_inverted(uint32_t hz) { return hz > kNyquistFoldHz; }
+bool spectrum_inverted(uint32_t hz) { return hz > kNyquistFoldHz && hz < kDirectSamplingMaxHz; }
 
 Mode demod_sideband(Mode mode, uint32_t hz, bool direct_sampling) {
   if (mode == Mode::am || !direct_sampling || !spectrum_inverted(hz)) return mode;

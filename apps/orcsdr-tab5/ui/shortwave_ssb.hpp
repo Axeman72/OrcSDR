@@ -21,6 +21,8 @@ constexpr float kAudioLowHz = 300.0f;    // lower edge of the voice passband
 // The RTL2832 samples HF at 28.8 MHz; above half of that the direct-sampling path folds the spectrum back
 // inverted, which swaps the sidebands.
 constexpr uint32_t kNyquistFoldHz = 14400000u;
+// From here the V3 leaves direct sampling and uses its normal tuner, which does not fold.
+constexpr uint32_t kDirectSamplingMaxHz = 24000000u;
 
 // Mode the band plan suggests for this frequency. AM everywhere except the amateur voice segments.
 Mode suggest(uint32_t frequency_hz);

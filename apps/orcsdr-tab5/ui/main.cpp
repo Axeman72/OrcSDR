@@ -2965,12 +2965,12 @@ bool rtl_band_from_name(const char* name, RtlBand* out_band) {
   return false;
 }
 
+const char* shortwave_effective_mode_name();  // defined after effective_demod()
+
 const char* rtl_mode_name(RtlBand band) {
   switch (band) {
     case RtlBand::am: return "AM";
-    case RtlBand::shortwave:
-      return orcsdr::shortwave_ssb::mode_name(
-          orcsdr::shortwave_ssb::current(rtl_requested_frequency_hz.load(std::memory_order_relaxed)));
+    case RtlBand::shortwave: return shortwave_effective_mode_name();
     case RtlBand::airband: return "AM";
     case RtlBand::wx: return "NFM";
     case RtlBand::cb:
@@ -3091,6 +3091,11 @@ HomeDemod effective_demod(RtlBand band) {
   const auto chosen = static_cast<HomeDemod>(rtl_home_demod.load(std::memory_order_relaxed));
   return chosen != HomeDemod::by_band && home_demod_band(band) && orcsdr::home::active() ? chosen
                                                                                        : band_demod(band);
+}
+
+// The mode actually being played on shortwave: Home's pick while Home is on screen, else the dashboard's.
+const char* shortwave_effective_mode_name() {
+  return orcsdr::home_vfo::demod_name(effective_demod(RtlBand::shortwave));
 }
 
 // The SSTV TUNE tab shows an RF spectrum while it is on screen: the spectrum gates below treat it like a browser scope.

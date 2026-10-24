@@ -80,10 +80,13 @@ int main() {
   // Direct-sampling fold above 14.4 MHz swaps the sidebands; AM is untouched.
   CHECK(!spectrum_inverted(14300000));
   CHECK(spectrum_inverted(21300000));
+  CHECK(!spectrum_inverted(24000000));  // the V3's normal tuner takes over: no fold
+  CHECK(!spectrum_inverted(28400000));
   CHECK(demod_sideband(Mode::usb, 14300000, true) == Mode::usb);
   CHECK(demod_sideband(Mode::usb, 21300000, true) == Mode::lsb);
-  CHECK(demod_sideband(Mode::lsb, 28400000, true) == Mode::usb);
-  CHECK(demod_sideband(Mode::am, 28400000, true) == Mode::am);
+  CHECK(demod_sideband(Mode::lsb, 23000000, true) == Mode::usb);
+  CHECK(demod_sideband(Mode::lsb, 28400000, true) == Mode::lsb);
+  CHECK(demod_sideband(Mode::am, 21300000, true) == Mode::am);
   // An upconverter or the normal tuner does not fold: the sideband stays as asked.
   CHECK(demod_sideband(Mode::usb, 21300000, false) == Mode::usb);
   CHECK(demod_sideband(Mode::lsb, 28400000, false) == Mode::lsb);
