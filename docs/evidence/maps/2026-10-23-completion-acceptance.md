@@ -6,11 +6,13 @@ six P4 syntax checks pass; no build or hardware operation in this step.
 See [reconciliation evidence](2026-10-23-mainline-clock-reconciliation.md).
 COM17 now runs source `137e244a`: [native build/preservation/startup evidence](2026-10-23-reconciled-native-candidate.md). Build, inspection and app-only preservation/startup pass; latest loaded timing still fails the two-second gate and physical acceptance remains open. Earlier candidate entries below are historical.
 
-Latest loaded result: [October 24 reconciled 20-pan measurement](2026-10-24-reconciled-refill.md): p50 2.866 s, p95 2.891 s, max 2.895 s. The two-second gate still fails; driver drops/overruns were zero in captured snapshots. COM17 returned to stopped setup. Fresh GitHub install timing remains pending card preparation.
+Latest loaded result: [October 24 reconciled 20-pan measurement](2026-10-24-reconciled-refill.md): p50 2.866 s, p95 2.891 s, max 2.895 s. The two-second gate still fails; driver drops/overruns were zero in captured snapshots. That pan run returned COM17 to stopped setup. The later clean GitHub installation test is complete; see the separate baseline below.
 
 [October 24 native setup navigation](2026-10-24-native-setup-navigation.md) passes Next/Back/Skip/Quick/Cancel and out-of-order Finish rejection, with unchanged saved coordinates. Entry/lookup, successful Finish/recovery, no-SD and physical hotplug remain open.
 
 [Address/IP provider decision](../../maps-delivery/2026-10-24-location-provider-decision.md) records the hardcoded endpoints, public-service scaling/switching gap and recommended owned endpoint. Native overlength-query rejection passes; no real address submitted or provider configuration changed. Production lookup remains open.
+
+[October 24 clean GitHub installation baseline](download-benchmarks/2026-10-24-com17-pny32/README.md) passed on the spare PNY 32 GB U1 card: transfer 19m40.3s, verification/activation 21m21.2s, total 41m02.6s. Controlled resume, reboot/offline regional rendering and physical appearance passed. Reception began partway through verification; this is a mixed-load observation. Three driver drops/overruns in the separate post-reboot follow-up remain recorded; timed-install final counters were zero.
 
 Production delivery proposal prepared: [hosting, signing and 20,000-user model](../../maps-delivery/2026-10-23-production-decision.md).
 GitHub Releases is approved as the initial hosting choice; production key creation and publication remain unapproved.
@@ -20,7 +22,7 @@ No account, domain, key, publication or device change was made for the proposal.
 Initial scout source 4d4f85a3 on codex/maps-integration-completion.
 Reconciled source 30a00ce1 now contains fetched main 629ba546; affected host/
 sanitizer, P4 syntax, native link, app-only COM17 preservation/startup and bounded
-map navigation checks pass. Current COM17 candidate is f38b8601 (replay engine
+map navigation checks pass. Earlier COM17 candidate was f38b8601 (replay engine
 2133547); the prior 30a00ce1 dragging/colors/controls were physically accepted.
 This exact candidate's appearance remains unverified. Its 20-pan p95 is 3.55 s,
 so the two-second gate still fails. Retained SD/reclaim/fallback checks pass.
@@ -38,7 +40,7 @@ stale unchecked entries in the historical plan without deleting their evidence.
 | Worldwide quality | Profile, hierarchy, rings/clipping and bounded labels implemented | Fixed worldwide host views recorded | Device boundaries/contrast/international-script and fallback acceptance still open |
 | Setup | Wizard-owned methods and reception pause implemented | Bounded coordinate confirmation, IP proposal, exit/reception and graphics checks | Full first boot/rerun, credentials/address, Back/Skip/Cancel/recovery, audio and paused hotplug open |
 | Delivery | Signed TEST-ONLY pilot and real installer connected | 543380195-byte HTTPS install/resume/activate/reboot/offline checks pass | Production key/hosting decisions unresolved; full/removed SD, corruption/interrupted activation/version replacement hardware checks open |
-| Install latency | Safe verification implemented | Approximately 12-minute post-transfer verification/activation observed | Reduce or explicitly resolve without weakening verification |
+| Install latency | Safe verification implemented | Prior approximately 12-minute observation; new mixed-load PNY baseline 21m21.2s post-transfer | Reduce or explicitly resolve without weakening verification |
 | Serial parity | Named shared map/setup controls implemented | Focused source/host/device checks; latest restore uses RTL_LISTEN LORA | Reconcile stale coverage ledger and close unverified action/UI equivalence |
 | SD/memory/radio | Aligned read cache, no new internal DMA pool; reclaim/reset paths implemented | Native 16 KiB retained-memory paused write/readback; active map reads; radio/log recovery pass | Final shared-candidate budgets, pressure/navigation checks open; historical failures preserved |
 | Mainline reconciliation | Isolated merge 30a00ce1 reviewed, then local integration fast-forwarded | Five conflicts resolved; maps 5/5, FT8 normal/sanitized, two clock tests and P4 syntax pass | Native build/inspection, app-only preservation/startup and bounded COM17 navigation PASS; main and remote refs unchanged; broad final review remains open |

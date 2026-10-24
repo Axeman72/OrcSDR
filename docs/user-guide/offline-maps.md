@@ -25,7 +25,10 @@ remains available without an SD card.
 4. Select **World regional detail - zoom 0-8** and press **DOWNLOAD/RESUME**.
 5. Wait for download, verification and installation to finish. The downloader
    checks the signed catalog and archive hash. The tested candidate's verification
-   can take several minutes after the byte counter reaches its total.
+   can take a substantial time after the byte counter reaches its total. One
+   [documented PNY-card test](../evidence/maps/download-benchmarks/2026-10-24-com17-pny32/README.md)
+   took about 21 minutes for verification/installation with reception enabled
+   partway through; this is an observation, not an expected-time guarantee.
 6. Press **INSTALLED**, select the new map, then **USE THIS MAP**.
 
 The device downloads from GitHub release assets in the

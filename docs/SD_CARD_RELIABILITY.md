@@ -245,3 +245,8 @@ as SD corruption. The test harness's unsupported RTL_START command is also
 recorded and corrected to RTL_LISTEN LORA during final recovery. All failures,
 commands, hashes, logs, memory figures and limits are in the
 [read-cache evidence](evidence/maps/2026-10-22-lora-read-cache.md).
+
+
+## October 24: clean GitHub download baseline
+
+The [PNY 32 GB microSDHC U1 benchmark](evidence/maps/download-benchmarks/2026-10-24-com17-pny32/README.md) records source/card settings, 481 monotonic status samples, controlled pause/resume and complete 543,380,195-byte installation. Transfer took 19m40.3s; verification/activation 21m21.2s. Reception started partway through verification, with IQ activity, so this is not an idle-card speed comparison. The timed installer log has no SD read/write errors; restart discovery and offline regional rendering pass. Initial stale-mount/read errors after the card swap and three post-reboot driver drops/overruns remain separately recorded. No new blanket SD-reliability claim or attribution to buffer alignment follows from this single run. Original SD data and C6 were preserved.
