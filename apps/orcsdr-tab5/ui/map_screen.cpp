@@ -177,7 +177,7 @@ void draw_inventory() {
     M5.Display.fillRect(24,160,1080,340,kBg);
     text(pack.title,32,170,3);wrapped(pack.region,32,212,80,2);
     wrapped(pack.status,32,256,80,2);wrapped(pack.credit,32,300,80,2);
-    wrapped(pack.identity,32,364,80,2);
+    wrapped(pack.kind==maps::Kind::legacy?"Legacy ORCMAP1 format (unsupported)":pack.identity,32,364,80,2);
     text("Metadata/size checked; archive hash not verified.",32,454,2);
   }
   if(g_downloads.message[0]) {

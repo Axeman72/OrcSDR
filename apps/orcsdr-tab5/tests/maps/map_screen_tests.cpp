@@ -25,6 +25,7 @@ std::string serial_output;
 int rescans=0,invalidations=0,download_checks=0,download_installs=0,download_cancels=0;
 orcsdr::maps::downloads::Snapshot download_status;
 bool download_installed=false;
+bool legacy_inventory=false;
 void serial_command(const std::string& command,bool authenticated=true) {
   serial_output.clear();
   assert(orcsdr::maps::serial_control::handle(command.c_str(),authenticated,
@@ -99,6 +100,11 @@ uint32_t revision() {return 0;}
 bool snapshot(MapSnapshot* out) {
   *out=MapSnapshot{};out->loaded=true;out->sd=true;out->count=6;out->revision=1;
   for(int i=0;i<6;++i) {auto& pack=out->packs[i];std::snprintf(pack.title,sizeof(pack.title),"Map %d",i);std::snprintf(pack.identity,sizeof(pack.identity),"pack-%d",i);pack.usable=true;}
+  if(legacy_inventory) {
+    auto& pack=out->packs[0];pack.kind=Kind::legacy;pack.usable=false;
+    std::snprintf(pack.title,sizeof(pack.title),"Older map file (unsupported)");
+    std::snprintf(pack.identity,sizeof(pack.identity),"lane_county_map");
+  }
   return true;
 }
 bool running() {return true;}
@@ -227,6 +233,14 @@ void screen_tests() {
   assert(visible("Map 0")&&visible("Map 3")&&!visible("Map 4"));
   assert(visible("Manual SD: copy matching .pmtiles + .manifest.json to /orcmaps/."));
   assert(visible("Files + checksum: github.com/hardcoreerik/OrcMaps/releases"));
+  legacy_inventory=true;
+  map_screen::open(map_screen::Mode::inventory);
+  M5.Display.strings.clear();click(330,548);
+  assert(visible("Older map file (unsupported)"));
+  assert(visible("Legacy ORCMAP1 format (unsupported)")&&!visible("lane_county_map"));
+  serial_command("RTL_MAP LIST",false);
+  assert(serial_output.find("id=lane_county_map")!=std::string::npos);
+  legacy_inventory=false;map_screen::open(map_screen::Mode::inventory);
   serial_command("RTL_MAP HELP",false);
   assert(serial_output.find("matching .pmtiles + .manifest.json in /orcmaps/")!=std::string::npos);
   assert(serial_output.find("https://github.com/hardcoreerik/OrcMaps/releases")!=std::string::npos);
