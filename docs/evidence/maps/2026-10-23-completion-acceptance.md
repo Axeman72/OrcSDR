@@ -10,6 +10,8 @@ Latest loaded result: [October 24 reconciled 20-pan measurement](2026-10-24-reco
 
 [October 24 native setup navigation](2026-10-24-native-setup-navigation.md) passes Next/Back/Skip/Quick/Cancel and out-of-order Finish rejection, with unchanged saved coordinates. Entry/lookup, successful Finish/recovery, no-SD and physical hotplug remain open.
 
+[Address/IP provider decision](../../maps-delivery/2026-10-24-location-provider-decision.md) records the hardcoded endpoints, public-service scaling/switching gap and recommended owned endpoint. Native overlength-query rejection passes; no real address submitted or provider configuration changed. Production lookup remains open.
+
 Production delivery proposal prepared: [hosting, signing and 20,000-user model](../../maps-delivery/2026-10-23-production-decision.md).
 GitHub Releases is approved as the initial hosting choice; production key creation and publication remain unapproved.
 Arithmetic and local links pass `maps-production-decision-check-20261023.log`.
