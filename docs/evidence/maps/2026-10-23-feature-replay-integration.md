@@ -184,3 +184,26 @@ No monitor or command process remains open after the plans finish.
 Next gate: reduce measured replay/drawing work without losing detail or starving
 radio servicing. Do not lower the acceptance target, weaken allocation guards,
 claim a full final review or declare completion based on the working cache alone.
+
+## Next source-only candidate
+
+Prepared producer 6a621a7 rejects wholly off-screen ordered geometry before
+projection/primitive work, retaining conservative stroke margins and compatibility
+with targets declining tile scissors. Three focused engine programs and a
+sanitized paint-order program pass. Sixteen complete RGBA frames match producer
+2133547 byte-for-byte, including actual FreeType labels, pans, Tokyo, antimeridian
+and whole-world views. Reference primitive counts fall from 6,074 to 4,437 line
+calls and from 6,176 to 1,881 polygon-ring calls. This is work avoided, not a P4
+speed claim.
+
+The consumer now also retains the cached classification instead of recomputing
+it on every replay. Archive/profile invalidation still applies. Targeted Pipeline/
+cache CTest passes 2/2 against the local producer source; P4 syntax checks pass
+for Pipeline, map_service and renderer. Logs are maps-offscreen-integration-
+20261023.log, maps-offscreen-p4-syntax-20261023.log and maps-offscreen-oracle-
+{reference,candidate,comparison}-20261023.{log,json} in the integration root.
+
+The producer change is committed locally but its new full-suite/publication
+approval is pending. The manifest/lock still select 2133547, and COM17 still
+runs f38b8601. Do not build or label a device artifact as containing the new
+renderer until the approved producer is fetchable and the lock is regenerated.

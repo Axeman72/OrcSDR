@@ -71,9 +71,11 @@ bool Pipeline::feature(const orcmap::Feature& decoded, void* opaque) {
   // The streaming callback owns this reused feature until it returns. The
   // classifier is shared by streaming and batch engine consumers.
   auto& feature = const_cast<orcmap::Feature&>(decoded);
-  feature.kind_assigned = orcmap::experimental::TryClassifyFeatureForProfile(
-      pipeline.profile_, feature, &feature.kind);
-  if (!context.replaying && pipeline.feature_cache_) pipeline.feature_cache_->Capture(feature);
+  if (!context.replaying) {
+    feature.kind_assigned = orcmap::experimental::TryClassifyFeatureForProfile(
+        pipeline.profile_, feature, &feature.kind);
+    if (pipeline.feature_cache_) pipeline.feature_cache_->Capture(feature);
+  }
   const uint64_t start = pipeline.now();
   for (const auto& placement : context.placements) {
     if (!(placement.tile == context.tile)) continue;
