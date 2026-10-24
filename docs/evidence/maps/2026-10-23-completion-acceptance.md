@@ -14,7 +14,7 @@ stale unchecked entries in the historical plan without deleting their evidence.
 | Area | Implementation | Recorded validation | Physical acceptance / remaining gate |
 |---|---|---|---|
 | Location picker/save | Implemented; verified explicit lat/lon persistence and feedback | Bounded COM17 save/return/reboot checks | Prior controls, readable text, saving feedback and dragging accepted; retain on final candidate |
-| Shared map consumers and labels | LoRa, ADS-B and FT8 use shared service; independent preferences | Host and bounded COM17 checkpoints exist | Finish label persistence across all consumers, ADS-B aircraft/range and FT8 projection/whole-world/polar acceptance |
+| Shared map consumers and labels | LoRa, ADS-B and FT8 use shared service; independent preferences | f38b8601 native label independence, reboot persistence, exact restoration and location retention PASS; prior host/COM17 map checks exist | Label preference persistence closed; physical label appearance across all consumers, ADS-B aircraft/range and FT8 projection/whole-world/polar acceptance remain open |
 | LoRa map overlays | Bounded priority names, markers, centering and Follow implemented | Controlled text/NODEINFO and bounded position/Follow checks | Prior dragging/flicker accepted; actual dashboard host regression passes identity retention across reordered/missing/returning nodes; native reordered-traffic proof remains open |
 | Detail refill/read cache | 256 KiB read cache plus optional 768 KiB reclaimable feature replay | f38b8601 20 pans: p50 3.31 s / p95 3.55 s / max 3.58 s; all six replay hits, zero tile reads; retained SD/reclaim/fallback pass | Two-second gate FAILS; cached motion remains separate. Replay currently disabled after reclaim by memory guard; exact candidate physical acceptance open. No isolated speed multiplier claimed |
 | Cached motion | Last-valid-frame preview and clipping implemented | Pan paint checks exist; representative continuous timing incomplete | Approximately 33 ms target remains open; paint-call timings are not full motion latency |
@@ -155,6 +155,13 @@ OrcMaps full suite passes 9/9 and approved producer revision 2133547 is publishe
 on the development branch. Consumer pin/lock resolve through the component
 manager. No main merge or release. COM17 is receiving with normal streaming
 fallback after reclaim; the complete goal and other acceptance rows remain open.
+
+Later bounded native check: [independent label persistence](2026-10-23-independent-label-persistence.md)
+passes four independent setting changes, a controlled reboot and exact original
+preference restoration, with saved receiver location retained. No flash or decoder
+test. The initial missing-COM17 guard rejection is preserved; the user reconnected
+the reference device before the passing run. COM17 remains f38b8601; producer
+6a621a7 full-regression/publication approval and other acceptance gates remain open.
 Current app remains 30a00ce1 / engine b59d478; consumer source revert ff31e14b restores
 that app tree exactly. Engine PR7's optional path was withdrawn after an 8.46 s
 completed frame and incomplete seven-second samples. No candidate percentiles
