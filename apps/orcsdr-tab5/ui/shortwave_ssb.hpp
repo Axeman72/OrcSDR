@@ -33,7 +33,8 @@ Choice next_choice(Choice choice);
 // True when the receiver delivers the spectrum mirrored at this frequency, so USB must be demodulated as LSB.
 bool spectrum_inverted(uint32_t frequency_hz);
 // The sideband to demodulate for a dial mode at a frequency, after the fold correction. Mode::am passes through.
-Mode demod_sideband(Mode mode, uint32_t frequency_hz);
+// Only the direct-sampling route folds; an upconverter or the normal tuner keeps the sideband as asked.
+Mode demod_sideband(Mode mode, uint32_t frequency_hz, bool direct_sampling);
 int32_t clamp_clarifier(int32_t hz);
 
 // Shared control state. Zero-initialized storage is valid (auto, no clarifier), so one instance can live in PSRAM.

@@ -621,6 +621,8 @@ void update(const Snapshot& snapshot) {
   if (!g_active) return;
   const bool frequency_changed = snapshot.frequency_hz != g_snapshot.frequency_hz;
   const bool span_changed = snapshot.span_hz != g_snapshot.span_hz;
+  const bool mode_changed = std::strcmp(snapshot.mode, g_snapshot.mode) != 0 ||
+      snapshot.mode_auto != g_snapshot.mode_auto || snapshot.clarifier_hz != g_snapshot.clarifier_hz;
   const bool page_changed =
       frequency_changed || snapshot.utc_valid != g_snapshot.utc_valid ||
       snapshot.utc_minute != g_snapshot.utc_minute ||
@@ -652,7 +654,7 @@ void update(const Snapshot& snapshot) {
       snapshot.dsp_metrics.squelch_open != g_snapshot.dsp_metrics.squelch_open ||
       snapshot.dsp_metrics.notch_active != g_snapshot.dsp_metrics.notch_active ||
       snapshot.dsp_metrics.notch_hz != g_snapshot.dsp_metrics.notch_hz;
-  const bool quick_changed = controls_changed ||
+  const bool quick_changed = controls_changed || mode_changed ||
       snapshot.step_hz != g_snapshot.step_hz;
   g_snapshot = snapshot;
   g_saved_frequency = snapshot.frequency_hz;
@@ -669,7 +671,7 @@ void update(const Snapshot& snapshot) {
     }
     return;
   }
-  if (frequency_changed) draw_frequency();
+  if (frequency_changed || mode_changed) draw_frequency();
   draw_status();
   if (quick_changed) draw_quick_controls();
   if (span_changed) draw_zoom_controls();
@@ -988,6 +990,8 @@ Action handle_touch(int32_t x, int32_t y) {
     return {};
   }
   if (hit(x, y, kStep)) return {ActionKind::step_cycle};
+  // The SSB passband is fixed, so the AM width controls do nothing there.
+  if (ssb_mode() && (hit(x, y, kFilterDown) || hit(x, y, kFilterValue) || hit(x, y, kFilterUp))) return {};
   if (hit(x, y, kFilterDown)) return {ActionKind::filter_down};
   if (hit(x, y, kFilterValue)) return {ActionKind::filter_cycle};
   if (hit(x, y, kFilterUp)) return {ActionKind::filter_up};
@@ -1040,7 +1044,7 @@ Action handle_filter_drag(int32_t x, int32_t y, bool pressed) {
     g_filter_dragging = false;
     return {};
   }
-  if (!g_active || !g_state.spectrum_allowed()) return {};
+  if (!g_active || !g_state.spectrum_allowed() || ssb_mode()) return {};
   const int width = spectrum_width();
   const int center = kSpectrumX + width / 2;
   if (!g_filter_dragging) {

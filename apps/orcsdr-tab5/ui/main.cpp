@@ -3298,6 +3298,7 @@ bool home_tune_to(uint32_t frequency_hz, bool any_band = false) {
   const RtlBand band = hz < kRtlNoHfMinHz ? RtlBand::shortwave : home_band_for(profile);
   if (band == RtlBand::shortwave) {
     g_home_memory.forget_band();
+    home_apply_auto(profile, band);   // a mode left by FM/2 m must not carry onto HF
     if (band == rtl_ui_band && rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running)
       return request_hot_retune(hz);
     return queue_local_rtl_listen(band, hz, false);
@@ -8700,7 +8701,8 @@ __attribute__((noinline)) void demodulate_shortwave_ssb(RtlBand band, const uint
   const uint32_t tuned_hz = rtl_requested_frequency_hz.load(std::memory_order_relaxed);
   // The sideband in force: Home's pick while Home is on screen, else the Shortwave dashboard's.
   const Mode wanted = effective_demod(band) == HomeDemod::lsb ? Mode::lsb : Mode::usb;
-  const Mode sideband = demod_sideband(wanted, tuned_hz);
+  const bool direct_sampling = g_rtl_profile.load(std::memory_order_acquire) == ESP_RTL_SDR_PROFILE_BLOG_V3;
+  const Mode sideband = demod_sideband(wanted, tuned_hz, direct_sampling);
   audio_scale *= 3.0f;  // SSB has no carrier: the same station is about 10 dB below its AM level
   process(demod_state(), iq, bytes, rtl_rf_decimation(sample_rate_sps), sideband,
           control().clarifier_hz.load(std::memory_order_relaxed), static_cast<float>(sample_rate_sps),

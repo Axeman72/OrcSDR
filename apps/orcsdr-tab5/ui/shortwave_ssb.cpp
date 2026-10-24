@@ -58,8 +58,8 @@ Choice next_choice(Choice choice) {
 
 bool spectrum_inverted(uint32_t hz) { return hz > kNyquistFoldHz; }
 
-Mode demod_sideband(Mode mode, uint32_t hz) {
-  if (mode == Mode::am || !spectrum_inverted(hz)) return mode;
+Mode demod_sideband(Mode mode, uint32_t hz, bool direct_sampling) {
+  if (mode == Mode::am || !direct_sampling || !spectrum_inverted(hz)) return mode;
   return mode == Mode::usb ? Mode::lsb : Mode::usb;
 }
 

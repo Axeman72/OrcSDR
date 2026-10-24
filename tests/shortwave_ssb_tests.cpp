@@ -80,10 +80,13 @@ int main() {
   // Direct-sampling fold above 14.4 MHz swaps the sidebands; AM is untouched.
   CHECK(!spectrum_inverted(14300000));
   CHECK(spectrum_inverted(21300000));
-  CHECK(demod_sideband(Mode::usb, 14300000) == Mode::usb);
-  CHECK(demod_sideband(Mode::usb, 21300000) == Mode::lsb);
-  CHECK(demod_sideband(Mode::lsb, 28400000) == Mode::usb);
-  CHECK(demod_sideband(Mode::am, 28400000) == Mode::am);
+  CHECK(demod_sideband(Mode::usb, 14300000, true) == Mode::usb);
+  CHECK(demod_sideband(Mode::usb, 21300000, true) == Mode::lsb);
+  CHECK(demod_sideband(Mode::lsb, 28400000, true) == Mode::usb);
+  CHECK(demod_sideband(Mode::am, 28400000, true) == Mode::am);
+  // An upconverter or the normal tuner does not fold: the sideband stays as asked.
+  CHECK(demod_sideband(Mode::usb, 21300000, false) == Mode::usb);
+  CHECK(demod_sideband(Mode::lsb, 28400000, false) == Mode::lsb);
 
   CHECK(clamp_clarifier(5000) == kClarifierLimitHz);
   CHECK(clamp_clarifier(-5000) == -kClarifierLimitHz);
