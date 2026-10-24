@@ -204,7 +204,8 @@ bool service(storage::FileSystem* fs) {
     }
     std::unique_ptr<uint8_t,decltype(&heap_caps_free)> buffer(nullptr,heap_caps_free);
     if(command!=kRecover||pending) {
-      buffer.reset(static_cast<uint8_t*>(heap_caps_malloc(16384,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)));
+      // Match the shared SD path's cache-aligned PSRAM buffering contract.
+      buffer.reset(static_cast<uint8_t*>(heap_caps_malloc(16384,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT|MALLOC_CAP_CACHE_ALIGNED)));
       if(!buffer){finish(Phase::failed,pending,"Not enough map memory; saved files retained.");return true;}
     }
     g_last_yield=static_cast<uint64_t>(esp_timer_get_time());g_last_progress=0;

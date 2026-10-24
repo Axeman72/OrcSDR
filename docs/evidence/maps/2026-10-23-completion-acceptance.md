@@ -162,6 +162,14 @@ preference restoration, with saved receiver location retained. No flash or decod
 test. The initial missing-COM17 guard rejection is preserved; the user reconnected
 the reference device before the passing run. COM17 remains f38b8601; producer
 6a621a7 full-regression/publication approval and other acceptance gates remain open.
+
+Latest mainline scout: origin/main now points to fb70e969, nine FT8 clock/WWV
+follow-up commits beyond the incorporated 629ba546. The scoped map-download
+buffer change has no upstream file overlap. A merge-tree simulation exits 0
+without conflicts (maps-mainline-followups-scout-20261023.log); no branch/ref or
+working source was merged/rebased. Integration review/targeted clock checks and
+native validation of a reconciled candidate remain open. The WWV audio fixture
+was not inspected and FT8 decoder testing remains excluded.
 Current app remains 30a00ce1 / engine b59d478; consumer source revert ff31e14b restores
 that app tree exactly. Engine PR7's optional path was withdrawn after an 8.46 s
 completed frame and incomplete seven-second samples. No candidate percentiles

@@ -1,5 +1,15 @@
 # SD card reliability and regression checks
 
+October 23 source-only follow-up: the map download/recovery worker's existing
+16 KiB PSRAM transfer buffer now requests MALLOC_CAP_CACHE_ALIGNED, matching the
+shared writable File buffer policy. Size, lifetime, allocation-failure behavior,
+SHA-256 checks and activation/recovery checks are unchanged. Real P4 syntax for
+map_downloads.cpp passes; log maps-transfer-buffer-p4-syntax-20261023.log in the
+integration root, command python .local/maps/check_transfer_buffer_syntax_20261023.py
+map_downloads.cpp. This does not prove the previous pointer was unaligned or
+explain/fix the historical 12-minute installation. Runtime timing remains open;
+no native build/flash or full-map verification was performed for this change.
+
 October 23 replay-cache candidate f38b8601: COM17 passes a 16 KiB owned scratch
 write/SHA-256 readback while the completed map and 702,110-byte tile replay stay
 retained. Reception is paused because the existing serial file-transfer guard
