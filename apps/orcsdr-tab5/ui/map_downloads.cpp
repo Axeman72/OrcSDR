@@ -63,7 +63,13 @@ void verify_progress(void*,uint64_t used,uint64_t total) {
   ++g_snapshot.revision;
   portEXIT_CRITICAL(&g_lock);
 }
-const transfer::Hooks kHooks{nullptr,cancelled,progress,verifying,verify_progress};
+void verify_profile(void*,const transfer::VerificationProfile& p) {
+  std::printf("ORCMAPS_VERIFY_PROFILE bytes=%llu blocks=%llu read_us=%llu hash_us=%llu elapsed_us=%llu result=%u\n",
+      static_cast<unsigned long long>(p.bytes),static_cast<unsigned long long>(p.blocks),
+      static_cast<unsigned long long>(p.read_us),static_cast<unsigned long long>(p.hash_us),
+      static_cast<unsigned long long>(p.elapsed_us),static_cast<unsigned>(p.result));
+}
+const transfer::Hooks kHooks{nullptr,cancelled,progress,verifying,verify_progress,verify_profile};
 bool queue(uint32_t command,Phase phase,const char* message) {
   bool expected=false;
   if(!g_busy.compare_exchange_strong(expected,true))return false;

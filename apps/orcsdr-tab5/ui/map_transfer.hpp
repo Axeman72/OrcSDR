@@ -5,6 +5,13 @@
 
 namespace orcsdr::maps::transfer {
 enum class Error {none,input,space,resume,network,response,cancelled,storage,hash,archive,allocation};
+struct VerificationProfile {
+  // bytes/blocks count successfully hashed data. read_us measures block reads;
+  // hash_us measures block SHA updates. elapsed_us also includes other work,
+  // including cancellation/yields and PMTiles validation (before RAII cleanup).
+  uint64_t bytes=0,blocks=0,read_us=0,hash_us=0,elapsed_us=0;
+  Error result=Error::none;
+};
 struct Headers {
   int status=0;bool has_length=false;uint64_t length=0;
   std::string range,etag,encoding;
@@ -23,6 +30,10 @@ struct Hooks {
   void (*verifying)(void*)=nullptr; // Worker callback; never draw UI here.
   // Per full-file check: starts at zero, advances after hashing each block.
   void (*verify_progress)(void*,uint64_t,uint64_t)=nullptr;
+  // One observation per normally returned file check, including cancellation
+  // and failure. Allocation exceptions retain the caller's existing handling.
+  // Durations include scheduling/preemption; they are not isolated CPU costs.
+  void (*verify_profile)(void*,const VerificationProfile&)=nullptr;
 };
 struct Paths {std::string directory,partial,archive,manifest,record[2];};
 Paths paths(const catalog::Pack&);

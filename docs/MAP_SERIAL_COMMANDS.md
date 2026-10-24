@@ -186,6 +186,12 @@ by `SAVE` remains the named proposal/confirmation route.
 
 ## Map downloads
 
+Prepared cost instrumentation emits `ORCMAPS_VERIFY_PROFILE` after a normally
+returned full-file check (including cancellation/failure). It reports checked
+bytes/blocks and read, SHA-update and elapsed microseconds; elapsed includes
+scheduling and other verification work. This is source-tested, not yet installed
+on COM17. See [measurement limits](evidence/maps/2026-10-24-verification-cost-profile.md).
+
 ```text
 RTL_MAP DOWNLOAD CHECK
 RTL_MAP DOWNLOAD LIST
