@@ -2,6 +2,10 @@
 
 > **For agentic workers:** Continue the existing implementation under applicable repository instructions and available skills. The user approved execution on October 18, 2026 ("approved. please enable this."). Current delivery work is Phase 4; Phase 2 map quality, Phase 3 responsiveness and outstanding Phase 1 gates remain open. This approval does not authorize paid services, publication, destructive operations, or bypass the user's approval requirement for high-usage work.
 
+## October 25 release-review checkpoint
+
+User accepted current dragging/refill performance for release; the former two-second target is deferred, not passed. [PR #211 reconciliation](../../evidence/maps/2026-10-25-pr211-mainline-reconciliation.md) brings all eight mainline Shortwave commits into the Maps branch. Focused host/P4/native checks and corrected documentation CI pass. The source-scoped CodeRabbit review is genuinely in progress; tests/docs pass and findings remain pending. COM17 functional setup/map checks pass, but a 2.4 MSPS FM picker pan increased IQ loss counters; continuity investigation remains open. Hosyond excluded. No main merge/tag yet.
+
 ## Production delivery activation — October 24
 
 User approved production signing/publication. [Activation evidence](../../evidence/maps/2026-10-24-production-catalog-activation.md): the GitHub production catalog is public, signed and **does not expire**. One 543 MB world regional pack; archive bytes/URL unchanged. Standard scripted builds explicitly select the production URL/public key. COM17 `46cf8148` passes native build, preservation, boot, production catalog Check and repeat Check after reboot with original settings retained. Existing pilot map remains usable; the new production manifest version is not installed, and no repeat archive transfer was requested. Protected local key backup exists; off-machine backup is not established. Final release packaging and other map acceptance/performance gates remain open.
