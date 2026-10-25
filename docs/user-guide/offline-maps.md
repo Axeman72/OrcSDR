@@ -26,7 +26,7 @@ remains available without an SD card.
 5. Wait for download, verification and installation to finish. The downloader
    checks the signed catalog and archive hash. The tested candidate's verification
    can take a substantial time after the byte counter reaches its total. One
-   [documented PNY-card test](../evidence/maps/download-benchmarks/2026-10-24-com17-pny32/README.md)
+   [documented PNY-card test](https://github.com/hardcoreerik/OrcSDR/blob/main/docs/evidence/maps/download-benchmarks/2026-10-24-com17-pny32/README.md)
    took about 21 minutes for verification/installation with reception enabled
    partway through; this is an observation, not an expected-time guarantee.
 6. Press **INSTALLED**, select the new map, then **USE THIS MAP**.
