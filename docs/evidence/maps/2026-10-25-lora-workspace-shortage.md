@@ -126,7 +126,22 @@ Device logs beside invocation: `lora-owned-{baseline,map,retained-tx,current}-de
 `lora-owned-flash-console-20261025.log`, `lora-owned-boot-native-monitor-20261025.log`,
 `com39-memory-recovery-device-20261025.log`, `com39-fresh-lora-device-20261025.log`.
 
-## Saved evidence
+## Visible-message confirmation on both devices
+
+At 15:28:58 Pacific the Heltec on COM24 submitted exactly one message,
+`OrcSDR HELTEC LIVE TEST 01`, sender `aa745cf5`, packet ID `19164103`.
+Both COM17 and COM39 reported the identical sender, packet ID, application port
+1 and decoded text by 15:29:05. The user confirmed that both Traffic screens
+showed it. No RF settings were changed for this transmission. COM39 retained its
+existing firmware; COM17 ran the tested 5e79fd44 app. This is one matched packet
+per device, not the complete three-repeat/source-off release qualification.
+
+Evidence beside invocation: `heltec-visible-send-20261025.log`,
+`heltec-visible-com17-device-20261025.log`,
+`heltec-visible-com39-device-20261025.log`,
+`heltec-visible-result-20261025.json`.
+
+## Earlier saved evidence
 
 Raw logs are beside their invocation in the worktree root, outside Git:
 `lora-blocker-{before,reclaim,lifecycle,restart,fresh,map-transition}-device-20261025.log`,
