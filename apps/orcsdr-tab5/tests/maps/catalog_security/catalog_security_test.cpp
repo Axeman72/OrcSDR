@@ -22,7 +22,8 @@ std::string load(const char* path) {
   return {std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>()};
 }
 int main(int argc,char** argv) {
-  if(argc!=11)return 2;
+  if(argc!=11&&argc!=12)return 2;
+  const uint64_t expected_revision=argc==12?std::stoull(argv[11]):1;
   const auto payload=load(argv[1]),signature=load(argv[2]),key=load(argv[3]);
   namespace c=orcsdr::maps::catalog;
   c::Policy policy{};
@@ -41,7 +42,7 @@ int main(int argc,char** argv) {
   }
   if(error!=c::Error::none) {
     if(output.revision!=999||output.packs.size()!=1||output.packs[0].manifest_json!="unchanged")return 3;
-  } else if(output.revision!=1||output.packs.size()!=std::stoull(argv[9])||output.sha256.size()!=64||
+  } else if(output.revision!=expected_revision||output.packs.size()!=std::stoull(argv[9])||output.sha256.size()!=64||
             output.packs[0].product_id!="global-regional")return 4;
   Store store;
   if(policy.accepted_revision) {
@@ -54,7 +55,7 @@ int main(int argc,char** argv) {
   if(accepted.storage!=d::Error::none||accepted.catalog!=error)return 6;
   if(error==c::Error::none) {
     d::State persisted;
-    if(!accepted.accepted()||session.revision!=1||d::load(store,&persisted)!=d::Error::none||
+    if(!accepted.accepted()||session.revision!=expected_revision||d::load(store,&persisted)!=d::Error::none||
         persisted.accepted_revision!=session.revision||persisted.catalog_sha256!=session.sha256)return 7;
     // Same-payload acceptance remains usable without wearing flash again.
     store.fail=true;

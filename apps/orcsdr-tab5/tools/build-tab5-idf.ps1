@@ -19,7 +19,9 @@ param(
   # Logs the pre-app DMA reservation budget. Test builds only; never ship.
   [switch]$MapStartupDiag,
   # Host artifact only. Inclusion in flash_args does not flash a device.
-  [string]$WorldMap
+  [string]$WorldMap,
+  [string]$MapCatalogBaseUrl = 'https://github.com/hardcoreerik/OrcMaps/releases/download/maps-catalog-v1',
+  [string]$MapCatalogPublicKeyFile = (Join-Path $PSScriptRoot '..\main\maps_production_public.pem')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,6 +50,8 @@ New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
 Copy-Item -LiteralPath 'sdkconfig.defaults' -Destination (Join-Path $buildDir 'sdkconfig') -Force
 $configureArgs = @('-B', $buildDir, '-D', "SDKCONFIG=$buildDir/sdkconfig",
                    '-D', "ORCSDR_WORLD_MAP=$WorldMap",
+                   '-D', "ORCSDR_MAP_CATALOG_BASE_URL=$MapCatalogBaseUrl",
+                   '-D', "ORCSDR_MAP_CATALOG_PUBLIC_KEY_FILE=$MapCatalogPublicKeyFile",
                    '-D', 'SDKCONFIG_DEFAULTS=sdkconfig.defaults',
                    '-D', "ORCSDR_DSP_AB=$(if ($DspAb) { 1 } else { 0 })",
                    '-D', "ORCSDR_DSP_STAGE_TIMING=$(if ($NoDspStageTiming) { 0 } else { 1 })",
