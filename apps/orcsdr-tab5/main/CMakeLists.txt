@@ -94,6 +94,7 @@ idf_component_register(
         "../ui/shortwave_hunt.cpp"
         "../ui/shortwave_dashboard.cpp"
         "../ui/shortwave_dashboard_state.cpp"
+        "../ui/shortwave_ssb.cpp"
         "../ui/receiver_tuning_controls.cpp"
         "../ui/adsb_dashboard.cpp"
         "../ui/adsb_decoder.cpp"
