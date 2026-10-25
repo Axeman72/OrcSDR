@@ -1,6 +1,7 @@
 # Map cache writeback A/B gate
 
-Status: experimental configuration; hardware benefit unverified.
+Status: trial completed; radio-continuity gate failed. Option removed from
+shipping defaults. Preserve measurements for further diagnosis.
 
 ## Evidence and hypothesis
 
@@ -48,3 +49,13 @@ configuration probe alone proves none of these.
 Earlier bounded Grok review of the memory diff and this hypothesis returned
 CLEAN; that is not hardware proof. Existing PR review/storage findings and the
 full decoder/dongle/package matrix remain open. Use PR #211; no new PR or tag.
+
+## Actual outcome
+
+The matched 960 ksps sequence measured A2: 55 driver / 1,101 application drops;
+B: 14 driver / 472 application drops. Both idle windows had zero new drops.
+This is partial mitigation, not resolution. Map completion also differed between
+runs, so these numbers do not establish a general speed multiplier. The B image
+passed boot, non-app preservation and an 8 KiB SD write/readback while map memory
+was retained and radio paused. FM and physical-display gates were not completed.
+See `docs/evidence/maps/2026-10-25-cache-writeback-trial.md`.
