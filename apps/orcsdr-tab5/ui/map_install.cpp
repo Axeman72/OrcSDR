@@ -88,7 +88,7 @@ Result resume(storage::FileSystem& fs,delivery::Store& store,uint8_t* buffer,siz
 Result run(storage::FileSystem& fs,delivery::Store& store,const catalog::Catalog& catalog,size_t index,size_t mirror,
            transfer::Stream& stream,uint64_t free,uint8_t* buffer,size_t size,bool select,uint64_t utc,const transfer::Hooks& hooks) {
   try {
-    if(index>=catalog.packs.size()||!utc||catalog.expires_at<=utc||
+    if(index>=catalog.packs.size()||!utc||(catalog.expires_at&&catalog.expires_at<=utc)||
         (catalog.generated_at>utc&&catalog.generated_at-utc>300))return {Error::input};
     delivery::State state;const auto loaded=delivery::load(store,&state);
     if(loaded!=delivery::Error::none)return state_error(loaded);

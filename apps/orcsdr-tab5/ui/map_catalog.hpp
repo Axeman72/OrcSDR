@@ -20,6 +20,7 @@ struct Pack {
   std::vector<std::string> urls;
 };
 struct Catalog {
+  // expires_at=0 represents signed JSON null (no expiry), never a malformed date.
   uint64_t revision=0,generated_at=0,expires_at=0;
   std::string sha256;
   std::vector<Pack> packs;

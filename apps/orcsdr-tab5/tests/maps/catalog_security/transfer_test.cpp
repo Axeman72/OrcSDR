@@ -435,6 +435,11 @@ int main(int argc,char** argv){
   reset();DeliveryStore expired;trusted(expired);Stream expired_stream;
   check(install::run(fs,expired,accepted,0,0,expired_stream,100000000,buffer.data(),buffer.size(),false,200,{}).error==
         install::Error::input&&expired_stream.opens==0,"expired catalog cannot start network install");
+  reset();DeliveryStore permanent;trusted(permanent);Stream permanent_stream;
+  const auto dated_expiry=accepted.expires_at;accepted.expires_at=0;
+  check(install::run(fs,permanent,accepted,0,0,permanent_stream,100000000,buffer.data(),buffer.size(),false,2000000000,{}).error==
+        install::Error::none,"explicitly nonexpiring accepted catalog installs at a later time");
+  accepted.expires_at=dated_expiry;
   reset();DeliveryStore replaced;trusted(replaced);Stream old_stream;
   accepted.packs[0]=previous;accepted.packs[0].product_id="global-regional";body=previous_body;
   check(install_pack(replaced,old_stream).error==install::Error::none,"managed prior version installed");

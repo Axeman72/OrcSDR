@@ -130,10 +130,12 @@ Error parse(std::string_view payload,const Policy& policy,const uint8_t digest[3
   const char* schema=text(get(root.get(),"schema"));
   if(!schema||std::strcmp(schema,"orcmaps-catalog-v1"))return Error::schema;
   if(!integer(get(root.get(),"revision"),9007199254740991ULL,out.revision))return Error::revision;
-  if(!utc(get(root.get(),"generated_at"),out.generated_at)||!utc(get(root.get(),"expires_at"),out.expires_at)||
-      out.expires_at<=out.generated_at)return Error::schema;
+  const auto* expiry=get(root.get(),"expires_at");
+  if(!utc(get(root.get(),"generated_at"),out.generated_at))return Error::schema;
+  if(cJSON_IsNull(expiry))out.expires_at=0; // Explicit signed non-expiry.
+  else if(!utc(expiry,out.expires_at)||out.expires_at<=out.generated_at)return Error::schema;
   if(!policy.clock_trusted||!policy.utc_now)return Error::clock;
-  if(out.expires_at<=policy.utc_now)return Error::expired;
+  if(out.expires_at&&out.expires_at<=policy.utc_now)return Error::expired;
   if(out.generated_at>policy.utc_now&&out.generated_at-policy.utc_now>300)return Error::future;
   constexpr char hex[]="0123456789abcdef";
   for(size_t i=0;i<32;++i){out.sha256+=hex[digest[i]>>4];out.sha256+=hex[digest[i]&15];}
