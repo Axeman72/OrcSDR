@@ -77,6 +77,7 @@
 #include "shortwave_model.hpp"
 #include "shortwave_audio_dsp.hpp"
 #include "shortwave_dashboard.hpp"
+#include "shortwave_ssb.hpp"
 #include "receiver_tuning_controls.hpp"
 #include "receiver_location.hpp"
 #include "am_finder.hpp"
@@ -2964,10 +2965,12 @@ bool rtl_band_from_name(const char* name, RtlBand* out_band) {
   return false;
 }
 
+const char* shortwave_effective_mode_name();  // defined after effective_demod()
+
 const char* rtl_mode_name(RtlBand band) {
   switch (band) {
     case RtlBand::am: return "AM";
-    case RtlBand::shortwave: return "AM";
+    case RtlBand::shortwave: return shortwave_effective_mode_name();
     case RtlBand::airband: return "AM";
     case RtlBand::wx: return "NFM";
     case RtlBand::cb:
@@ -3026,10 +3029,20 @@ std::atomic<uint8_t> rtl_home_demod{static_cast<uint8_t>(HomeDemod::by_band)};
 // CB takes Home's choice while Home is on screen; a CB dashboard keeps its own mode switch.
 bool home_demod_band(RtlBand band) {
   return band == RtlBand::browse || band == RtlBand::fm || band == RtlBand::airband || band == RtlBand::wx ||
-         band == RtlBand::cb;
+         band == RtlBand::cb || band == RtlBand::am || band == RtlBand::shortwave;
+}
+
+// The shortwave band's sideband mode: the user's pin, or the band-plan suggestion for the tuned frequency.
+static orcsdr::shortwave_ssb::Mode shortwave_mode() {
+  return orcsdr::shortwave_ssb::current(rtl_requested_frequency_hz.load(std::memory_order_relaxed));
 }
 
 HomeDemod band_demod(RtlBand band) {
+  if (band == RtlBand::shortwave) {
+    const auto mode = shortwave_mode();
+    return mode == orcsdr::shortwave_ssb::Mode::usb ? HomeDemod::usb
+           : mode == orcsdr::shortwave_ssb::Mode::lsb ? HomeDemod::lsb : HomeDemod::am;
+  }
   if (band == RtlBand::am || band == RtlBand::shortwave || band == RtlBand::airband) return HomeDemod::am;
   return band == RtlBand::fm ? HomeDemod::wfm : HomeDemod::nfm;
 }
@@ -3078,6 +3091,11 @@ HomeDemod effective_demod(RtlBand band) {
   const auto chosen = static_cast<HomeDemod>(rtl_home_demod.load(std::memory_order_relaxed));
   return chosen != HomeDemod::by_band && home_demod_band(band) && orcsdr::home::active() ? chosen
                                                                                        : band_demod(band);
+}
+
+// The mode actually being played on shortwave: Home's pick while Home is on screen, else the dashboard's.
+const char* shortwave_effective_mode_name() {
+  return orcsdr::home_vfo::demod_name(effective_demod(RtlBand::shortwave));
 }
 
 // The SSTV TUNE tab shows an RF spectrum while it is on screen: the spectrum gates below treat it like a browser scope.
@@ -3260,11 +3278,12 @@ RtlBand home_band_for(const orcsdr::band_profile::Profile& profile) {
 }
 
 // Home is a full-range VFO on these bands, CB included (27 MHz carries AM, USB and LSB, and FM in some countries).
-// The MW and shortwave bands (the dongle's HF path), P25, LoRa, ADS-B and pager keep their own band-locked tuning
-// until they are folded in.
+// So are MW and shortwave (the dongle's HF path): the user picks the receive mode, not the band. Only the decoder
+// bands (P25, LoRa, ADS-B, pager) stay locked, because their decoders need their own demodulator.
 bool home_full_range() {
   return rtl_ui_band == RtlBand::browse || rtl_ui_band == RtlBand::fm || rtl_ui_band == RtlBand::airband ||
-         rtl_ui_band == RtlBand::wx || rtl_ui_band == RtlBand::cb;
+         rtl_ui_band == RtlBand::wx || rtl_ui_band == RtlBand::cb || rtl_ui_band == RtlBand::am ||
+         rtl_ui_band == RtlBand::shortwave;
 }
 
 void home_apply_auto(const orcsdr::band_profile::Profile& profile, RtlBand band);
@@ -3280,7 +3299,15 @@ bool home_tune_to(uint32_t frequency_hz, bool any_band = false) {
   const uint32_t hz = constrain(frequency_hz, kRtlBrowseMinHz, kRtlBrowseMaxHz);
   if (!validate_rtl_tune_frequency(hz)) return false;
   const auto& profile = orcsdr::band_profile::resolve(kBandRegion, hz);
-  const RtlBand band = home_band_for(profile);
+  // Below the tuner's own floor the dongle runs its HF path, which the Shortwave band owns (AM/USB/LSB, HF filters).
+  const RtlBand band = hz < kRtlNoHfMinHz ? RtlBand::shortwave : home_band_for(profile);
+  if (band == RtlBand::shortwave) {
+    g_home_memory.forget_band();
+    home_apply_auto(profile, band);   // a mode left by FM/2 m must not carry onto HF
+    if (band == rtl_ui_band && rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running)
+      return request_hot_retune(hz);
+    return queue_local_rtl_listen(band, hz, false);
+  }
   home_apply_auto(profile, band);
   if (band == rtl_ui_band &&
       rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running) {
@@ -3330,6 +3357,8 @@ void home_set_demod(HomeDemod demod, RtlBand band, bool refilter = false) {
 void home_apply_auto(const orcsdr::band_profile::Profile& profile, RtlBand band) {
   HomeDemod mode = HomeDemod::by_band;
   if (!g_home_memory.enter_band(profile, &mode)) return;
+  // On HF an unpinned mode stays AUTO, which follows the band plan for the tuned frequency (LSB 40 m, USB 20 m...).
+  if (band == RtlBand::shortwave && mode == demod_for_mode(profile.mode)) mode = HomeDemod::by_band;
   home_set_demod(mode, band, /*refilter=*/band != rtl_ui_band);
 }
 
@@ -3350,7 +3379,9 @@ void home_select_mode(HomeDemod choice) {
   if (g_home_memory.set_pin(profile, choice))
     preferences.putBytes("band_modes", g_home_memory.pins_data(), orcsdr::home_vfo::Memory::kPinsBytes);
   g_home_memory.note_band(profile);
-  home_set_demod(choice == HomeDemod::by_band ? demod_for_mode(profile.mode) : choice, rtl_ui_band, /*refilter=*/true);
+  const bool hf_auto = choice == HomeDemod::by_band && rtl_ui_band == RtlBand::shortwave;
+  home_set_demod(choice == HomeDemod::by_band && !hf_auto ? demod_for_mode(profile.mode) : choice, rtl_ui_band,
+                 /*refilter=*/true);
 }
 
 void band_mode_load() {
@@ -3454,7 +3485,8 @@ void log_lora_memory(const char* stage) {
 
 void apply_speaker_volume(uint8_t volume) {
   // Keep master and virtual-channel levels aligned; some M5 paths only honor one.
-  const uint8_t physical_volume = std::min(volume, kRtlSpeakerHardwareMax);
+  // Only the P25 voice burst tripped the amp's rail detector; every other band gets the speaker's full range.
+  const uint8_t physical_volume = rtl_ui_band == RtlBand::p25 ? std::min(volume, kRtlSpeakerHardwareMax) : volume;
   M5.Speaker.setVolume(physical_volume);
   M5.Speaker.setChannelVolume(0, physical_volume);
 }
@@ -8662,6 +8694,46 @@ __attribute__((noinline)) void demodulate_ssb(const uint8_t* iq, size_t bytes, f
 }
 
 
+// Shortwave sideband listening: the DSP lives in shortwave_ssb.hpp; this only feeds it and finishes the audio.
+__attribute__((noinline)) void demodulate_shortwave_ssb(RtlBand band, const uint8_t* iq, size_t bytes,
+                                                        float audio_scale, uint32_t sample_rate_sps) {
+  using namespace orcsdr::shortwave_ssb;
+  int16_t* audio = rtl_audio_buffers[rtl_audio.buffer];
+  size_t audio_count = 0;
+  int16_t peak = rtl_audio.peak;
+  uint64_t square_sum = rtl_audio.square_sum, samples = rtl_audio.samples;
+  uint32_t clipped_pairs = 0;
+  const uint32_t tuned_hz = rtl_requested_frequency_hz.load(std::memory_order_relaxed);
+  // The sideband in force: Home's pick while Home is on screen, else the Shortwave dashboard's.
+  const Mode wanted = effective_demod(band) == HomeDemod::lsb ? Mode::lsb : Mode::usb;
+  const bool direct_sampling = g_rtl_profile.load(std::memory_order_acquire) == ESP_RTL_SDR_PROFILE_BLOG_V3;
+  const Mode sideband = demod_sideband(wanted, tuned_hz, direct_sampling);
+  // Hot retunes quantize the LO to 5 kHz while the dial moves in 100 Hz steps: pass the dial's offset from the IQ centre.
+  uint32_t centre_hz = 0;
+  int32_t carrier_offset = 0;
+  if (g_rtl != nullptr && esp_rtl_sdr_get_center_freq(g_rtl, &centre_hz) == ESP_OK && centre_hz != 0)
+    carrier_offset = std::clamp<int32_t>(static_cast<int32_t>(tuned_hz) - static_cast<int32_t>(centre_hz), -6000, 6000);
+  if (sideband != wanted) carrier_offset = -carrier_offset;  // a folded spectrum is mirrored about the centre
+  audio_scale *= 3.0f;  // SSB has no carrier: the same station is about 10 dB below its AM level
+  process(demod_state(), iq, bytes, rtl_rf_decimation(sample_rate_sps), sideband,
+          control().clarifier_hz.load(std::memory_order_relaxed), static_cast<float>(sample_rate_sps),
+          [&](float demodulated) {
+            const int16_t sample = shape_audio_sample(demodulated, audio_scale);
+            audio[audio_count++] = sample;
+            const int16_t magnitude = sample < 0 ? -sample : sample;
+            if (magnitude > peak) peak = magnitude;
+            square_sum += static_cast<uint32_t>(sample * sample);
+            ++samples;
+          },
+          &clipped_pairs, carrier_offset);
+  rtl_audio.peak = peak;
+  rtl_audio.square_sum = square_sum;
+  rtl_audio.samples = samples;
+  rtl_block_clip.note(clipped_pairs);
+  if (band == RtlBand::shortwave) orcsdr::shortwave::audio_dsp::process(audio, audio_count, rtl_signal_dbfs_smooth);
+  queue_audio_samples(audio, audio_count);
+}
+
 // One demodulator choice for every band. CB follows Home's choice while Home is on screen (its squelch gate is skipped
 // then); a CB dashboard keeps its own mode switch and gate.
 
@@ -8672,9 +8744,17 @@ void demodulate_home(RtlBand band, const uint8_t* iq, size_t bytes, float audio_
 
     case HomeDemod::am: demodulate_am(iq, bytes, audio_scale, sample_rate_sps); break;
 
-    case HomeDemod::usb: demodulate_ssb(iq, bytes, audio_scale, CbMode::usb, sample_rate_sps); break;
+    case HomeDemod::usb:
+      if ((band == RtlBand::shortwave || band == RtlBand::am) && !orcsdr::sstv::active())
+        demodulate_shortwave_ssb(band, iq, bytes, audio_scale, sample_rate_sps);
+      else demodulate_ssb(iq, bytes, audio_scale, CbMode::usb, sample_rate_sps);
+      break;
 
-    case HomeDemod::lsb: demodulate_ssb(iq, bytes, audio_scale, CbMode::lsb, sample_rate_sps); break;
+    case HomeDemod::lsb:
+      if ((band == RtlBand::shortwave || band == RtlBand::am) && !orcsdr::sstv::active())
+        demodulate_shortwave_ssb(band, iq, bytes, audio_scale, sample_rate_sps);
+      else demodulate_ssb(iq, bytes, audio_scale, CbMode::lsb, sample_rate_sps);
+      break;
 
     case HomeDemod::wfm: demodulate_fm(iq, bytes, audio_scale, true, sample_rate_sps); break;
 
@@ -10994,6 +11074,14 @@ orcsdr::shortwave::Snapshot shortwave_dashboard_snapshot() {
   snapshot.sound_enabled = rtl_audio_user_enabled.load(std::memory_order_relaxed);
   snapshot.dsp = orcsdr::shortwave::audio_dsp::settings();
   snapshot.dsp_metrics = orcsdr::shortwave::audio_dsp::metrics();
+  {
+    namespace ssb = orcsdr::shortwave_ssb;
+    const ssb::Mode mode = ssb::current(rtl_ui_frequency_hz);
+    strlcpy(snapshot.mode, ssb::mode_name(mode), sizeof(snapshot.mode));
+    snapshot.mode_auto = ssb::control().choice.load(std::memory_order_relaxed) == 0;
+    snapshot.clarifier_hz = static_cast<int16_t>(ssb::control().clarifier_hz.load(std::memory_order_relaxed));
+    if (mode != ssb::Mode::am) snapshot.filter_bandwidth_hz = ssb::kPassbandHz;
+  }
   snapshot.battery_percent = M5.Power.getBatteryLevel();
   snapshot.controls.audio_boost =
       rtl_shortwave_audio_boost.load(std::memory_order_relaxed);
@@ -11169,6 +11257,23 @@ void handle_shortwave_dashboard_action(const orcsdr::shortwave::Action& action) 
                           g_rtl, action.value != 0)));
 #endif
       break;
+    case ActionKind::mode_cycle: {
+      namespace ssb = orcsdr::shortwave_ssb;
+      const auto next = ssb::next_choice(static_cast<ssb::Choice>(ssb::control().choice.load(std::memory_order_relaxed)));
+      ssb::control().choice.store(static_cast<uint8_t>(next), std::memory_order_relaxed);
+      Serial.printf("RTL_SHORTWAVE_MODE choice=%u mode=%s\n", static_cast<unsigned>(next),
+                    ssb::mode_name(ssb::current(rtl_ui_frequency_hz)));
+      break;
+    }
+    case ActionKind::clarifier_down:
+    case ActionKind::clarifier_up: {
+      namespace ssb = orcsdr::shortwave_ssb;
+      const int32_t step = action.kind == ActionKind::clarifier_up ? ssb::kClarifierStepHz : -ssb::kClarifierStepHz;
+      ssb::control().clarifier_hz.store(
+          ssb::clamp_clarifier(ssb::control().clarifier_hz.load(std::memory_order_relaxed) + step),
+          std::memory_order_relaxed);
+      break;
+    }
     case ActionKind::audio_boost:
       rtl_shortwave_audio_boost.store(action.value != 0, std::memory_order_release);
       Serial.printf("RTL_SHORTWAVE_AUDIO_BOOST enabled=%ld gain_db=12\n",
@@ -11222,7 +11327,8 @@ void handle_shortwave_dashboard_action(const orcsdr::shortwave::Action& action) 
       memory.frequency_hz = rtl_ui_frequency_hz;
       memory.bandwidth_hz = rtl_filter_bandwidth_hz.load(std::memory_order_relaxed);
       memory.saved_utc = orcsdr::time_service::now().utc;
-      strlcpy(memory.mode, "AM", sizeof(memory.mode));
+      strlcpy(memory.mode, orcsdr::shortwave_ssb::mode_name(orcsdr::shortwave_ssb::current(memory.frequency_hz)),
+              sizeof(memory.mode));
       strlcpy(memory.station, orcsdr::shortwave::pending_memory_label(),
               sizeof(memory.station));
       strlcpy(memory.notes, orcsdr::shortwave::pending_memory_notes(),
@@ -11304,7 +11410,8 @@ void handle_shortwave_dashboard_action(const orcsdr::shortwave::Action& action) 
       entry.frequency_hz = rtl_ui_frequency_hz;
       entry.bandwidth_hz = rtl_filter_bandwidth_hz.load(std::memory_order_relaxed);
       entry.signal_dbfs = rtl_signal_dbfs_smooth;
-      strlcpy(entry.mode, "AM", sizeof(entry.mode));
+      strlcpy(entry.mode, orcsdr::shortwave_ssb::mode_name(orcsdr::shortwave_ssb::current(entry.frequency_hz)),
+              sizeof(entry.mode));
       const auto snapshot = shortwave_dashboard_snapshot();
       strlcpy(entry.device, snapshot.device, sizeof(entry.device));
       strlcpy(entry.antenna,
@@ -12789,6 +12896,8 @@ orcsdr::home::Snapshot home_dashboard_snapshot(bool demo) {
   const auto device = orcsdr::device_status::collect(
       wifi_connected, wifi_ssid, rtl_device_ready(), rtl_sdr_status);
   snapshot.frequency_hz = demo ? 145700000 : rtl_ui_frequency_hz;
+  // The keypad accepts whatever the attached dongle can tune: HF too when it has direct sampling or an upconverter.
+  snapshot.tune_min_hz = demo || !rtl_frequency_supported(kRtlBrowseMinHz) ? kRtlNoHfMinHz : kRtlBrowseMinHz;
   snapshot.requested_frequency_hz = demo
                                         ? snapshot.frequency_hz
                                         : rtl_requested_frequency_hz.load(
@@ -16267,7 +16376,7 @@ bool orcdial_apply(const orc::Packet& p) {
     if (p.value < 24000 || p.value > 1766000000) return false;
     const uint32_t hz = static_cast<uint32_t>(p.value);
     if (active == Dash::sstv) return orcsdr::sstv_app::tune_to(hz);   // the SSTV tuner owns its frequency and demodulator
-    if (active == Dash::home) return p.value >= 24000000 && home_tune_to(hz, true);
+    if (active == Dash::home) return home_tune_to(hz, true);   // validates against the dongle's own range
     if (active == Dash::fm) {
       if (hz < kRtlFmMinHz || hz > kRtlFmMaxHz) return false;
       handle_fm_dashboard_action({orcsdr::fm::ActionKind::tune_hz, hz});
