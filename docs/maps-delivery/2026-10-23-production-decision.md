@@ -1,6 +1,6 @@
 # Production map delivery: decision for approval
 
-October 24 user decision: production catalog must not expire. The earlier expiry-renewal recommendation below is superseded by the [nonexpiring production package](2026-10-24-production-catalog/README.md). Production signing/publication remain separate execution gates.
+October 24 user decision: production catalog must not expire. The earlier expiry-renewal recommendation below is superseded by the [nonexpiring production package](2026-10-24-production-catalog/README.md). Production signing/publication were subsequently explicitly approved and executed; see the linked activation evidence. Native configured validation and firmware release packaging remain separate gates.
 
 Prepared October 23, 2026. Recommendation only: no production publication,
 account, payment, domain, key generation or firmware configuration change.

@@ -215,10 +215,12 @@ still requires phase=2, busy=0 and the installed entry. Installed COM17
 A real file scan remains untested on this candidate; the earlier clean-install
 benchmark used `137e244a`, which lacked these fields.
 
-Production trust/publication remains unconfigured. The COM17 pilot build uses
-the separately approved TEST-ONLY catalog URL/key. A stock build without catalog
-configuration rejects Check or returns an empty list; these commands do not provide a new host,
-publish assets or prove an end-to-end HTTPS installation.
+Standard scripted builds now explicitly configure the published nonexpiring
+production catalog and public key. COM17 `46cf8148` passes production Check and
+repeat Check after reboot, preserving settings and existing packs. The actual
+543 MB install/resume benchmark used the earlier pilot channel; it is separate
+evidence. Low-level manual CMake builds without catalog inputs still reject
+Check or return an empty list. These commands do not publish assets.
 
 ### Detailed-frame worker timing
 

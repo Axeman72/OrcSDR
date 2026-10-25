@@ -1,5 +1,7 @@
 # Production catalog: no expiry
 
+**Activation update:** the user approved production activation. The [production catalog](https://github.com/hardcoreerik/OrcMaps/releases/tag/maps-catalog-v1) is published and has no expiry. Public HTTPS/signature checks pass; the map archive is unchanged. See [execution evidence](../../evidence/maps/2026-10-24-production-catalog-activation.md). The unsigned/prepared descriptions below preserve the review package checkpoint.
+
 User decision October 24: remove TEST-ONLY status and do not expire the catalog.
 This supersedes the earlier recommendation to ship a catalog requiring periodic
 expiry renewal. **Prepared, unsigned, unpublished.** No production key exists

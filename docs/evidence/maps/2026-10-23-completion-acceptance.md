@@ -1,5 +1,16 @@
 # OrcMaps completion acceptance — October 23, 2026
 
+**Latest October 24 checkpoint:** COM17 now runs `46cf8148` configured for the
+[published production catalog with no expiry](2026-10-24-production-catalog-activation.md).
+Build, preservation, production Check and repeat Check after reboot pass. One
+global pack is available; existing pilot pack remains usable but the changed
+production manifest is not installed. No repeat archive transfer. Standard build
+helper explicitly sets production URL/key; firmware/M5Burner release packaging
+and off-machine key backup remain open. Earlier production-unconfigured claims
+below are historical. Current [20-pan result](2026-10-24-offscreen-native-refill.md)
+still fails p95 ≤2s (3.148265s); physical dragging/colors/controls were accepted
+for that engine. Other unclosed gates remain open.
+
 Latest source reconciliation: local merge `97f48640` includes fetched main
 `fb70e969` (nine clock/WWV follow-up commits). Seven selected host checks and
 six P4 syntax checks pass; no build or hardware operation in this step.

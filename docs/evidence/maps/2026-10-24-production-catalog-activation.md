@@ -59,6 +59,55 @@ Commands are retained in `.local/maps/prepare_production_catalog_20261024.py`,
 `publish_production_catalog_20261024.py`, `promote_production_map_20261024.py`.
 They fail rather than overwrite an existing key or staging directory.
 
-Production-configured native build/link, COM17 migration/check and final firmware
-release packaging are the next gates. Installed maps remain available offline
-independently of catalog expiry; no performance or full-goal completion claimed.
+## COM17 production candidate
+
+Source **46cf8148**, engine **6a621a7**. Native build and inspection pass:
+`python .local/maps/build_production_maps_20261024.py build` and
+`python .local/maps/inspect_production_maps_20261024.py`. Explicit saved SDKCONFIG,
+diagnostics OFF, production URL/key and build ID; all normal symbol/placement
+gates pass, internal DMA reserve remains 40960 bytes. App 5,289,664 bytes,
+headroom 1,001,792 bytes. App SHA-256
+`0deac20f0d034ca4c36cc91b93551b27e9917be8a4807a32fe2cc5637bef88a5`;
+ELF `c034b3d8b165086998232b5e1c85f629e96066f23ea671cf05a952d93f082e96`.
+
+`flash_production_maps_20261024.py` verifies prior `77a8cdce`, saves fresh
+non-app backups, writes only P4 app and verifies app/non-app preservation. Native
+monitor matches ELF prefix and reports SD/Wi-Fi/RTL Ready. No settings/trust
+erase, world or C6 update. Recovery manifest and backups:
+`.local/maps/maps-production-46cf8148-20261024/`.
+
+Authenticated device plan:
+
+```text
+python .local/maps/com17_label_bench.py .local/maps/production-native-check-plan-20261024.json maps-production-native-check-device-20261024.log
+```
+
+Pass: `RTL_MAP DOWNLOAD CHECK` reaches `phase=6 busy=0 configured=1 ready=1
+count=1`. Same receiver coordinates; installed regional and firmware overview
+remain usable. Production manifest version differs from pilot, so catalog entry
+correctly reports `installed=0`; no archive installation was requested. Reusing
+identical archive bytes across changed manifests is not implemented by this step;
+a future upgrade can require a download despite the old map remaining usable.
+Do not call this an installed production-pack upgrade.
+
+Home, graphics=1, LoRa streaming 906.875 MHz / 959,818 samples/s, 0 drops/overruns.
+PSRAM free 3,190,180 / largest 3,145,728 bytes; largest DMA 22,528 bytes. Existing
+automatic IQ activity is present; this is continuity evidence, not decoder testing.
+Actual public signed catalog also passes the host parser at January 1, 2100,
+with null expiry and the pilot revision floor retained.
+
+Logs beside invocation: `maps-production-native-build-20261024.log`,
+`maps-production-inspection-20261024.log`, `maps-production-flash-console-20261024.log`
+and per-part flash logs, `maps-production-boot-native-monitor-20261024.log`,
+`maps-production-native-check-device-20261024.log`,
+`maps-production-native-validation-20261024.log`,
+`maps-production-nonexpiry-future-20261024.log`.
+
+Reboot and repeat catalog Check also pass with the same saved location and no
+NVS erase: `maps-production-reboot-native-monitor-20261024.log` and
+`maps-production-reboot-check-device-20261024.log`. Same signed catalog reaches
+ready again after the previously accepted state is reloaded. Final Home reception
+959,830 samples/s, zero drops/overruns; serial port released. No archive download
+was requested in either check. Final firmware/M5Burner package
+and firmware tag remain open. Installed maps remain available offline independently
+of catalog expiry; no performance or full-goal completion claimed.
