@@ -7,8 +7,8 @@ root = Path(__file__).resolve().parents[1]
 source = (root / "apps/orcsdr-tab5/ui/lora_native_decoder.cpp").read_text()
 
 
-def function(name):
-    start = source.index("bool " + name + "(")
+def function(name, result="bool"):
+    start = source.index(result + " " + name + "(")
     opening = source.index("{", start)
     depth = 1
     end = opening + 1
@@ -45,7 +45,23 @@ void reset(){heap_caps_free(g_scratch.resampled);g_scratch={};largest_request=0;
 harness += coefficients
 harness += function("filter_capture") + function("linear_resample_capture")
 harness += function("compact_preprocess_capture")
-harness += function("reserve_capture_workspace")
+harness += r'''
+constexpr uint8_t kMinSf=7,kMaxSf=12;
+struct Config{size_t candidate_samples=0;bool trace=false;};
+struct Stats{uint32_t filter_millis=0,decode_millis=0;};
+struct Packet{};
+std::vector<uint8_t> expected_buffer;
+size_t expected_candidate=0;
+uint32_t now_millis(){static uint32_t t=0;return ++t;}
+size_t decode_capture_impl(const uint8_t* p,size_t bytes,uint32_t rate,uint8_t sf,
+ uint32_t bw,uint32_t hz,const Config& c,Packet*,size_t,Stats*,bool preprocessed){
+ assert(preprocessed && rate==500000 && sf==11 && bw==250000 && hz==906875000);
+ assert(bytes==expected_buffer.size() && c.candidate_samples==expected_candidate && !c.trace);
+ assert(std::memcmp(p,expected_buffer.data(),bytes)==0);
+ return 3;
+}
+'''
+harness += function("decode_capture_in_place", "size_t")
 harness += r'''
 int main(){
  uint32_t seed=37;
@@ -64,6 +80,22 @@ int main(){
   assert(actual_n==reference_n && largest_request<=reference_n*2);
   assert(std::memcmp(actual,expected.data(),expected.size())==0 && input==original);
   reset();deny_allocation=true;
+  auto owned=input;
+  assert(compact_preprocess_capture(owned.data(),samples,960000,&actual,&actual_n,owned.data()));
+  assert(actual==owned.data() && actual_n==reference_n && largest_request==0);
+  assert(std::memcmp(actual,expected.data(),expected.size())==0);
+  owned=input;expected_buffer=expected;
+  Config config;config.candidate_samples=samples/2;
+  expected_candidate=uint64_t(config.candidate_samples)*500000/960000;
+  Packet packet;Stats stats;
+  assert(decode_capture_in_place(owned.data(),owned.size(),960000,11,250000,906875000,
+                                 config,&packet,1,&stats)==3 && largest_request==0);
+  assert(stats.filter_millis>0 && stats.decode_millis>0);
+  owned=input;config.trace=true;
+  assert(decode_capture_in_place(owned.data(),owned.size(),960000,11,250000,906875000,
+                                 config,&packet,1,&stats)==0 && owned==input);
+  deny_allocation=false;
+  reset();deny_allocation=true;
   assert(!compact_preprocess_capture(input.data(),samples,960000,&actual,&actual_n));
   assert(!g_scratch.resampled && !g_scratch.resampled_capacity);
   deny_allocation=false;
@@ -75,13 +107,7 @@ int main(){
  assert(!compact_preprocess_capture(nullptr,1,960000,&output,&n));
  assert(!compact_preprocess_capture(input,0,960000,&output,&n));
  assert(!compact_preprocess_capture(input,1,480000,&output,&n));
- allocation_limit=4000000;
- assert(reserve_capture_workspace(7680000));
- assert(g_scratch.resampled_capacity==2000000 && largest_request==4000000);
- reset();deny_allocation=true;
- assert(!reserve_capture_workspace(7680000));
- deny_allocation=false;assert(reserve_capture_workspace(7680000));reset();
- std::puts("PASS: byte-identical preprocessing; output-only allocation; failure/retry; immutable input");
+ std::puts("PASS: byte-identical preprocessing; zero-allocation owned buffer; immutable path; failure/retry");
 }
 '''
 folder = root / ".local/maps/lora-preprocess-memory"

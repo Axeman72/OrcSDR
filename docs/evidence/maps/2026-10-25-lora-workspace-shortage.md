@@ -28,7 +28,7 @@ was initially a 20 m antenna; the user subsequently fitted a 915 MHz mini whip.
 The initial reception result is not a valid antenna-matched qualification.
 No reset, flash, settings write or C6 update was performed on COM39.
 
-## Source candidate
+## First candidate: 216fb392 (superseded)
 
 Live filtering and linear interpolation now share a loop, retaining only the
 final 500 ksps samples. Coefficients, intermediate quantization, interpolation
@@ -57,8 +57,26 @@ explicit serial diagnostic stages. No DMA reserve or RTL driver change.
 - `python .local/maps/check_lora_memory_syntax_20261025.py lora_native_decoder.cpp main.cpp`:
   both real-P4 syntax checks PASS.
 
-Native linking, COM17 installation and memory-pressure/map/live reception tests
-are pending. This is not yet a hardware-validated fix or a release-gate pass.
+Native linking passed (5,297,840-byte app; 993,616-byte factory headroom), and
+COM17 app-only flash/non-app preservation and startup passed. However the 4 MB
+reservation left only 1,095,316 bytes free before map allocation. This was
+insufficient headroom to assume smooth map previews, so the candidate is
+superseded rather than called a completed fix. C6 and DMA reserve unchanged.
+
+## Revised candidate: reuse the owned automatic capture
+
+Automatic jobs already take exclusive ownership of a swapped capture buffer.
+They now filter and downsample behind the input already consumed, within that
+buffer. Candidate, full fallback and CFO retries receive the same 500 ksps data;
+candidate bounds are converted from the original sample rate. No extra live
+capture-sized workspace is allocated. Manual diagnostic replay retains its
+immutable raw samples and releases its temporary workspace after trace output.
+
+The extended host test passes with all heap-cap allocations denied for owned
+preprocessing, compares every processed byte with the old two-stage reference,
+checks candidate/rate conversion into the decoder, and rejects diagnostic trace
+requests on the mutating API. Address/undefined sanitizers pass. Both P4 source
+syntax checks pass. Native rebuild and COM17 reception/map checks remain pending.
 
 ## Saved evidence
 
@@ -68,3 +86,5 @@ Raw logs are beside their invocation in the worktree root, outside Git:
 `com39-lora-readonly-20261025-01.log`, `lora-preprocess-memory-{red,green}-20261025.log`,
 `lora-workspace-reserve-{red,green2}-20261025.log`,
 `lora-startup-reserve-{red,green}-20261025.log`, `lora-memory-p4-syntax-20261025.log`.
+First candidate build/flash/boot logs use `lora-memory-`; revised focused logs
+use `lora-owned-`, including `lora-owned-sanitized-20261025.log`.

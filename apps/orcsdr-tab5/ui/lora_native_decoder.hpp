@@ -138,9 +138,8 @@ size_t task_workspace_bytes();
 bool fft_table_in_psram();
 bool recovery_workspace_in_psram();
 bool task_workspace_in_psram();
-// Task-only. Reserve before enabling live captures; release only after the
-// application's capture/decoder ownership guards confirm the buffers are idle.
-bool reserve_capture_workspace(size_t capture_bytes);
+// Release only after the application's capture/decoder ownership guards confirm
+// the buffers are idle. Immutable replay may retain a temporary workspace.
 size_t capture_workspace_bytes();
 void release_capture_workspace();
 Packet* task_packets();
@@ -152,6 +151,13 @@ size_t decode_capture(const uint8_t* cu8, size_t bytes, uint32_t sample_rate_sps
                       uint8_t spreading_factor, uint32_t bandwidth_hz, uint32_t frequency_hz,
                       const Config& config, Packet* packets, size_t packet_capacity,
                       Stats* stats);
+
+// Consumes an exclusively owned automatic capture. Preprocessing writes only
+// behind consumed input and needs no additional capture-sized allocation.
+// Raw diagnostic replay/export must use decode_capture instead.
+size_t decode_capture_in_place(uint8_t* cu8, size_t bytes, uint32_t sample_rate_sps,
+                               uint8_t spreading_factor, uint32_t bandwidth_hz, uint32_t frequency_hz,
+                               const Config& config, Packet* packets, size_t packet_capacity, Stats* stats);
 
 bool self_check();
 

@@ -15,18 +15,14 @@ harness = r'''
 using QueueHandle_t = void*;
 using TaskHandle_t = void*;
 constexpr int pdPASS=1, MALLOC_CAP_SPIRAM=1, MALLOC_CAP_8BIT=2;
-constexpr size_t kIqRecMaxBytes=7680000;
 struct LoraNativeDecodeWork { int value; };
 QueueHandle_t lora_native_decode_queue=nullptr;
 TaskHandle_t lora_native_decode_task_handle=nullptr;
 std::atomic<bool> lora_native_decoder_ready{false};
-std::atomic<bool> lora_native_decode_busy{false};
 bool fail_queue=false, fail_task=false, fail_initialize=false, fail_workspace=false;
-bool fail_reserve=false;
 int queues=0, tasks=0, deletes=0;
 struct { void println(const char*) {} } Serial;
 namespace orcsdr::lora_native {
-bool reserve_capture_workspace(size_t bytes){assert(bytes==kIqRecMaxBytes);return !fail_reserve;}
 bool self_check(){return true;}
 bool initialize(){return !fail_initialize;}
 void* task_packets(){return fail_workspace ? nullptr : reinterpret_cast<void*>(1);}
@@ -51,16 +47,12 @@ int xTaskCreatePinnedToCoreWithCaps(void(*)(void*),const char*,int bytes,void*,i
 harness += source[start:end]
 harness += r'''
 int main(){
- fail_reserve=true;assert(!lora_native_decoder_start() && queues==0);fail_reserve=false;
  fail_initialize=true;assert(!lora_native_decoder_start() && queues==0);fail_initialize=false;
  fail_workspace=true;assert(!lora_native_decoder_start() && queues==0);fail_workspace=false;
  fail_queue=true;assert(!lora_native_decoder_start() && queues==0 && !lora_native_decode_queue);fail_queue=false;
  fail_task=true;assert(!lora_native_decoder_start());
  assert(!lora_native_decoder_ready && !lora_native_decode_queue && !lora_native_decode_task_handle && queues==0 && deletes==1);
  fail_task=false;assert(lora_native_decoder_start());
- lora_native_decode_busy=true;fail_reserve=true;
- assert(lora_native_decoder_start()); // An existing worker owns its workspace until it finishes.
- fail_reserve=false;lora_native_decode_busy=false;
  assert(lora_native_decoder_ready && lora_native_decode_queue && lora_native_decode_task_handle && queues==1 && tasks==1);
  assert(lora_native_decoder_start() && queues==1 && tasks==1);
  std::puts("LORA_DECODER_STARTUP_PASS: failures clean up, retry works, PSRAM stack, idempotent startup");

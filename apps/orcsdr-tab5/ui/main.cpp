@@ -1452,7 +1452,7 @@ static std::atomic<bool> lora_log_error{false};
 static std::atomic<uint32_t> lora_log_dropped{0};
 static std::atomic<uint32_t> lora_log_last_packet_ms{0};
 struct LoraNativeDecodeWork {
-  const uint8_t* iq = nullptr;
+  uint8_t* iq = nullptr; // Automatic jobs exclusively own this swapped capture buffer.
   size_t bytes = 0;
   uint8_t sf = 11;
   uint32_t bandwidth_hz = 250000;
@@ -4854,10 +4854,16 @@ void lora_native_decode_task(void*) {
         !work.automatic && work.sequence != 0};
     const uint32_t queue_millis = millis() - work.queued_ms;
     if (!work.automatic && work.sequence != 0) log_lora_memory("replay_before");
-    const size_t count = orcsdr::lora_native::decode_capture(
-        work.iq, work.bytes, kRtlSampleRateSps, work.sf, work.bandwidth_hz,
-        work.frequency_hz, config,
-        decoded, orcsdr::lora_native::kMaxPacketsPerCapture, &stats);
+    size_t count = 0;
+    if (work.automatic) {
+      count = orcsdr::lora_native::decode_capture_in_place(
+          work.iq, work.bytes, kRtlSampleRateSps, work.sf, work.bandwidth_hz,
+          work.frequency_hz, config, decoded, orcsdr::lora_native::kMaxPacketsPerCapture, &stats);
+    } else {
+      count = orcsdr::lora_native::decode_capture(
+          work.iq, work.bytes, kRtlSampleRateSps, work.sf, work.bandwidth_hz,
+          work.frequency_hz, config, decoded, orcsdr::lora_native::kMaxPacketsPerCapture, &stats);
+    }
     if (!work.automatic && work.sequence != 0) log_lora_memory("replay_after");
     lora_native_crc_ok.fetch_add(stats.crc_ok, std::memory_order_relaxed);
     lora_native_encrypted.fetch_add(stats.encrypted, std::memory_order_relaxed);
@@ -5015,6 +5021,7 @@ void lora_native_decode_task(void*) {
       }
       Serial.println();
     }
+    if (!work.automatic) orcsdr::lora_native::release_capture_workspace();
     lora_native_decode_busy.store(false, std::memory_order_release);
     (void)queue_lora_auto_decode();
     bump_rtl_ui();
@@ -5022,13 +5029,6 @@ void lora_native_decode_task(void*) {
 }
 
 bool lora_native_decoder_start() {
-  if (lora_native_decoder_ready.load(std::memory_order_acquire) &&
-      lora_native_decode_busy.load(std::memory_order_acquire)) return true;
-  if (!orcsdr::lora_native::reserve_capture_workspace(kIqRecMaxBytes)) {
-    Serial.println("RTL_LORA_NATIVE_INIT_FAIL stage=capture_workspace");
-    log_lora_memory("workspace_reserve_failed");
-    return false;
-  }
   if (lora_native_decoder_ready.load(std::memory_order_acquire)) return true;
   if (!orcsdr::lora_native::self_check()) {
     Serial.println("RTL_LORA_NATIVE_SELF_CHECK_FAIL");
@@ -15866,7 +15866,7 @@ bool queue_local_rtl_listen(RtlBand band, uint32_t frequency_hz,
     Serial.println("RTL_ADSB_CAPTURE live_rf=true ui_data=live");
   }
   if (band == RtlBand::lora) {
-    if (band != rtl_ui_band || orcsdr::lora_native::capture_workspace_bytes() == 0) {
+    if (band != rtl_ui_band) {
       // Reclaim inactive caches before capture/workspace allocations fragment
       // the remaining PSRAM. Each holder protects its live data itself.
       const size_t reclaimed = orcsdr::memory_reclaim::reclaim_all(nullptr, 0, nullptr);
