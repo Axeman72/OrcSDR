@@ -76,7 +76,7 @@ The extended host test passes with all heap-cap allocations denied for owned
 preprocessing, compares every processed byte with the old two-stage reference,
 checks candidate/rate conversion into the decoder, and rejects diagnostic trace
 requests on the mutating API. Address/undefined sanitizers pass. Both P4 source
-syntax checks pass. Native rebuild and COM17 reception/map checks remain pending.
+syntax checks pass. Subsequent native and COM17 device results follow.
 
 ## Revised candidate device results: 5e79fd44
 
