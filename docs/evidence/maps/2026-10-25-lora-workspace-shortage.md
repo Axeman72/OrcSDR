@@ -78,6 +78,54 @@ checks candidate/rate conversion into the decoder, and rejects diagnostic trace
 requests on the mutating API. Address/undefined sanitizers pass. Both P4 source
 syntax checks pass. Native rebuild and COM17 reception/map checks remain pending.
 
+## Revised candidate device results: 5e79fd44
+
+Native build/inspection PASS: app 5,298,304 bytes, factory headroom 993,152;
+SHA-256 `773381897b679558feaf2ca912544b65728c2a0579a421d172891de3aad48938`.
+The 40 KiB DMA reserve, production catalog, engine pin, symbol/placement gates
+remain intact. COM17 app-only flash, current-app verification, fresh non-app
+backups and post-flash preservation verification PASS. Normal startup PASS.
+
+COM17 baseline under reception: PSRAM free 5,158,068 / largest 5,111,808;
+full capture/pre-roll buffers 15,840,000 bytes, fixed decoder scratch 665,344.
+LoRa map pan and full-screen picker pan/cancel completed. A retained picker
+snapshot held 3,097,600 bytes with only 1,441,188 free / largest 966,656.
+The decoder subsequently completed CRC-valid captures without another
+capture-sized allocation or workspace failure. Thus the previously reproduced
+preprocessing allocation failure is resolved for this tested scenario.
+
+At 15:16 COM17 reported 11 CRC-valid packets / zero decoder failures, with
+ongoing telemetry, positions and NODEINFO. Controlled Heltec sender `aa745cf5`
+texts T2 (`3166619068`) and T3 (`268326333`) matched their exact expected contents
+and packet IDs. T1 and the explicitly sent NODEINFO were not recovered in this
+capture window; three exact repetitions and source-off controls are NOT claimed.
+The sender log has all four submitted IDs; submission alone is not RF proof.
+
+Separate unresolved finding: driver drops/overruns rose from zero to 15 during
+the first map exercise, then to 39 during the second. They remained 39 during
+later reception. This now includes 960 ksps LoRa load, not only the earlier
+2.4 MSPS FM finding. Memory repair does not constitute a radio-continuity or
+complete release-gate pass. Saved map responsiveness acceptance remains separate.
+
+## COM39 recovery, without firmware changes
+
+After the 915 MHz antenna swap still showed no captures, the existing paired
+serial key authenticated a controlled stop and `RTL_RESET`. No pairing change,
+flash, NVS erase or C6 update occurred. Startup reported reset reason WDT/code 7;
+no panic/backtrace appeared in this capture. This was a commanded recovery,
+not evidence of an unsolicited crash or proof about the reset implementation.
+
+Fresh COM39 reception recovered: three CRC-valid packets, zero decoder failures,
+including NODEINFO and a position. Driver drops/overruns stayed zero. Its older
+decoder then held 4,531,968 bytes and about 1,996,480 PSRAM bytes remained free.
+COM39 does NOT contain the new in-place memory fix; fresh-boot recovery must not
+be described as a permanent correction on that device.
+
+Device logs beside invocation: `lora-owned-{baseline,map,retained-tx,current}-device-20261025.log`,
+`lora-owned-heltec-send-20261025.log`, `lora-owned-native-{build,inspection}-20261025.log`,
+`lora-owned-flash-console-20261025.log`, `lora-owned-boot-native-monitor-20261025.log`,
+`com39-memory-recovery-device-20261025.log`, `com39-fresh-lora-device-20261025.log`.
+
 ## Saved evidence
 
 Raw logs are beside their invocation in the worktree root, outside Git:
