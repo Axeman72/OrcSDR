@@ -58,8 +58,24 @@ Logs/artifacts are outside Git, beside invocation in this worktree:
 `cache-writeback-sd-device-20261025.log`,
 `.local/maps/cache-writeback-55957d67-20261025/manifest.json`.
 
-The next combined firmware build must use shipping defaults; the bench may
-still contain this identified B test image until that build or rollback.
+After the trial, COM17 was restored app-only to the verified 5e79fd44 image
+(SHA-256 `773381897b679558feaf2ca912544b65728c2a0579a421d172891de3aad48938`).
+Current-app verification, fresh backups, non-app preservation and startup passed.
+The post-restore check reported two CRC-valid packets / zero decoder failures,
+zero driver drops, approximately 5.13 MB free PSRAM and a 5.11 MB largest block.
+Reception was restored to US LongFast slot 20 and the same manual 49.6 dB gain.
+
+The original cached SDK input was restored and official IDF reconfiguration
+passed; every generated configuration macro matches the original baseline.
+The build directory still requires a rebuild before its binary outputs may be
+used: reconfiguration is not relinking. The frozen restoration artifact is
+`.local/maps/restore-lora-5e79fd44-20261025/manifest.json`.
+Logs: `restore-lora-flash-console-20261025.log`,
+`restore-lora-boot-native-monitor-20261025.log`,
+`restore-lora-check-device-20261025.log`,
+`cache-writeback-native-restore-inputs-20261025.log`.
+
+The next combined firmware build must use shipping defaults.
 Investigate long scheduling/cache stalls and unnecessary redraws using both
 driver and application counters. Do not reduce the release gate to driver
 counters alone. Required review findings and the release matrix remain open.
