@@ -64,6 +64,7 @@ struct SymbolAlternateMetric {
 };
 
 struct Stats {
+  bool workspace_failed = false;
   uint32_t captures = 0;
   uint32_t preambles = 0;
   uint32_t header_failures = 0;
@@ -137,6 +138,11 @@ size_t task_workspace_bytes();
 bool fft_table_in_psram();
 bool recovery_workspace_in_psram();
 bool task_workspace_in_psram();
+// Task-only. Reserve before enabling live captures; release only after the
+// application's capture/decoder ownership guards confirm the buffers are idle.
+bool reserve_capture_workspace(size_t capture_bytes);
+size_t capture_workspace_bytes();
+void release_capture_workspace();
 Packet* task_packets();
 Stats* task_stats();
 

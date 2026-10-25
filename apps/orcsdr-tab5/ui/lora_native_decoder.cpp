@@ -60,6 +60,7 @@ void merge_profile(Stats* destination, const Stats& source) {
   destination->candidate_rejected |= source.candidate_rejected;
   destination->candidate_truncated |= source.candidate_truncated;
   destination->recovery_exhausted |= source.recovery_exhausted;
+  destination->workspace_failed |= source.workspace_failed;
 }
 
 constexpr uint32_t kDecodeRate = 500000;
@@ -664,6 +665,74 @@ bool filter_capture(const uint8_t* cu8, size_t samples, uint32_t sample_rate,
   return true;
 }
 
+// Keep only the final 500 ksps samples; the two filtered neighbours suffice
+// for the existing linear interpolation. The immutable IQ capture stays intact.
+bool compact_preprocess_capture(const uint8_t* cu8, size_t samples, uint32_t sample_rate,
+                                const uint8_t** output, size_t* output_samples) {
+  if (cu8 == nullptr || output == nullptr || output_samples == nullptr ||
+      samples == 0 || sample_rate != 960000) return false;
+  const size_t needed = static_cast<size_t>(static_cast<uint64_t>(samples) * kDecodeRate / sample_rate);
+  if (needed == 0) return false;
+  if (g_scratch.resampled_capacity < needed) {
+    heap_caps_free(g_scratch.resampled);
+    g_scratch.resampled = static_cast<uint8_t*>(
+        heap_caps_malloc(needed * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    g_scratch.resampled_capacity = g_scratch.resampled == nullptr ? 0 : needed;
+  }
+  if (g_scratch.resampled == nullptr) return false;
+  float i_state[std::size(kLoraLowpass)][2]{};
+  float q_state[std::size(kLoraLowpass)][2]{};
+  constexpr float kInvHalfScale = 1.0f / 127.5f;
+  const uint32_t gcd = std::gcd(sample_rate, kDecodeRate);
+  const uint32_t step_num = sample_rate / gcd;
+  const uint32_t step_den = kDecodeRate / gcd;
+  size_t first = 0, written = 0;
+  uint32_t reduced_remainder = 0;
+  uint8_t previous[2]{};
+  for (size_t index = 0; index < samples; ++index) {
+    float real = (static_cast<int>(cu8[index * 2]) - 127.5f) * kInvHalfScale;
+    float imaginary = (static_cast<int>(cu8[index * 2 + 1]) - 127.5f) * kInvHalfScale;
+#pragma GCC unroll 5
+    for (size_t section = 0; section < std::size(kLoraLowpass); ++section) {
+      const float* coeffs = kLoraLowpass[section];
+      const float filtered_real = coeffs[0] * real + i_state[section][0];
+      i_state[section][0] = coeffs[1] * real - coeffs[3] * filtered_real + i_state[section][1];
+      i_state[section][1] = coeffs[2] * real - coeffs[4] * filtered_real;
+      const float filtered_imaginary = coeffs[0] * imaginary + q_state[section][0];
+      q_state[section][0] = coeffs[1] * imaginary - coeffs[3] * filtered_imaginary + q_state[section][1];
+      q_state[section][1] = coeffs[2] * imaginary - coeffs[4] * filtered_imaginary;
+      real = filtered_real;
+      imaginary = filtered_imaginary;
+    }
+    const float scaled_real = real * 127.5f + 127.5f;
+    const float scaled_imaginary = imaginary * 127.5f + 127.5f;
+    const uint8_t current[] = {
+        scaled_real <= 0.0f ? uint8_t(0) : scaled_real >= 255.0f ? uint8_t(255)
+                                                                  : static_cast<uint8_t>(scaled_real + 0.5f),
+        scaled_imaginary <= 0.0f ? uint8_t(0) : scaled_imaginary >= 255.0f ? uint8_t(255)
+                                                                            : static_cast<uint8_t>(scaled_imaginary + 0.5f)};
+    if (written < needed && std::min(first + 1, samples - 1) == index) {
+      const uint32_t remainder = reduced_remainder * gcd;
+      for (size_t component = 0; component < 2; ++component) {
+        const int a = first == index ? current[component] : previous[component];
+        const int b = current[component];
+        g_scratch.resampled[written * 2 + component] = static_cast<uint8_t>(
+            (a * static_cast<int>(kDecodeRate - remainder) + b * static_cast<int>(remainder) +
+             static_cast<int>(kDecodeRate / 2)) / static_cast<int>(kDecodeRate));
+      }
+      ++written;
+      reduced_remainder += step_num;
+      first += reduced_remainder / step_den;
+      reduced_remainder %= step_den;
+    }
+    std::memcpy(previous, current, sizeof(previous));
+    if ((index & 0x3ffffu) == 0) vTaskDelay(1);
+  }
+  *output = g_scratch.resampled;
+  *output_samples = written;
+  return written == needed;
+}
+
 bool linear_resample_capture(const uint8_t* cu8, size_t samples, uint32_t sample_rate,
                              const uint8_t** output, size_t* output_samples) {
   if (cu8 == nullptr || output == nullptr || output_samples == nullptr || sample_rate < kDecodeRate)
@@ -984,6 +1053,27 @@ bool decode_mesh(const uint8_t* data, size_t size, const Config& config, Packet*
 
 }  // namespace
 
+bool reserve_capture_workspace(size_t capture_bytes) {
+  if (capture_bytes == 0 || (capture_bytes & 1u) != 0) return false;
+  const size_t samples = static_cast<size_t>(
+      static_cast<uint64_t>(capture_bytes / 2) * kDecodeRate / 960000u);
+  if (samples == 0) return false;
+  if (g_scratch.resampled_capacity >= samples) return true;
+  heap_caps_free(g_scratch.resampled);
+  g_scratch.resampled = static_cast<uint8_t*>(
+      heap_caps_malloc(samples * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  g_scratch.resampled_capacity = g_scratch.resampled == nullptr ? 0 : samples;
+  return g_scratch.resampled != nullptr;
+}
+
+void release_capture_workspace() {
+  heap_caps_free(g_scratch.resampled);
+  g_scratch.resampled = nullptr;
+  g_scratch.resampled_capacity = 0;
+}
+
+size_t capture_workspace_bytes() { return g_scratch.resampled_capacity * 2; }
+
 bool initialize() {
   if (g_scratch.fft != nullptr && g_scratch.downchirp != nullptr && g_scratch.twiddle != nullptr &&
       g_scratch.recovery_alternates != nullptr) {
@@ -1068,15 +1158,32 @@ static size_t decode_capture_pass(const uint8_t* cu8, size_t bytes, uint32_t sam
   uint32_t decode_rate = sample_rate_sps;
   const uint8_t* filtered_cu8 = nullptr;
   size_t filtered_samples = 0;
-  const uint32_t filter_started = now_millis();
-  if (!filter_capture(cu8, samples, sample_rate_sps, &filtered_cu8, &filtered_samples)) return 0;
-  if (stats != nullptr) stats->filter_millis += now_millis() - filter_started;
   const uint8_t* resampled_cu8 = nullptr;
   size_t resampled_samples = 0;
-  const uint32_t resample_started = now_millis();
-  if (!linear_resample_capture(filtered_cu8, filtered_samples, sample_rate_sps, &resampled_cu8,
-                               &resampled_samples)) return 0;
-  if (stats != nullptr) stats->resample_millis += now_millis() - resample_started;
+  const uint32_t filter_started = now_millis();
+  if (config.trace) {
+    // Diagnostic replay retains the intermediate samples its trace reports.
+    if (!filter_capture(cu8, samples, sample_rate_sps, &filtered_cu8, &filtered_samples)) {
+      if (stats != nullptr) stats->workspace_failed = true;
+      return 0;
+    }
+    if (stats != nullptr) stats->filter_millis += now_millis() - filter_started;
+    const uint32_t resample_started = now_millis();
+    if (!linear_resample_capture(filtered_cu8, filtered_samples, sample_rate_sps, &resampled_cu8,
+                                &resampled_samples)) {
+      if (stats != nullptr) stats->workspace_failed = true;
+      return 0;
+    }
+    if (stats != nullptr) stats->resample_millis += now_millis() - resample_started;
+  } else {
+    if (!compact_preprocess_capture(cu8, samples, sample_rate_sps,
+                                    &resampled_cu8, &resampled_samples)) {
+      if (stats != nullptr) stats->workspace_failed = true;
+      return 0;
+    }
+    // Filtering and interpolation share one loop in the live path.
+    if (stats != nullptr) stats->filter_millis += now_millis() - filter_started;
+  }
   decode_cu8 = resampled_cu8;
   samples = resampled_samples;
   decode_rate = kDecodeRate;

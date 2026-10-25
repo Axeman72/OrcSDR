@@ -4506,7 +4506,8 @@ bool iq_rec_ensure_buffer() {
 // (the FT8 screen's FREE MEMORY, RTL_MEM RECLAIM) when nothing is using them, and re-allocated by lora_iq_ensure_buffers() the next
 // time LoRa opens.
 size_t lora_iq_held_bytes() {
-  return (g_iq_rec_buf ? kIqRecMaxBytes : 0u) + (g_lora_decode_buf ? kIqRecMaxBytes : 0u) + (g_lora_pre_roll_buf ? kLoraPreRollBytes : 0u);
+  return (g_iq_rec_buf ? kIqRecMaxBytes : 0u) + (g_lora_decode_buf ? kIqRecMaxBytes : 0u) +
+         (g_lora_pre_roll_buf ? kLoraPreRollBytes : 0u) + orcsdr::lora_native::capture_workspace_bytes();
 }
 
 size_t lora_iq_release_buffers() {
@@ -4536,6 +4537,7 @@ size_t lora_iq_release_buffers() {
   heap_caps_free(capture);
   heap_caps_free(decode);
   heap_caps_free(pre_roll);
+  orcsdr::lora_native::release_capture_workspace();
   return held;
 }
 
@@ -4867,7 +4869,14 @@ void lora_native_decode_task(void*) {
     lora_native_last_cfo_tenths_hz.store(stats.cfo_tenths_hz, std::memory_order_release);
     if (stats.preambles == 0)
       lora_detector_relearn_requested.store(true, std::memory_order_release);
-    if (!stats.ready) lora_native_failures.fetch_add(1, std::memory_order_relaxed);
+    if (!stats.ready) {
+      lora_native_failures.fetch_add(1, std::memory_order_relaxed);
+      if (stats.workspace_failed) {
+        Serial.printf("RTL_LORA_NATIVE_ERROR stage=preprocess_workspace sequence=%lu bytes=%u\n",
+                      static_cast<unsigned long>(work.sequence), static_cast<unsigned>(work.bytes));
+        log_lora_memory("preprocess_failed");
+      }
+    }
     for (size_t i = 0; i < count; ++i) {
       LoraDisplayPacket packet{};
       strlcpy(packet.text, decoded[i].text, sizeof(packet.text));
@@ -5013,6 +5022,13 @@ void lora_native_decode_task(void*) {
 }
 
 bool lora_native_decoder_start() {
+  if (lora_native_decoder_ready.load(std::memory_order_acquire) &&
+      lora_native_decode_busy.load(std::memory_order_acquire)) return true;
+  if (!orcsdr::lora_native::reserve_capture_workspace(kIqRecMaxBytes)) {
+    Serial.println("RTL_LORA_NATIVE_INIT_FAIL stage=capture_workspace");
+    log_lora_memory("workspace_reserve_failed");
+    return false;
+  }
   if (lora_native_decoder_ready.load(std::memory_order_acquire)) return true;
   if (!orcsdr::lora_native::self_check()) {
     Serial.println("RTL_LORA_NATIVE_SELF_CHECK_FAIL");
@@ -15850,6 +15866,12 @@ bool queue_local_rtl_listen(RtlBand band, uint32_t frequency_hz,
     Serial.println("RTL_ADSB_CAPTURE live_rf=true ui_data=live");
   }
   if (band == RtlBand::lora) {
+    if (band != rtl_ui_band || orcsdr::lora_native::capture_workspace_bytes() == 0) {
+      // Reclaim inactive caches before capture/workspace allocations fragment
+      // the remaining PSRAM. Each holder protects its live data itself.
+      const size_t reclaimed = orcsdr::memory_reclaim::reclaim_all(nullptr, 0, nullptr);
+      Serial.printf("RTL_LORA_MEMORY_RECLAIM bytes=%u\n", static_cast<unsigned>(reclaimed));
+    }
     if (!lora_native_decoder_start())
       Serial.println("RTL_LORA_WARN native_decoder_unavailable dashboard=PHY_PENDING");
     lora_iq_reset_detector();
