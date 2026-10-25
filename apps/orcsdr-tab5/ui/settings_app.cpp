@@ -898,12 +898,13 @@ void update(const State& state_value) {
   const bool ntp_changed = g_state.ntp_state != state_value.ntp_state;
   if (ntp_changed) g_ntp_tapped = false;
   const bool rtc_flipped = g_state.rtc_valid != state_value.rtc_valid;
-  const bool catalog_changed = g_section == Section::data_maps &&
+  const bool catalog_inventory_changed =
       (g_state.catalog_ready != state_value.catalog_ready || g_state.catalog_busy != state_value.catalog_busy ||
        g_state.catalog_progress_percent != state_value.catalog_progress_percent ||
        strcmp(g_state.catalog_message, state_value.catalog_message) != 0 ||
        strcmp(g_state.catalog_date, state_value.catalog_date) != 0 ||
        memcmp(g_state.catalog_packs, state_value.catalog_packs, sizeof(g_state.catalog_packs)) != 0);
+  const bool catalog_changed = g_section == Section::data_maps && catalog_inventory_changed;
   const bool location_changed = g_section == Section::location_adsb &&
       (g_state.location_configured != state_value.location_configured ||
        g_state.latitude_e7 != state_value.latitude_e7 ||
@@ -930,7 +931,7 @@ void update(const State& state_value) {
        strcmp(g_state.orcdial_failure,state_value.orcdial_failure) ||
        g_state.orcdial_paired != state_value.orcdial_paired ||
        g_state.orcdial_bridge_ready != state_value.orcdial_bridge_ready);
-  if (catalog_changed) g_catalog_cursor.catalog_changed(state_value.catalog_packs);
+  if (catalog_inventory_changed) g_catalog_cursor.catalog_changed(state_value.catalog_packs);
   g_state = state_value;
   if(g_edit==EditField::none&&g_state.location_configured)g_latitude_set=g_longitude_set=true;
   if (g_clock_edit) {
