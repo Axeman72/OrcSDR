@@ -115,11 +115,11 @@ All are FIX BEFORE MERGE; none has been silently downgraded to OPTIONAL/STALE.
 | 4372201719 | FT8 globe still calls readPixel/drawPixel for every output pixel | Row-transfer equivalence/byte-order test before optimization |
 | 4372201722 | FT8 pending publication leaves revision unchanged; update retries the map tab | Recording test for pending retries without static-panel clears |
 | 4372201726 | Location worker uses WithCaps task allocation but ends with vTaskDelete | Task ownership/reaping fault tests against installed IDF 5.5.4 before changing deletion |
-| 4372201727 | LoRa label toggle now updates only its button and map region | Recording regression/P4 syntax pass; device check pending |
+| 4372201727 | LoRa label toggle now updates only its button and map region | Recording regression/P4 syntax/native linking pass; device check pending |
 | 4372201733 | queue_local_rtl_listen returns immediately under setup_receiver_inhibit; later I/O deferral excludes setup_radio_paused | Lifecycle test for external navigation while setup is paused |
 | 4372201738 | OrcDial TX task failure leaves null handle without setting initialization_retry_ms | Allocation-failure/backoff test; preserve paired-device behavior |
 | 4372201742 | Download notice x318..412 intersects FT8 title/divider and LoRa divider | Header-geometry/recording checks for notice appearance and removal |
-| 4372201745 | FATFS capacity query and direct free-space callers now corrected in source | Host failure/full-card tests and transfer/shared-SD checks pass; native/device validation pending |
+| 4372201745 | FATFS capacity query and direct free-space callers now corrected in source | Host failure/full-card tests, transfer/shared-SD checks and native linking pass; device validation pending |
 | 4372201755 | downloads::service executes synchronously ahead of map queue receive | Bounded concurrent transfer/render scheduling with shared-storage ownership tests |
 
 The source inspection does not endorse the review's suggested implementation.
@@ -266,3 +266,42 @@ linking remain pending with the SD-capacity source correction. COM17 still runs
 4b2986e6. ADS-B zoom remains separately open: it also discards its cached panel
 before a pending replacement, so merely swapping full redraw for content redraw
 would not fully address that finding.
+
+## Setup direct-start pause guard
+
+CodeRabbit review 5646376764 on 607410c6 added no inline comments, but its
+outside-diff major finding identified direct `RTL_LISTEN`/`RTL_CAPTURE` requests
+that bypass the navigation-level setup guard. Current native and legacy driver
+loops consumed `rtl_capture_requested` without first checking `radio_io_paused`.
+
+Both start conditions now test the existing shared pause predicate before
+exchanging the request. Requests remain pending during setup, Wi-Fi or other
+exclusive I/O pauses; they are consumed once the pause ends. No driver API,
+task priority, capture format or receiver configuration was changed.
+
+`python tests/receiver_start_pause_test.py` extracts both actual production
+conditions. It failed when a paused request was consumed, then PASS after the
+two guards: repeated paused polls retain the request, resuming consumes once,
+and absent receivers also retain requests. Existing
+`wsl python3 /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion/apps/orcsdr-tab5/tests/setup_radio_pause_tests.py`
+PASS: idle behavior, Wi-Fi overlap in both exit orders, active restore and stop
+failure. Main-file real-P4 syntax PASS. Logs beside invocation:
+`receiver-start-pause-{red2,green,lifecycle}-20261025.log`,
+`receiver-start-pause-p4-syntax-20261025.log`.
+
+This is separate from earlier navigation finding 4372201733, which remains open:
+external dashboard selection during setup must also reconcile the requested
+band and touch/UI ownership. The added start gate alone does not close that.
+
+## Held SD/label native artifact
+
+Source 8cd9306f native build and inspection PASS: app 5,300,528 bytes. Existing
+40 KiB DMA reserve, original cache configuration, dependency/public-key/catalog,
+PSRAM placement and symbol gates retained. Artifact
+`.local/maps/release-sd-label-8cd9306f-20261025/manifest.json` and logs
+`release-sd-label-native-{build,inspection}-20261025.log`.
+
+It was deliberately not flashed after the direct-start finding was verified.
+The pause guard must join the next combined build/device test. COM17 continues
+running verified 4b2986e6, and COM39 was not accessed during this work. Do not
+describe the source fixes as installed or the release gate as complete.

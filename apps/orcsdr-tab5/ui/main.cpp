@@ -9244,6 +9244,7 @@ void usb_host_task(void*) {
       clear_rtl_sdr_device();
     }
     if (rtl_sdr_device != nullptr && !rtl_sdr_gone &&
+        !radio_io_paused() &&
         rtl_capture_requested.exchange(false, std::memory_order_acq_rel)) {
       run_rtl_capture();
       if (rtl_restart_requested.exchange(false, std::memory_order_acq_rel) &&
@@ -9610,6 +9611,7 @@ static void rtl_driver_app_task(void *) {
                     rtl_band_name(band), static_cast<unsigned>(frequency_hz), queued ? 1 : 0);
     }
     if (g_rtl != nullptr && g_rtl_device_ready.load(std::memory_order_acquire) &&
+        !radio_io_paused() &&
         rtl_capture_requested.exchange(false, std::memory_order_acq_rel)) {
       rtl_capture_state.store(RtlCaptureState::queued, std::memory_order_release);
       const RtlBand band = rtl_requested_band.load(std::memory_order_acquire);
