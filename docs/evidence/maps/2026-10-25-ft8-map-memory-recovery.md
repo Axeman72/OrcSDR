@@ -55,3 +55,28 @@ reclaim command or flash was issued
 during this correction. COM39 remains untouched. This is not a claim that maps
 can allocate through arbitrary exhausted memory or that live buffers may be
 discarded; the required hardware gate is the reported ordinary mode transition.
+
+## First hardware candidate
+
+App-only candidate `9344fce7` was installed on COM17 with all non-app partitions
+verified unchanged and startup captured. Three LoRa→FT8 returns rendered the
+world map, released retained LoRa buffers to zero, and left reception running.
+The first released 15,840,000 bytes; free PSRAM afterward was 14,213,036 bytes.
+Final shared frame: ready, 524,288 bytes, one tile, 478 features, zero missing or
+failed tiles. The hash-verified final PNG visibly contains the world basemap,
+receiver marker, attribution and controls. Logs:
+
+- `ft8-map-recovery-transitions-device-20261025.log`
+- `ft8-map-recovery-final-20261025.png`
+- `ft8-map-recovery-snapshot-20261025.log`
+- `release-ft8-map-boot-native-monitor-20261025.log`
+- `release-ft8-map-preservation-20261025.log`
+
+However, the second/third LoRa entries reported `RTL_IQ_ERROR no_psram_buffer`
+and retained only 8,160,000 bytes, so these are not three successful full LoRa
+reception cycles. Inspection found generic dashboard navigation queued LoRa's
+capture allocations before `draw_sdr_screen` called FT8's sprite cleanup.
+The follow-up moves that existing FT8 cleanup ahead of the LoRa queue call.
+This follow-up requires native and round-trip hardware validation before the
+overall memory handoff is closed. No protocol decode success is inferred from
+these UI/memory checks.

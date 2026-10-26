@@ -14659,6 +14659,9 @@ void open_dashboard(orcsdr::dashboards::Id id) {
   }
   persist_dashboard_open(id);
   orcsdr::home::leave();
+  // LoRa allocates capture buffers in queue_local_rtl_listen; release the
+  // outgoing FT8 map sprites first, before they fragment that allocation.
+  if (band == RtlBand::lora) orcsdr::ft8::leave();
   if (rtl_capture_state.load(std::memory_order_acquire) == RtlCaptureState::running &&
       band == rtl_ui_band) {
     request_hot_retune(frequency);
