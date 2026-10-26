@@ -243,10 +243,10 @@ bool service(storage::FileSystem* fs) {
     g_snapshot.completed_bytes=0;g_snapshot.total_bytes=g_catalog.packs[index].manifest.size_bytes;
     portEXIT_CRITICAL(&g_lock);
     publish(Phase::downloading,pending,"Downloading map to SD. You can stop and resume.");
-    const auto total=storage::total_bytes(),used=storage::used_bytes();
+    const auto available=storage::free_bytes();
     const auto clock=time_service::now();transfer::HttpStream stream;install::Result outcome;
     for(size_t mirror=0;mirror<g_catalog.packs[index].urls.size();++mirror) {
-      outcome=install::run(*fs,store,g_catalog,index,mirror,stream,total>used?total-used:0,
+      outcome=install::run(*fs,store,g_catalog,index,mirror,stream,available,
           buffer.get(),16384,false,clock.wallclock_valid?clock.utc:0,kHooks);
       if(g_cancel.load()||outcome.error!=install::Error::transfer||
           (outcome.transfer!=transfer::Error::network&&outcome.transfer!=transfer::Error::response))break;

@@ -35,6 +35,15 @@ sd_pwr_ctrl_handle_t g_sd_power = nullptr;
 orcsdr::storage::FileSystem g_filesystem;
 bool g_report_next_write_buffer = false;
 
+bool sd_space(uint64_t* total, uint64_t* free) {
+  *total = *free = 0;
+  if (!g_mounted || esp_vfs_fat_info("/sd", total, free) != ESP_OK || *free > *total) {
+    *total = *free = 0;
+    return false;
+  }
+  return true;
+}
+
 std::string mounted_path(const char* path) {
   if (!path || strncmp(path, "/sd/", 4) == 0 || strcmp(path, "/sd") == 0) return path ? path : "";
   return std::string("/sd") + path;
@@ -219,8 +228,9 @@ bool mount_tab5_sd() {
 
 bool mounted() { return g_mounted; }
 FileSystem& filesystem() { return g_filesystem; }
-uint64_t total_bytes() { return g_card ? static_cast<uint64_t>(g_card->csd.capacity) * g_card->csd.sector_size : 0; }
-uint64_t used_bytes() { return 0; }
+uint64_t total_bytes() { uint64_t total, free; return sd_space(&total, &free) ? total : 0; }
+uint64_t used_bytes() { uint64_t total, free; return sd_space(&total, &free) ? total - free : 0; }
+uint64_t free_bytes() { uint64_t total, free; return sd_space(&total, &free) ? free : 0; }
 
 bool run_file_semantics_check() {
   if (!mount_tab5_sd() || !g_filesystem.mkdir("/orcsdr")) return false;

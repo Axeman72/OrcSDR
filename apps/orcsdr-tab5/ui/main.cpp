@@ -12858,8 +12858,7 @@ const orcsdr::settings::State& global_settings_state() {
   state.fm_frequency_hz = rtl_saved_fm_hz;
   state.sd_ready = g_sd_ready;
   state.sd_total_bytes = sd_total_bytes();
-  state.sd_free_bytes = g_sd_ready && g_sd_fs ? state.sd_total_bytes -
-      orcsdr::storage::used_bytes() : 0;
+  state.sd_free_bytes = g_sd_ready && g_sd_fs ? orcsdr::storage::free_bytes() : 0;
   const auto catalog_state = orcsdr::catalog::state();
   state.catalog_ready = catalog_state.ready;
   state.catalog_busy = catalog_state.busy;
@@ -15132,8 +15131,7 @@ void handle_global_settings_action(const orcsdr::settings::Action& action) {
       if (orcsdr::catalog::state().busy) {
         Serial.println("ORC_CATALOG_CHECK_REJECTED");
       } else if (ensure_tab5_sd()) {
-        orcsdr::catalog::begin(g_sd_fs, sd_total_bytes() -
-            orcsdr::storage::used_bytes());
+        orcsdr::catalog::begin(g_sd_fs, orcsdr::storage::free_bytes());
         if (!orcsdr::wifi::connected()) {
           (void)orcsdr::catalog::request_check();
           Serial.println("ORC_CATALOG_CHECK_REJECTED");
@@ -23079,7 +23077,7 @@ void setup() {
     orcsdr_splash_set_status("Loading data packs and maps…");
     (void)orcsdr::rf_lab::initialize(g_sd_fs);
     load_pocsag_scan_list();
-    orcsdr::catalog::begin(g_sd_fs, sd_total_bytes() - orcsdr::storage::used_bytes());
+    orcsdr::catalog::begin(g_sd_fs, orcsdr::storage::free_bytes());
     refresh_adsb_atc_preset();
     heard_db_load_from_sd();   // stations-heard journal: replayed now, while internal DMA memory is free
     set_lora_sd_logging(true);  // worker replays persistent node history; no SD IO on the decoder path

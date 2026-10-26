@@ -1,5 +1,20 @@
 # SD card reliability and regression checks
 
+October 25 release source correction: filesystem capacity now comes from
+ESP-IDF 5.5.4 `esp_vfs_fat_info`, rather than raw card sectors and a hardcoded
+zero used count. Unmounted/query errors and invalid free-greater-than-total
+results return zero usable capacity. Map downloads, SSTV archive checks,
+catalog initialization and Settings free-space display use a direct free-space
+query, avoiding subtraction of separately sampled total/used values.
+
+Focused capacity fault-injection, real-P4 syntax, the existing transfer test
+(including low-space rejection before HTTP), and six shared-SD host programs
+pass. These are host/source results: no near-full real card or new firmware
+installation is claimed. The capacity preflight is not a reservation; another
+writer may consume space during a transfer, so existing write/sync/close checks
+remain required. A capacity-query failure does not erase a staged download.
+See [release review evidence](evidence/maps/2026-10-25-pr211-review-triage.md).
+
 October 23 source-only follow-up: the map download/recovery worker's existing
 16 KiB PSRAM transfer buffer now requests MALLOC_CAP_CACHE_ALIGNED, matching the
 shared writable File buffer policy. Size, lifetime, allocation-failure behavior,

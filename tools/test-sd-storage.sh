@@ -33,4 +33,6 @@ run sstv_archive -DORCSDR_SSTV_TESTING -I"$tests" "$tests/sstv_archive_test.cpp"
   "$ui/sstv_archive.cpp" "$ui/sstv_receiver.cpp" "$ui/sstv_modes.cpp" "$ui/sstv_auto_detect.cpp" -pthread
 python3 "$root/tools/test_ft8_log_storage.py" >"$out/sd-storage-ft8-log-run-$stamp.log" 2>&1
 printf 'ft8_log PASS; run=%s/sd-storage-ft8-log-run-%s.log\n' "$out" "$stamp" | tee -a "$summary"
+python3 "$root/tests/sd_space_query_test.py" >"$out/sd-storage-space-query-run-$stamp.log" 2>&1
+printf 'space_query PASS; run=%s/sd-storage-space-query-run-%s.log\n' "$out" "$stamp" | tee -a "$summary"
 printf 'SD_STORAGE_HOST_PASS (no device, DMA hardware or power-cut qualification)\n' | tee -a "$summary"

@@ -119,7 +119,7 @@ All are FIX BEFORE MERGE; none has been silently downgraded to OPTIONAL/STALE.
 | 4372201733 | queue_local_rtl_listen returns immediately under setup_receiver_inhibit; later I/O deferral excludes setup_radio_paused | Lifecycle test for external navigation while setup is paused |
 | 4372201738 | OrcDial TX task failure leaves null handle without setting initialization_retry_ms | Allocation-failure/backoff test; preserve paired-device behavior |
 | 4372201742 | Download notice x318..412 intersects FT8 title/divider and LoRa divider | Header-geometry/recording checks for notice appearance and removal |
-| 4372201745 | storage::used_bytes() returns zero, so capacity check is not real free space | FATFS capacity failure/full-card tests; no filling user's SD |
+| 4372201745 | FATFS capacity query and direct free-space callers now corrected in source | Host failure/full-card tests and transfer/shared-SD checks pass; native/device validation pending |
 | 4372201755 | downloads::service executes synchronously ahead of map queue receive | Bounded concurrent transfer/render scheduling with shared-storage ownership tests |
 
 The source inspection does not endorse the review's suggested implementation.
@@ -205,3 +205,40 @@ map-associated IQ losses, SD fault recovery, or the decoder/dongle release matri
 The subsequent bench handoff also observed two CRC-valid LoRa packets with zero
 decoder failures, including NODEINFO; see `release-review-handoff-device-20261025.log`.
 This is bounded ambient reception evidence, not controlled packet qualification.
+
+## SD free-space correction (source only)
+
+`sd_space` uses the installed SDK's `esp_vfs_fat_info("/sd",...)` to query FATFS
+total/free bytes. Wrappers return zero for unmounted/query failures and invalid
+free>total results. `used_bytes` now subtracts values from a single successful
+snapshot. Download preflight, SSTV, catalog initialization and Settings free-space
+display use direct `free_bytes()` instead of separate total/used queries. No
+managed component or SD format/mount configuration changed. The SDK query can
+read FAT metadata; it does not format, remove or write user files.
+
+Tests executed:
+
+- `python tests/sd_space_query_test.py`: PASS. Nearly full/full/empty cards,
+  32 GB arithmetic, invalid query values, I/O error, and unmounted state.
+  Address/undefined sanitizer run PASS. The test was added first; initial red
+  log records the missing query wrapper before implementation.
+- `python .local/maps/check_sd_space_syntax_20261025.py orcsdr_storage.cpp map_downloads.cpp sstv_archive.cpp main.cpp`:
+  PASS for all four real-P4 units.
+- `cmake --build .local/maps/catalog-security-20261019 --config Debug --target map_transfer_test -j 4`
+  using `C:/Program Files/CMake/bin/cmake.exe`, then matching CTest `-C Debug -R ^map_transfer$ --output-on-failure`:
+  PASS, 1/1. Includes insufficient-space rejection before HTTP open and existing
+  resume/activation cases. Uses only its guarded owned host fixture directory.
+- `wsl bash /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion/tools/test-sd-storage.sh`:
+  PASS, now 6 programs: DMA, write plan, LoRa history, SSTV archive, FT8 log, and
+  the newly registered capacity query. Existing programs retain sanitizers.
+
+Logs beside invocation: `sd-space-query-{red,green,sanitized}-20261025.log`,
+`sd-space-p4-syntax-20261025.log`, `sd-space-transfer-{build,tests}-20261025.log`,
+`sd-space-shared-regressions-20261025.log`,
+`sd-storage-20261026T020646Z.log` (UTC filename; October 25 local).
+
+No full real SD card, map download, native rebuild or flash was used to establish
+these results. This is a preflight check, not a storage reservation: concurrent
+writers may still consume space later. Write/sync/close failure handling and
+resume validation remain mandatory. COM17 retains app source 4b2986e6; COM39 is
+unchanged. Installed-device confirmation of this correction remains pending.

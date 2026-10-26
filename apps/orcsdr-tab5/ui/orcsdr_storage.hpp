@@ -61,8 +61,10 @@ namespace orcsdr::storage {
 bool mount_tab5_sd();
 bool mounted();
 FileSystem& filesystem();
+// Filesystem capacity, not raw card sectors. Unmounted/query failures return 0.
 uint64_t total_bytes();
 uint64_t used_bytes();
+uint64_t free_bytes();
 bool run_file_semantics_check();
 bool run_write_benchmark(uint32_t file_mib = 32);
 

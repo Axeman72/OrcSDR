@@ -103,9 +103,7 @@ bool d_exists(const char* path) {
 }
 uint64_t d_free_bytes() {
 #ifdef ESP_PLATFORM
-  const uint64_t total = orcsdr::storage::total_bytes();
-  const uint64_t used = orcsdr::storage::used_bytes();
-  return total > used ? total - used : 0;
+  return orcsdr::storage::free_bytes();
 #else
   return ~static_cast<uint64_t>(0);
 #endif
