@@ -37,3 +37,8 @@ Its captured editor was inspected; Save, Cancel and Sync NTP are visible.
 See [combined device evidence](2026-10-25-map-quick-file-check.md). COM17 was
 returned to Home for the pending physical time/date tap check; no clock value
 was saved or changed by these tests.
+
+Physical acceptance: the user subsequently tapped Home's time/date on COM17 and
+confirmed **"Opens Set Clock correctly"** on installed source `9e3f0378`.
+This closes Home's physical touch check. FT8 clock-chip/UTC routing has host
+coverage; no separate physical FT8 tap result was reported.
