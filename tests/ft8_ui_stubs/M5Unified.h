@@ -23,6 +23,7 @@ struct Paint { std::string text; int x, y; uint16_t color; int text_size=1; };
 inline std::vector<Paint> paints;
 inline bool sprite_fail=false;
 inline int sampled_pixels=0, drawn_pixels=0;
+inline int screen_clears=0;
 class LovyanGFX {
   uint16_t color_ = 0;
   int text_size_ = 1;
@@ -35,7 +36,7 @@ public:
   template<class... T> void drawRoundRect(T...) {}
   template<class... T> void fillRect(T...) {}
   template<class... T> void drawRect(T...) {}
-  template<class... T> void fillScreen(T...) {}
+  template<class... T> void fillScreen(T...) {++screen_clears;}
   template<class... T> void fillCircle(T...) {}
   template<class... T> void drawPixel(T...) { ++drawn_pixels; }
   template<class... T> void drawCircle(T...) {}

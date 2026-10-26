@@ -415,11 +415,14 @@ void draw_traffic_static() {
   button(902, 188, 270, 44, "CLEAR EVENTS", kCyan);
 }
 
+void draw_map_label_control() {
+  button(430,584,220,48,g_map_label_error?"SAVE FAILED":
+      maps::preferences::labels(maps::preferences::Consumer::lora)?"LABELS ON":"LABELS OFF",kCyan);
+}
 void draw_map_controls() {
   button(26, 584, 190, 48, "NODE CENTER", kCyan);
   button(228, 584, 190, 48, "FOLLOW NODE", kCyan, g_follow_node);
-  button(430,584,220,48,g_map_label_error?"SAVE FAILED":
-      maps::preferences::labels(maps::preferences::Consumer::lora)?"LABELS ON":"LABELS OFF",kCyan);
+  draw_map_label_control();
   button(664,584,200,48,"RECEIVER",kCyan);
   text("VERIFIED POSITIONS ONLY", 1060, 625, kMuted, 1);
 }
@@ -1104,7 +1107,7 @@ Action handle_touch(int32_t x, int32_t y) {
     if(hit(x,y,430,584,220,48)) {
       using maps::preferences::Consumer;
       g_map_label_error=!maps::preferences::set_labels(Consumer::lora,!maps::preferences::labels(Consumer::lora));
-      draw_static();return {};
+      draw_map_label_control();draw_map_dynamic(false);return {};
     }
     if (hit(x, y, 26, 584, 190, 48)) return {ActionKind::center_map};
     if (hit(x, y, 228, 584, 190, 48)) return {ActionKind::follow_node};

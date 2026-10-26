@@ -115,7 +115,7 @@ All are FIX BEFORE MERGE; none has been silently downgraded to OPTIONAL/STALE.
 | 4372201719 | FT8 globe still calls readPixel/drawPixel for every output pixel | Row-transfer equivalence/byte-order test before optimization |
 | 4372201722 | FT8 pending publication leaves revision unchanged; update retries the map tab | Recording test for pending retries without static-panel clears |
 | 4372201726 | Location worker uses WithCaps task allocation but ends with vTaskDelete | Task ownership/reaping fault tests against installed IDF 5.5.4 before changing deletion |
-| 4372201727 | LoRa label toggle still calls draw_static | Recording test for bounded label/overlay update |
+| 4372201727 | LoRa label toggle now updates only its button and map region | Recording regression/P4 syntax pass; device check pending |
 | 4372201733 | queue_local_rtl_listen returns immediately under setup_receiver_inhibit; later I/O deferral excludes setup_radio_paused | Lifecycle test for external navigation while setup is paused |
 | 4372201738 | OrcDial TX task failure leaves null handle without setting initialization_retry_ms | Allocation-failure/backoff test; preserve paired-device behavior |
 | 4372201742 | Download notice x318..412 intersects FT8 title/divider and LoRa divider | Header-geometry/recording checks for notice appearance and removal |
@@ -242,3 +242,27 @@ these results. This is a preflight check, not a storage reservation: concurrent
 writers may still consume space later. Write/sync/close failure handling and
 resume validation remain mandatory. COM17 retains app source 4b2986e6; COM39 is
 unchanged. Installed-device confirmation of this correction remains pending.
+
+## LoRa label-toggle redraw (source only)
+
+The Labels button now redraws just that control and the map/overlays. Header,
+tabs and selected-node panel are retained. No framebuffer was added. The
+recording regression first reproduced the full-screen clear, then passed four
+alternating toggles plus a failed save and successful retry. It checks the
+visible ON/OFF/SAVE FAILED text, the labels flag passed to the map adapter, and
+an unchanged full-screen-clear count. Existing drag, projection, selection,
+ownership and serial-status tests remain passing in the same executable.
+
+Commands: build `orcsdr_lora_map_tests` in the existing WSL maps build, then
+CTest `-R lora_map_controls --output-on-failure`: PASS 1/1.
+`python .local/maps/check_lora_label_syntax_20261025.py lora_dashboard.cpp`:
+P4 syntax PASS. Logs beside invocation:
+`lora-label-{red,green}-20261025.log`,
+`lora-label-{red,green}-build-20261025.log`, `lora-label-p4-syntax-20261025.log`.
+
+Existing named `RTL_MAP LABELS LORA ON|OFF` remains available; no new input or
+authentication mechanism was added. Physical label-toggle acceptance and native
+linking remain pending with the SD-capacity source correction. COM17 still runs
+4b2986e6. ADS-B zoom remains separately open: it also discards its cached panel
+before a pending replacement, so merely swapping full redraw for content redraw
+would not fully address that finding.

@@ -15,6 +15,7 @@ namespace {
 orcsdr::receiver_location::Snapshot location;
 orcmap::Viewport painted_camera;
 bool owner=true,labels=true;
+bool label_write_ok=true,painted_labels=true;
 int frames=0;
 uint32_t map_revision=1;
 std::string reply;
@@ -41,7 +42,7 @@ uint8_t survey_span_count(){return 3;} bool self_check(){return true;}
 }
 namespace orcsdr::maps::preferences {
 bool labels(Consumer){return ::labels;}
-bool set_labels(Consumer,bool value){::labels=value;return true;}
+bool set_labels(Consumer,bool value){if(!label_write_ok)return false;::labels=value;return true;}
 }
 namespace orcsdr::maps {
 uint32_t revision(){return map_revision;}
@@ -55,8 +56,8 @@ bool project(const orcmap::Viewport& view,int32_t lat,int32_t lon,int* x,int* y)
   if(!orcmap::ProjectLatLon(view,{lat/1e7,lon/1e7},&sx,&sy)||sx<0||sy<0||sx>=view.width_px||sy>=view.height_px)return false;
   *x=std::lround(sx);*y=std::lround(sy);return true;
 }
-Frame draw(const orcmap::Viewport& camera,lgfx::LovyanGFX&,int x,int y,FrameInfo* info,const char*,bool) {
-  assert(x==50&&y==182);painted_camera=camera;++frames;
+Frame draw(const orcmap::Viewport& camera,lgfx::LovyanGFX&,int x,int y,FrameInfo* info,const char*,bool show_labels) {
+  assert(x==50&&y==182);painted_camera=camera;painted_labels=show_labels;++frames;
   std::strcpy(info->credit,"Test map attribution");return Frame::pending;
 }
 }
@@ -70,6 +71,16 @@ int main() {
   location.configured=true;location.latitude_e7=100000000;location.longitude_e7=1798000000;
   show_documentation_view(View::map,snapshot);
   auto state=map_state();assert(state.ready&&!state.following&&state.longitude_e7==location.longitude_e7);
+  const int label_clears=lgfx::screen_clears;
+  for(int i=0;i<4;++i) {
+    lgfx::paints.clear();handle_touch(500,600);
+    assert(lgfx::screen_clears==label_clears&&painted_labels==labels);
+    assert(painted(labels?"LABELS ON":"LABELS OFF"));
+  }
+  label_write_ok=false;lgfx::paints.clear();handle_touch(500,600);
+  assert(lgfx::screen_clears==label_clears&&painted("SAVE FAILED"));
+  label_write_ok=true;handle_touch(500,600);
+  assert(lgfx::screen_clears==label_clears&&painted_labels==labels);
   const int initial_frames=frames;
   command("RTL_LORA_MAP PAN 20 10",false);assert(reply.find("auth_required")!=std::string::npos&&frames==initial_frames);
   command("RTL_LORA_MAP STATUS",false);assert(reply.find("active=1 ready=1")!=std::string::npos);
