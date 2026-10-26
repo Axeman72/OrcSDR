@@ -444,6 +444,13 @@ void screen_tests() {
   click(1140,40);
   assert(!map_screen::state().active&&download_cancels==stops_before_back&&download_status.busy);
   download_status={};
+  settings::enter(settings_state(),settings::Section::system);
+  const int clock_clears=M5.Display.screen_clears;
+  assert(settings::begin_clock_edit());
+  assert(visible("YEAR")&&visible("SYNC NTP")&&visible("SAVE"));
+  assert(M5.Display.screen_clears==clock_clears);
+  settings::leave();
+  assert(!settings::begin_clock_edit());
   std::puts("MAP_SERIAL_PASS authentication, parser, shared save/pan/zoom, setup pause/finish and installer gates");
   std::puts("MAP_SCREEN_TEST_PASS (changed-point save/return, failure, cancel, pan, zoom, Settings redraw)");
 }

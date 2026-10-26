@@ -1,5 +1,10 @@
 # Maps and setup over serial
 
+Clock shortcut: authenticated `RTL_UI OPEN CLOCK` opens Settings → System → Set
+Clock directly, like tapping Home's time/date or FT8's time/clock chips. Opening
+the editor does not set or sync time. Save, Cancel and Sync NTP retain their
+existing behavior. Map display itself does not require a set clock.
+
 `RTL_MAP HELP` lists named map commands. Commands are uppercase. Read-only help,
 status and lists do not require authentication. Every operation that changes
 state requires the existing authenticated serial session; this interface never

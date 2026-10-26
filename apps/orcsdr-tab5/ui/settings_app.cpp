@@ -958,6 +958,10 @@ void update(const State& state_value) {
     draw_content();
 }
 
+bool begin_clock_edit() {
+  if(!g_active||g_section!=Section::system)return false;
+  start_clock_edit();return true;
+}
 Action begin_location_method(int method) {
   if(method==0)return {ActionKind::location_ip_lookup,0};
   if(method==1) {

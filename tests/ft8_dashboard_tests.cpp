@@ -139,7 +139,8 @@ int main() {
   lgfx::paints.clear();
   update(s);
   assert(painted("UNSYNCED") && painted("CLOCK - TAP"));
-  assert(handle_touch(700, 130).kind == ActionKind::sync_clock);
+  assert(handle_touch(700, 130).kind == ActionKind::open_clock);
+  assert(handle_touch(700, 75).kind == ActionKind::open_clock);
   s.clock_sync_level = 2;   // synced
   s.clock_sync_age_s = 12 * 60;
   lgfx::paints.clear();
@@ -152,7 +153,7 @@ int main() {
   lgfx::paints.clear();
   select_tab(Tab::decodes);
   assert(painted("SYNCED 13m"));
-  assert(handle_touch(900, 130).kind == ActionKind::sync_clock);
+  assert(handle_touch(900, 130).kind == ActionKind::open_clock);
   lgfx::paints.clear();
   select_tab(Tab::setup);
   assert(painted("SYNCED 13 MIN AGO"));

@@ -77,6 +77,7 @@ enum class ActionKind : uint8_t {
   volume_down,
   volume_up,
   open_device_settings,
+  open_clock,
   waterfall_contrast_down,
   waterfall_contrast_up,
   waterfall_palette_next,

@@ -2573,6 +2573,7 @@ void draw_home_dashboard();
 void handle_home_action(const orcsdr::home::Action& action);
 void persist_dashboard_open(orcsdr::dashboards::Id id);
 void open_global_settings(orcsdr::settings::Section section);
+void open_clock_settings();
 void close_global_settings();
 void handle_global_settings_touch(int32_t x, int32_t y);
 void update_global_settings();
@@ -14218,6 +14219,7 @@ void handle_ft8_dashboard_action(const orcsdr::ft8::Action& action) {
       }
       break;
     case Kind::free_memory: ft8_free_memory_and_retry(); break;
+    case Kind::open_clock: open_clock_settings(); break;
     case Kind::sync_clock:
       if (orcsdr::ntp_sync::start(wifi_connected)) Serial.println("ORC_NTP_START ft8 chip");
       else Serial.println(wifi_connected ? "ORC_NTP_ERROR busy" : "ORC_NTP_ERROR no_wifi");
@@ -14791,6 +14793,7 @@ void handle_home_action(const orcsdr::home::Action& action) {
     case ActionKind::open_device_settings:
       open_global_settings(orcsdr::settings::Section::connectivity);
       return;
+    case ActionKind::open_clock: open_clock_settings(); return;
     case ActionKind::tune_frequency:
       if (rtl_ui_band == RtlBand::am) orcsdr::am::note_tuned(action.value);
       if (rtl_ui_band == RtlBand::p25) {
@@ -14877,6 +14880,10 @@ void handle_home_action(const orcsdr::home::Action& action) {
 
 void open_global_settings(orcsdr::settings::Section section) {
   orcsdr::navigation::open_settings(section);
+}
+void open_clock_settings() {
+  open_global_settings(orcsdr::settings::Section::system);
+  (void)orcsdr::settings::begin_clock_edit();
 }
 
 void close_global_settings() {
@@ -20116,6 +20123,7 @@ void process_command(char* command) {
     const char* name = command + 12;
     using Id = orcsdr::dashboards::Id;
     if (strcmp(name, "HOME") == 0) show_home();
+    else if (strcmp(name, "CLOCK") == 0) open_clock_settings();
     else if (strcmp(name, "FM") == 0) open_dashboard(Id::fm);
     else if (strcmp(name, "AM") == 0) open_dashboard(Id::am);
     else if (strcmp(name, "SHORTWAVE") == 0) open_dashboard(Id::shortwave);

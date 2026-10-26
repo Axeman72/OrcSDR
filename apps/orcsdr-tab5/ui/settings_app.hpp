@@ -185,6 +185,7 @@ void draw();
 void update(const State& state);
 // Open an existing location method: network=0, address=1, coordinates=2.
 Action begin_location_method(int method);
+bool begin_clock_edit();
 Action handle_touch(int32_t x, int32_t y);
 bool active();
 const State& state();

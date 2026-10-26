@@ -105,7 +105,7 @@ constexpr Rect kModePanel{246, 168, 540, 132};
 Rect mode_pick_rect(size_t i) { return {262 + static_cast<int>(i) * 172, 218, 164, 64}; }
 bool overlay_open() { return g_tune_open || g_info_open || g_mode_open || g_station_open || g_gain_open; }
 constexpr Rect kDialChip{24, 104, 212, 58};
-constexpr Rect kClockChipLive{626, 104, 190, 58};    // tap = sync the clock from the network
+constexpr Rect kClockChipLive{626, 104, 190, 58};    // tap = open time settings
 constexpr Rect kClockChipDecodes{824, 104, 204, 58};
 constexpr Rect kTunePanel{240, 104, 800, 512};
 constexpr Rect kTuneEntry{260, 168, 300, 46};
@@ -1838,8 +1838,8 @@ Action handle_touch(int32_t x, int32_t y) {
   }
   if (g_tab == Tab::live && g_snapshot.decoder_state == DecoderState::no_memory && has_holders(g_snapshot) && hit(x, y, kFreeMemory))
     return {ActionKind::free_memory, 0};
-  if ((g_tab == Tab::live && hit(x, y, kClockChipLive)) || (g_tab == Tab::decodes && hit(x, y, kClockChipDecodes)))
-    return {ActionKind::sync_clock, 0};
+  if (hit(x,y,{630,60,230,32}) || (g_tab == Tab::live && hit(x, y, kClockChipLive)) || (g_tab == Tab::decodes && hit(x, y, kClockChipDecodes)))
+    return {ActionKind::open_clock, 0};
   if (g_tab == Tab::live && hit(x, y, kGainChip)) {
     open_gain_panel();
     return {};
