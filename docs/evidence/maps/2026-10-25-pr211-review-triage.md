@@ -125,3 +125,40 @@ All are FIX BEFORE MERGE; none has been silently downgraded to OPTIONAL/STALE.
 The source inspection does not endorse the review's suggested implementation.
 In particular, task self-deletion and transfer/render concurrency need their
 own narrow ownership tests; do not replace them with an unverified one-line fix.
+
+## Additional host checks requested while building
+
+All invoked from the integration worktree; raw logs remain beside invocation.
+
+- Built and ran `map_preferences`, `location_store`, `sd_dma_buffer` and
+  `setup_flow` individually in the existing WSL host build: PASS, 4/4.
+  Logs `release-extra-map-{build,tests}-20261025.log`.
+- Built catalog-security/fetch/NVS targets using the configured Visual Studio
+  generator with `C:/Program Files/CMake/bin/cmake.exe`. CTest selector
+  `map_catalog_security|map_catalog_fetch|map_delivery_nvs` matched and ran
+  **two** registered checks: fetch and delivery/NVS, PASS 2/2. The signature
+  executable built but was not run by that selector; no signature-test pass is
+  claimed. The first attempt used the IDF CMake, which lacked the configured
+  VS18 generator. Logs `release-extra-catalog-{build,tests}-retry-20261025.log`.
+- `wsl python3 /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion/tools/test_ft8_log_storage.py`:
+  PASS, nine sanitizer-enabled fault cases. The existing fake filesystem needed
+  status/seek parity, and each independent scenario now runs in a fresh process
+  so static retry state is not accidentally shared between synthetic files.
+  Sequential retry/data-integrity behavior remains covered by the new byte test.
+  Logs `release-extra-ft8-storage-{initial,final,retry}-20261025.log` preserve
+  the stale-fixture failures and corrected result.
+- `wsl bash /mnt/f/AI/OrcSDR-TEMP/maps-integration-completion/tools/test-sd-storage.sh`:
+  PASS, five focused storage programs with address/undefined sanitizers: DMA
+  buffer, write plan, LoRa history, SSTV archive and FT8 log. No RF, device or
+  decoder recordings. Summary `sd-storage-20261026T011203Z.log` (UTC-stamped
+  filename; local test date October 25) and `release-extra-sd-console-20261025.log`.
+- Combined native source 4b2986e6: build and inspection PASS. App 5,299,952 bytes,
+  headroom 991,504; SHA-256
+  `1e9cf0a2c648d84c38de608e4bd4077c54e31e314c6ec778848b1bc24e24e41a`.
+  Original shipping cache configuration, 40 KiB DMA reserve, production catalog,
+  dependency pin and symbol/PSRAM placement gates retained. Artifact
+  `.local/maps/release-review-4b2986e6-20261025/manifest.json`;
+  logs `release-review-native-{build,inspection}-20261025.log`.
+
+These results do not close native/physical UI acceptance, live storage fault
+recovery, map-associated RF drops, decoder/dongle qualification or package gates.

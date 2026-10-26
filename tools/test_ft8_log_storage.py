@@ -12,13 +12,16 @@ HARNESS = r'''
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <cstdlib>
 struct Faults {
   bool mount=true, open=true, header=true, write=true, sync=true, close=true, exists=false;
   size_t dma=8192; unsigned opens=0, closes=0, syncs=0, headers=0;
 } faults;
+namespace orcsdr::storage {enum class EntryStatus {missing,file,directory,error};}
 struct File {
   explicit operator bool() const { return faults.open; }
   size_t size() const { return faults.exists ? 128 : 0; }
+  bool seek(size_t) { return true; }
   size_t print(const char* text) { ++faults.headers; return faults.header ? std::strlen(text) : 0; }
   size_t write(const uint8_t*,size_t n) { return faults.write ? n : n-1; }
   bool sync() { ++faults.syncs; return faults.sync; }
@@ -27,6 +30,9 @@ struct File {
 struct FileSystem {
   bool mkdir(const char*) { return true; }
   bool exists(const char*) { return faults.exists; }
+  orcsdr::storage::EntryStatus status(const char*) {
+    return faults.exists ? orcsdr::storage::EntryStatus::file : orcsdr::storage::EntryStatus::missing;
+  }
   File open(const char*,const char*,bool) { ++faults.opens; return {}; }
 } filesystem;
 FileSystem* g_sd_fs=&filesystem;
@@ -56,21 +62,26 @@ void retained() {
   assert(g_ft8_log_stage_rows==3 && g_ft8_log_stage_len==5);
   assert(g_ft8_log_rows==0 && g_ft8_log_errors==1);
 }
-int main() {
-  reset(); faults.close=false; retained(); assert(faults.closes==1);
-  reset(); faults.sync=false; retained(); assert(faults.closes==1);
-  reset(); faults.header=false; retained(); assert(faults.closes==1);
-  reset(); faults.write=false; retained(); assert(faults.closes==1);
-  reset(); faults.open=false; retained(); assert(faults.closes==0);
-  reset(); faults.mount=false; retained(); assert(faults.opens==0);
-  reset(); faults.dma=4095;
-  assert(!ft8_log_flush(true) && faults.opens==0 && g_ft8_log_stage_rows==3);
-  reset(); assert(ft8_log_flush(true));
-  assert(g_ft8_log_rows==3 && g_ft8_log_stage_rows==0 && g_ft8_log_stage_len==0);
-  assert(faults.syncs==1 && faults.closes==1 && g_ft8_log_errors==0);
-  assert(ft8_log_flush(true) && faults.opens==1);
-  reset(); faults.exists=true; faults.header=false;
-  assert(ft8_log_flush(true) && faults.headers==0 && g_ft8_log_rows==3);
+int main(int argc,char** argv) {
+  assert(argc==2);reset();
+  switch(std::atoi(argv[1])) {
+    case 0:faults.close=false;retained();assert(faults.closes==1);break;
+    case 1:faults.sync=false;retained();assert(faults.closes==1);break;
+    case 2:faults.header=false;retained();assert(faults.closes==1);break;
+    case 3:faults.write=false;retained();assert(faults.closes==1);break;
+    case 4:faults.open=false;retained();assert(faults.closes==0);break;
+    case 5:faults.mount=false;retained();assert(faults.opens==0);break;
+    case 6:faults.dma=4095;assert(!ft8_log_flush(true)&&faults.opens==0&&g_ft8_log_stage_rows==3);break;
+    case 7:
+      assert(ft8_log_flush(true));
+      assert(g_ft8_log_rows==3&&g_ft8_log_stage_rows==0&&g_ft8_log_stage_len==0);
+      assert(faults.syncs==1&&faults.closes==1&&g_ft8_log_errors==0);
+      assert(ft8_log_flush(true)&&faults.opens==1);break;
+    case 8:
+      faults.exists=true;faults.header=false;
+      assert(ft8_log_flush(true)&&faults.headers==0&&g_ft8_log_rows==3);break;
+    default:assert(false);
+  }
   std::puts("FT8_LOG_STORAGE_PASS: close/sync/header/write/open/mount failures retain staged rows; low DMA defers; success commits");
 }
 '''
@@ -88,7 +99,10 @@ def main():
         subprocess.run(['g++', '-std=c++17', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                         '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                         str(path / 'flush.cpp'), '-o', str(executable)], check=True)
-        subprocess.run([str(executable)], check=True)
+        # Independent failure cases need fresh static retry state, just as a
+        # fresh process does; sequential retry behavior has its own byte test.
+        for scenario in range(9):
+            subprocess.run([str(executable), str(scenario)], check=True)
 
 
 if __name__ == '__main__':
