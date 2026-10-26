@@ -26,6 +26,8 @@ int rescans=0,invalidations=0,download_checks=0,download_installs=0,download_can
 orcsdr::maps::downloads::Snapshot download_status;
 bool download_installed=false;
 bool legacy_inventory=false;
+uint32_t inventory_revision=1;
+orcsdr::setup_ui::Snapshot setup_status;
 void serial_command(const std::string& command,bool authenticated=true) {
   serial_output.clear();
   assert(orcsdr::maps::serial_control::handle(command.c_str(),authenticated,
@@ -98,7 +100,7 @@ namespace maps {
 void cancel() {}
 uint32_t revision() {return 0;}
 bool snapshot(MapSnapshot* out) {
-  *out=MapSnapshot{};out->loaded=true;out->sd=true;out->count=6;out->revision=1;
+  *out=MapSnapshot{};out->loaded=true;out->sd=true;out->count=6;out->revision=inventory_revision;
   for(int i=0;i<6;++i) {auto& pack=out->packs[i];std::snprintf(pack.title,sizeof(pack.title),"Map %d",i);std::snprintf(pack.identity,sizeof(pack.identity),"pack-%d",i);pack.usable=true;}
   if(legacy_inventory) {
     auto& pack=out->packs[0];pack.kind=Kind::legacy;pack.usable=false;
@@ -259,6 +261,20 @@ void screen_tests() {
   }
   assert(M5.Display.screen_clears==transfer_clears);
   assert(visible("Downloading: 7.6 MB / 95.4 MB"));
+  const int before_messages=M5.Display.screen_clears;
+  for(int i=0;i<3;++i) {
+    std::snprintf(download_status.message,sizeof(download_status.message),"Transfer update %d",i);
+    ++download_status.revision;
+    test_millis+=300;map_screen::tick();map_screen::tick();
+    assert(M5.Display.screen_clears==before_messages);
+    assert(visible("Downloading: 7.6 MB / 95.4 MB"));
+    assert(!visible("Transfer update 0")); // Busy progress replaces the background message.
+  }
+  const int no_op_regions=M5.Display.region_clears;
+  click(1250,600); // No control here: no repaint.
+  click(1150,190); // Already at top: no full-screen repaint.
+  assert(M5.Display.screen_clears==before_messages);
+  assert(M5.Display.region_clears==no_op_regions);
   download_status.phase=maps::downloads::Phase::verifying;++download_status.revision;
   test_millis+=300;map_screen::tick();map_screen::tick();
   const int verifying_clears=M5.Display.screen_clears;
@@ -288,6 +304,8 @@ void screen_tests() {
   assert(serial_output.find("verified=26214400 verify_total=104857600 verify_pass=2")!=std::string::npos);
   click(100,548);assert(visible("Choose an offline map"));
   const int inventory_clears=M5.Display.screen_clears;
+  ++inventory_revision;test_millis+=300;map_screen::tick();map_screen::tick();
+  assert(M5.Display.screen_clears==inventory_clears&&visible("Map 0"));
   for(int i=0;i<4;++i) {
     ++download_status.revision;download_status.completed_bytes+=1000000;
     test_millis+=300;map_screen::tick();map_screen::tick();
@@ -314,7 +332,15 @@ void screen_tests() {
   map_screen::open(map_screen::Mode::setup);
   assert(setup_paused&&pause_calls==1);
   assert(visible("Reception paused during setup."));
-  click(1000,670);click(1000,670);
+  setup_ui::configure({+[](setup_ui::Snapshot* out){*out=setup_status;},nullptr,nullptr,nullptr,nullptr});
+  click(1000,670);
+  const int network_clears=M5.Display.screen_clears;
+  for(int i=0;i<3;++i) {
+    std::snprintf(setup_status.message,sizeof(setup_status.message),"Network update %d",i);
+    test_millis+=300;map_screen::tick();map_screen::tick();
+    assert(M5.Display.screen_clears==network_clears&&visible(setup_status.message));
+  }
+  click(1000,670);
   assert(setup_paused&&resume_calls==0); // Wi-Fi/location steps retain the pause.
   click(1130,40);
   assert(!setup_paused&&resume_calls==1);
@@ -351,6 +377,10 @@ void screen_tests() {
   serial_command("RTL_MAP OPEN SETUP",false);
   assert(serial_output=="RTL_MAP_ERROR auth_required\n"&&map_screen::state().mode==opened.mode);
   serial_command("RTL_MAP STATUS",false);assert(serial_output.find("RTL_MAP_SAVED configured=1")!=std::string::npos);
+  assert(serial_output.find("latitude_e7=")==std::string::npos);
+  assert(serial_output.find("longitude_e7=")==std::string::npos);
+  serial_command("RTL_MAP STATUS");
+  assert(serial_output.find("latitude_e7="+std::to_string(before_serial.latitude_e7))!=std::string::npos);
   serial_command("RTL_MAP "+std::string(400,'x'));assert(!serial_ok());
   serial_command("RTL_MAP PICKER SET 900000001 0");assert(!serial_ok());
   assert(receiver_location::snapshot().latitude_e7==before_serial.latitude_e7);

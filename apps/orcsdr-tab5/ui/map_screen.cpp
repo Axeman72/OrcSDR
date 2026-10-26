@@ -41,7 +41,9 @@ bool g_location_menu=true,g_details=false;
 bool g_download_view=false;
 int g_download_index=0,g_download_scroll=0;
 bool g_map_touch=false,g_map_moved=false;
-bool g_map_visible=false,g_keep_map=false;
+bool g_map_visible=false;
+bool g_layout_valid=false;
+uint32_t g_layout=0;
 EXT_RAM_BSS_ATTR maps::downloads::Snapshot g_downloads;
 int32_t g_lat=0,g_lon=0;
 char g_entry[16]{},g_message[96]{};
@@ -88,7 +90,7 @@ void picker_at(int32_t latitude,int32_t longitude) {
 void moved_picker() {
   const auto point=g_picker.Selection();g_lat=static_cast<int32_t>(std::llround(point.lat_deg*1e7));
   g_lon=static_cast<int32_t>(std::llround(point.lon_deg*1e7));
-  g_lat_set=g_lon_set=g_has_proposal=true;g_dirty=true;g_keep_map=true;
+  g_lat_set=g_lon_set=g_has_proposal=true;g_dirty=true;
 }
 void pan(int dx,int dy) {
   if(g_picker_ready&&g_picker.DragByGesture(dx,dy))moved_picker();
@@ -314,7 +316,7 @@ bool open(Mode mode,bool automatic) {
   } else if(mode!=Mode::setup&&g_setup_paused) {
     g_setup_paused=false;if(g_hooks.setup_reception)g_hooks.setup_reception(false);
   }
-  g_map_visible=false;g_keep_map=false;
+  g_map_visible=false;
   const bool nested=screens::is_active(screens::Id::maps)||
       (settings::active()&&screens::status().return_to==screens::Id::maps);
   if(!nested) {g_return_settings=settings::active();g_section=settings::section();}
@@ -326,7 +328,7 @@ bool open(Mode mode,bool automatic) {
   g_mode=mode;g_auto=automatic;g_flow=automatic?g_saved:setup::Flow{};
   g_flow.writable=g_saved.writable;g_saved.automatic=false;
   setup_ui::reset();g_edit=0;g_message[0]=0;g_dirty=true;g_index=0;g_scroll=0;g_drag=false;g_map_touch=false;g_map_moved=false;g_location_menu=true;g_details=false;
-  g_download_view=download_view;g_download_index=0;g_download_scroll=0;
+  g_download_view=download_view;g_download_index=0;g_download_scroll=0;g_layout_valid=false;
   const auto location=receiver_location::snapshot();g_lat=location.latitude_e7;g_lon=location.longitude_e7;
   g_lat_set=g_lon_set=g_has_proposal=location.configured;
   picker_at(g_lat,g_lon);maps::cancel();draw();screens::finish_transition();
@@ -336,7 +338,7 @@ State state() {
   return {screens::owns(screens::Id::maps),g_has_proposal,g_edit!=0,g_mode,
       static_cast<uint8_t>(g_flow.step),g_picker_ready?g_picker.Zoom():uint8_t{0},g_lat,g_lon,g_download_view};
 }
-void refresh() {if(screens::is_active(screens::Id::maps)){g_dirty=true;g_keep_map=true;}}
+void refresh() {if(screens::is_active(screens::Id::maps)){g_dirty=true;}}
 bool control(Control action,int32_t first,int32_t second,const char* identity) {
   if(!screens::owns(screens::Id::maps))return false;
   if(action==Control::cancel){cancel();return true;}
@@ -369,7 +371,7 @@ bool control(Control action,int32_t first,int32_t second,const char* identity) {
   if(action==Control::set_proposal) {
     if(!receiver_location::valid(true,first,second))return false;
     g_lat=first;g_lon=second;g_lat_set=g_lon_set=g_has_proposal=true;
-    g_location_menu=false;picker_at(g_lat,g_lon);g_dirty=true;g_keep_map=true;return true;
+    g_location_menu=false;picker_at(g_lat,g_lon);g_dirty=true;return true;
   }
   if(g_mode==Mode::setup&&g_location_menu)return false;
   if(action==Control::save) {
@@ -389,18 +391,28 @@ bool control(Control action,int32_t first,int32_t second,const char* identity) {
   bool changed=false;
   if(action==Control::zoom_in)changed=g_picker.ZoomIn();
   else if(action==Control::zoom_out)changed=g_picker.ZoomOut();
-  if(changed){g_dirty=true;g_keep_map=true;}
+  if(changed){g_dirty=true;}
   return changed;
 }
 void draw() {
   if(!screens::is_active(screens::Id::maps))return;
   M5.Display.setFont(nullptr);
-  const bool preserve=g_keep_map&&g_map_visible&&location_step()&&!g_edit;
-  g_keep_map=false;
+  const uint32_t layout=static_cast<uint32_t>(g_mode) |
+      (static_cast<uint32_t>(g_flow.step)<<4) | (static_cast<uint32_t>(g_edit)<<8) |
+      (static_cast<uint32_t>(g_location_menu)<<12) | (static_cast<uint32_t>(g_download_view)<<13) |
+      (static_cast<uint32_t>(setup_ui::input_active())<<14);
+  const bool structural=!g_layout_valid||layout!=g_layout;
+  g_layout=layout;g_layout_valid=true;
+  const bool preserve=g_map_visible&&location_step()&&!g_edit&&!structural;
+
   if(preserve) {
     M5.Display.fillRect(0,0,1280,kMapY,kBg);
     M5.Display.fillRect(0,kMapY+kMapH,1280,720-kMapY-kMapH,kBg);
-  } else {M5.Display.fillScreen(kBg);g_map_visible=false;}
+  } else if(structural) {M5.Display.fillScreen(kBg);g_map_visible=false;}
+  else {
+    // Status, inventory and setup polling replace content, not static chrome.
+    M5.Display.fillRect(0,100,1280,532,kBg);
+  }
   focus_nav::clear();
   if(g_mode==Mode::setup&&g_hooks.brand)g_hooks.brand();
   if(g_mode==Mode::setup&&g_setup_paused)text("Reception paused during setup.",430,52,2);
@@ -510,7 +522,7 @@ void touch(int x,int y,bool pressed,bool new_press) {
       if(!maps::preferences::set_labels(Consumer::picker,!maps::preferences::labels(Consumer::picker)))
         std::snprintf(g_message,sizeof(g_message),"Label preference could not be saved. Please retry.");
       else g_message[0]=0;
-      g_dirty=true;g_keep_map=true;return;
+      g_dirty=true;return;
     }
     if(hit(x,y,kZoomX,kZoomInY,kZoomW,kZoomH)) {(void)control(Control::zoom_in);return;}
     if(hit(x,y,kZoomX,kZoomOutY,kZoomW,kZoomH)) {(void)control(Control::zoom_out);return;}
@@ -546,6 +558,8 @@ void touch(int x,int y,bool pressed,bool new_press) {
   if(maps_step()) {
     if(g_download_view) {
       if(hit(x,y,32,520,270,56)) {g_download_view=false;g_details=false;g_message[0]=0;g_dirty=true;return;}
+      const int old_scroll=g_download_scroll,old_index=g_download_index;
+      bool acted=false;
       if(hit(x,y,1120,174,128,70))g_download_scroll=std::max(0,g_download_scroll-1);
       else if(hit(x,y,1120,426,128,70))g_download_scroll=std::min(std::max(0,static_cast<int>(g_downloads.count)-4),g_download_scroll+1);
       else if(hit(x,y,32,174,1070,336)) {
@@ -554,18 +568,22 @@ void touch(int x,int y,bool pressed,bool new_press) {
         if((y-174)%84<76&&g_download_scroll+row<g_downloads.count&&
             maps::downloads::entry(g_download_scroll+row,&pack))g_download_index=g_download_scroll+row;
       } else if(download_busy()) {
-        if(hit(x,y,930,520,320,56))maps::downloads::cancel();
+        if(hit(x,y,930,520,320,56)){maps::downloads::cancel();acted=true;}
       } else {
-        if(hit(x,y,320,520,310,56)&&maps::downloads::can_check(g_downloads))(void)maps::downloads::check_catalog();
+        if(hit(x,y,320,520,310,56)&&maps::downloads::can_check(g_downloads)){(void)maps::downloads::check_catalog();acted=true;}
         else if(hit(x,y,1038,520,210,56)&&maps::downloads::can_retry(g_downloads))
-          (void)maps::downloads::retry();
+          {(void)maps::downloads::retry();acted=true;}
         else if(hit(x,y,650,520,370,56)&&maps::downloads::can_install(g_downloads,g_download_index)) {
           maps::downloads::Entry pack;
-          if(maps::downloads::entry(g_download_index,&pack)&&!pack.installed)
-            (void)maps::downloads::request_install(g_download_index);
+          if(maps::downloads::entry(g_download_index,&pack)&&!pack.installed) {
+            (void)maps::downloads::request_install(g_download_index);acted=true;
+          }
         }
       }
-      (void)maps::downloads::snapshot(&g_downloads);g_dirty=true;return;
+      if(acted||old_scroll!=g_download_scroll||old_index!=g_download_index) {
+        (void)maps::downloads::snapshot(&g_downloads);g_dirty=true;
+      }
+      return;
     }
     if(hit(x,y,32,174,1070,336)) {const int row=(y-174)/84;if(g_scroll+row<g_packs.count)g_index=g_scroll+row;g_details=false;g_dirty=true;}
     else if(hit(x,y,1120,174,128,70)) {g_scroll=std::max(0,g_scroll-1);g_dirty=true;}
@@ -593,7 +611,7 @@ void key(const keyboard_input::Key& key) {
   }
   if(key.special==Special::escape) {cancel();return;}
   if(location_step()&&g_picker_ready&&(key.ch=='+'||key.ch=='-')) {
-    if(key.ch=='+')g_picker.ZoomIn();else g_picker.ZoomOut();g_dirty=true;g_keep_map=true;return;
+    if(key.ch=='+')g_picker.ZoomIn();else g_picker.ZoomOut();g_dirty=true;return;
   }
   if(location_step()&&g_picker_ready&&key.ctrl) {
     int dx=0,dy=0;

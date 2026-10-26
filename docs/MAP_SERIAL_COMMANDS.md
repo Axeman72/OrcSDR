@@ -5,6 +5,11 @@ status and lists do not require authentication. Every operation that changes
 state requires the existing authenticated serial session; this interface never
 pairs a new key. Responses end in a newline.
 
+`RTL_MAP STATUS` and `RTL_LORA_MAP STATUS` provide basic readiness without
+authentication. Saved/proposed map coordinates and the LoRa followed-node ID
+are included only in an authenticated session. Use the existing session key;
+these commands never establish or replace pairing.
+
 The prepared manual-guidance update adds the SD folder, matching filename
 requirements and OrcMaps release-page address to the read-only `RTL_MAP HELP`
 response. It introduces no new state-changing command or authentication path.

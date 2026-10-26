@@ -1252,6 +1252,11 @@ bool handle_map_command(const char* command,bool authenticated,void (*write)(con
   }
   if(count==1&&same(op,"STATUS")) {
     const auto state=map_state();char line[192];
+    if(!authenticated) {
+      std::snprintf(line,sizeof(line),"RTL_LORA_MAP_STATUS active=%u ready=%u following=%u zoom=%u\n",
+          g_active&&g_view==View::map&&screens::owns(screens::Id::lora),state.ready,state.following,state.zoom);
+      write(line);return true;
+    }
     std::snprintf(line,sizeof(line),"RTL_LORA_MAP_STATUS active=%u ready=%u following=%u latitude_e7=%ld longitude_e7=%ld zoom=%u following_node=%08lx\n",
         g_active&&g_view==View::map&&screens::owns(screens::Id::lora),state.ready,state.following,
         static_cast<long>(state.latitude_e7),static_cast<long>(state.longitude_e7),state.zoom,

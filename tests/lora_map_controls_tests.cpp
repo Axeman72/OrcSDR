@@ -73,6 +73,8 @@ int main() {
   const int initial_frames=frames;
   command("RTL_LORA_MAP PAN 20 10",false);assert(reply.find("auth_required")!=std::string::npos&&frames==initial_frames);
   command("RTL_LORA_MAP STATUS",false);assert(reply.find("active=1 ready=1")!=std::string::npos);
+  assert(reply.find("latitude_e7=")==std::string::npos&&reply.find("longitude_e7=")==std::string::npos);
+  assert(reply.find("following_node=")==std::string::npos);
   for(const char* text:{"RTL_LORA_MAP PAN 1 2 extra","RTL_LORA_MAP ZOOM IN extra","RTL_LORA_MAP PAN 9999999999999999 0"}) {
     command(text);assert(reply.find("invalid_command")!=std::string::npos&&frames==initial_frames);
   }
@@ -81,7 +83,7 @@ int main() {
   assert(!map_touch(400,300,true,true));owner=true;
   ok("RTL_LORA_MAP CENTER NODE");assert(map_state().longitude_e7==1799000000);
   ok("RTL_LORA_MAP FOLLOW ON");assert(map_state().following&&map_state().following_node_id==0x11111111);
-  command("RTL_LORA_MAP STATUS",false);assert(reply.find("following_node=11111111")!=std::string::npos);
+  command("RTL_LORA_MAP STATUS");assert(reply.find("following_node=11111111")!=std::string::npos);
   ++snapshot.revision;snapshot.nodes[0].longitude_e7=1799500000;test_millis+=1000;update(snapshot);
   assert(map_state().longitude_e7==1799500000&&map_state().following);
   // New traffic moves rows: Follow must retain device identity, not row zero.

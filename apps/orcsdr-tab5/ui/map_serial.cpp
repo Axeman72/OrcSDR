@@ -37,6 +37,12 @@ bool handle(const char* command,bool authenticated,void (*write)(const char*)) {
   if(count==1&&equal(op,"STATUS")) {
     const auto view=map_screen::state();const auto saved=receiver_location::snapshot();
     char line[256];
+    if(!authenticated) {
+      std::snprintf(line,sizeof(line),"RTL_MAP_VIEW active=%u mode=%u step=%u proposal=%u editing=%u zoom=%u downloads=%u\n",
+          view.active,static_cast<unsigned>(view.mode),view.step,view.proposal,view.editing,view.zoom,view.downloads);write(line);
+      std::snprintf(line,sizeof(line),"RTL_MAP_SAVED configured=%u\n",saved.configured);write(line);
+      report(write);return true;
+    }
     std::snprintf(line,sizeof(line),"RTL_MAP_VIEW active=%u mode=%u step=%u proposal=%u editing=%u latitude_e7=%ld longitude_e7=%ld zoom=%u downloads=%u\n",
         view.active,static_cast<unsigned>(view.mode),view.step,view.proposal,view.editing,
         static_cast<long>(view.latitude_e7),static_cast<long>(view.longitude_e7),view.zoom,view.downloads);write(line);
