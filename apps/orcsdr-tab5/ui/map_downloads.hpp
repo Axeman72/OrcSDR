@@ -41,7 +41,9 @@ bool retry_recovery();
 void cancel();
 // Consumed on the UI loop: SNTP state and RTC writes retain their existing owner.
 bool take_time_sync_request();
-// Called only by the existing map worker, without its rendering mutex held.
+// Called only by the dedicated download worker, without the rendering mutex.
+// Discovery/recovery and activation share ownership; immutable archive reads
+// continue independently through the filesystem's per-volume locking.
 // Returns true after a recovery attempt so its caller can refresh inventory.
 bool service(storage::FileSystem*);
 }

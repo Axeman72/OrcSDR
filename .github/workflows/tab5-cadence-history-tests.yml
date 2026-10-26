@@ -11,6 +11,10 @@ on:
       - 'tests/location_task_lifetime_test.py'
       - 'tests/orcdial_init_backoff_test.py'
       - 'tests/adsb_zoom_redraw_test.py'
+      - 'tests/map_download_scheduling_test.py'
+      - 'tests/map_worker_startup_test.py'
+      - 'tests/display_writeback_tests.cpp'
+      - 'tests/display_writeback_stubs/**'
       - 'tools/test-tab5-cadence-history.sh'
       - '.github/workflows/tab5-cadence-history-tests.yml'
   workflow_dispatch:

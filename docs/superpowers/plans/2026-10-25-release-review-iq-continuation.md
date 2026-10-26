@@ -70,3 +70,44 @@ old terminal-state text to remain visible. The test now checks draw calls and
 that the current state replaces earlier text, rather than weakening redraw
 requirements. The FT8 row buffers add 2,672 bytes of external BSS; native ELF
 placement and actual device behavior remain to be verified.
+
+## 2026-10-26 native baseline and next controlled experiment
+
+Native candidate `16ab1610` linked and passed the existing miniz/FT8/dependency,
+40 KiB DMA and PSRAM placement inspections. App SHA-256:
+`507a94fe1fe2af07fe1b38a566a55625ab96bdd306206891b39abfb3f00070c5`;
+5,303,024 bytes, 988,432 bytes partition headroom. The two FT8 row buffers are
+in external BSS, total 2,672 bytes. COM17 app-only flash, boot and non-app
+preservation checks passed. COM39 has not been changed in this continuation.
+
+The same bounded idle/picker/pan script on COM17 V3c, 906.875 MHz/960 ksps,
+gain AUTO, RTL AGC/bias off, reproduced +16 driver overruns/drops and +554
+application IQ pipeline drops. Idle before/after added zero. DSP block maximum
+rose to 275,801 us during map work. These are **failed** continuity results.
+Logs: `pr211-map-iq-baseline-16ab1610-com17-20261026.log`,
+`release-review-com17-boot-native-monitor-20261026.log`,
+`pr211-release-review-artifact-inspection-20261026.log` and
+`release-review-{verify-previous,preservation}-20261026.log`.
+
+CodeRabbit's full-review request was rejected: 352 files exceed its 100-file
+limit (reply 6410351768). Removing filters restores coverage eligibility but
+is **not** a completed external review. Arrange bounded test/shipping-doc review
+passes and restore unrestricted configuration afterward; do not mark this gate
+complete from the earlier source-only review.
+
+Next experimental source bounds M5GFX's deliberately weak cache-writeback hook
+to 4 KiB **per esp_cache_msync call**. IDF 5.5.4 releases its interrupt critical
+section and outer cache mutex at each return. Its optional inner chunking leaves
+the outer mutex held across the entire framebuffer flush, so the prior 128 KiB
+SDK experiment was insufficient. No managed component, receiver rate, ring size,
+SDK defaults or DMA reserve is changed. Host tests verify aligned complete
+coverage, maximum chunk size, overflow and failure handling. Hardware benefit
+remains unproven until the next comparison.
+
+The source also separates download servicing onto one permanent worker with an
+8 KiB PSRAM stack. A shared discovery/activation lock defers recovery/scanning,
+not immutable archive reads or queued rendering. IDF FatFs uses per-volume
+reentrant locking, and activation preserves the old archive. Host tests exercise
+a blocked transfer alongside queued rendering, deferred discovery, and cleanup
+at all six startup allocation/task failure points. Actual concurrent SD/render
+and radio validation remain required.

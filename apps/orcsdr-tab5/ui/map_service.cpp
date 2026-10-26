@@ -1,4 +1,5 @@
 #include "map_service.hpp"
+#include "display_writeback.hpp"
 #include "map_timing.hpp"
 #include "map_preview.hpp"
 #include "map_inventory.hpp"
@@ -39,7 +40,8 @@ struct Request { orcmap::Viewport view; char preferred[256]{}; uint32_t serial =
 QueueHandle_t g_queue = nullptr;
 SemaphoreHandle_t g_lock = nullptr;
 SemaphoreHandle_t g_preview_lock = nullptr;
-TaskHandle_t g_task = nullptr;
+TaskHandle_t g_task = nullptr, g_download_task = nullptr;
+SemaphoreHandle_t g_discovery_lock = nullptr;
 EXT_RAM_BSS_ATTR MapSnapshot g_snapshot;
 EXT_RAM_BSS_ATTR FrameInfo g_frame;
 EXT_RAM_BSS_ATTR Request g_requested, g_ready;
@@ -102,6 +104,15 @@ void reset_source() {
 struct WorkerLock {
   WorkerLock() {xSemaphoreTake(g_lock,portMAX_DELAY);}
   ~WorkerLock() {xSemaphoreGive(g_lock);}
+};
+
+// Serialize catalog discovery/recovery against activation, while ordinary map
+// reads continue through FatFs' per-volume locking. Installed archives are
+// immutable; activation retires metadata without deleting the previous archive.
+struct DiscoveryLock {
+  bool held;
+  explicit DiscoveryLock(TickType_t timeout):held(xSemaphoreTake(g_discovery_lock,timeout)==pdTRUE){}
+  ~DiscoveryLock(){if(held)xSemaphoreGive(g_discovery_lock);}
 };
 
 template<size_t N> void text(char (&out)[N], const char* value) {
@@ -362,12 +373,25 @@ bool choose(const Request& request,orcmap::Viewport* view,char* path,size_t size
   std::snprintf(path,size,"@world");return true;
 }
 
+void download_worker(void*) {
+  // Startup cannot touch storage until both permanent workers exist.
+  ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
+  for(;;) {
+    {
+      DiscoveryLock lock(portMAX_DELAY);
+      if(downloads::service(g_storage))g_scan.store(true);
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
 void worker(void*) {
   for(;;) {
     Request request;
     try {
-    if(downloads::service(g_storage))g_scan.store(true);
-    if(g_scan.exchange(false))discover();
+    if(g_scan.load()) {
+      DiscoveryLock lock(0);
+      if(lock.held&&g_scan.exchange(false))discover();
+    }
     if(xQueueReceive(g_queue,&request,pdMS_TO_TICKS(200))!=pdTRUE)continue;
     if(request.serial!=g_serial.load())continue;
     // The UI never waits on this mutex. A new frame is published atomically
@@ -482,19 +506,22 @@ bool begin(storage::FileSystem* sd) {
   downloads::begin();
   g_lock=xSemaphoreCreateMutex();
   g_preview_lock=xSemaphoreCreateMutex();
+  g_discovery_lock=xSemaphoreCreateMutex();
   g_queue=xQueueCreateWithCaps(1,sizeof(Request),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-  if(!g_lock || !g_preview_lock || !g_queue) {
+  const auto failed=[]() {
+    if(g_download_task){vTaskDeleteWithCaps(g_download_task);g_download_task=nullptr;}
     if(g_lock)vSemaphoreDelete(g_lock);
     if(g_queue)vQueueDeleteWithCaps(g_queue);
     if(g_preview_lock)vSemaphoreDelete(g_preview_lock);
-    g_preview_lock=nullptr;
-    g_lock=nullptr;g_queue=nullptr;return false;
-  }
-  if(xTaskCreatePinnedToCore(worker,"orcsdr_maps",8192,nullptr,1,&g_task,1)!=pdPASS) {
-    vSemaphoreDelete(g_preview_lock);g_preview_lock=nullptr;
-    vSemaphoreDelete(g_lock);vQueueDeleteWithCaps(g_queue);
+    if(g_discovery_lock)vSemaphoreDelete(g_discovery_lock);
+    g_preview_lock=nullptr;g_discovery_lock=nullptr;
     g_lock=nullptr;g_queue=nullptr;g_task=nullptr;return false;
-  }
+  };
+  if(!g_lock || !g_preview_lock || !g_discovery_lock || !g_queue)return failed();
+  if(xTaskCreatePinnedToCoreWithCaps(download_worker,"orcsdr_map_dl",8192,nullptr,1,
+      &g_download_task,1,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)!=pdPASS)return failed();
+  if(xTaskCreatePinnedToCore(worker,"orcsdr_maps",8192,nullptr,1,&g_task,1)!=pdPASS)return failed();
+  xTaskNotifyGive(g_download_task);
   (void)memory_reclaim::register_holder({"Map frame",held,release});
   return true;
 }
@@ -515,6 +542,11 @@ bool frame_info(FrameInfo* out) {
 void report(void (*write)(const char*)) {
   if(!write)return;
   char line[512];
+  const auto writeback=display_writeback::snapshot();
+  std::snprintf(line,sizeof(line),"ORC_DISPLAY_WRITEBACK calls=%lu chunks=%lu errors=%lu max_chunk_bytes=%lu max_chunk_us=%lu max_call_us=%lu\n",
+      static_cast<unsigned long>(writeback.calls),static_cast<unsigned long>(writeback.chunks),
+      static_cast<unsigned long>(writeback.errors),static_cast<unsigned long>(writeback.max_chunk_bytes),
+      static_cast<unsigned long>(writeback.max_chunk_us),static_cast<unsigned long>(writeback.max_call_us));write(line);
   using preferences::Consumer;
   std::snprintf(line,sizeof(line),"ORC_MAP_LABELS picker=%u lora=%u adsb=%u ft8=%u\n",
       preferences::labels(Consumer::picker)?1u:0u,preferences::labels(Consumer::lora)?1u:0u,

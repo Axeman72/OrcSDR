@@ -60,3 +60,21 @@ full-screen clear. This is the expected pattern for future pages.
 Related practices: [SD reliability](SD_CARD_RELIABILITY.md) and
 [map serial commands](MAP_SERIAL_COMMANDS.md). Existing unrelated UI gaps should
 be recorded and addressed in scoped changes, not a broad rendering rewrite.
+
+## IQ continuity is a release invariant
+
+UI and maps must not cause IQ loss. Compare both the driver overrun/drop counters
+and application IQ-pipeline drop counters before and after each load phase.
+Opening, dragging, zooming, changing labels, storage activity and navigation must
+add zero drops under the recorded receiving configuration. A healthy idle period,
+a responsive screen, or zero driver drops alone is insufficient. Never suppress
+counters, reduce the requested receiver rate, stop reception outside an explicitly
+paused workflow, or waive missing samples to make this gate pass.
+
+Large framebuffer writebacks must release the cache synchronization mutex and
+interrupt critical section between bounded chunks. The app supplies M5GFX's weak
+writeback hook with a 4 KiB limit per `esp_cache_msync` call. SDK inner chunking
+alone retains the outer cache mutex for the whole image. Keep the app hook, its
+native strong-symbol check and its focused coverage when upgrading M5GFX/IDF.
+`RTL_MAP STATUS` exposes `ORC_DISPLAY_WRITEBACK`; its counters supplement rather
+than replace the radio continuity counters. Hardware acceptance remains required.
