@@ -177,7 +177,7 @@ coordinates and followed-node identity; authenticated status returns the saved
 point. Setup Welcome/Network/Location, Cancel, LoRa map pan, picker pan/Cancel
 and Traffic return completed. The saved location stayed unchanged throughout.
 The recording-display tests prove full-clear behavior on host; physical flicker
-acceptance is still requested separately. No hardware partial-write fault was
+acceptance is recorded below separately. No hardware partial-write fault was
 injected, so the FT8 storage failure-path claims remain host fault-injection.
 
 After map activity, driver counters showed four drops/overruns at 960 ksps.
@@ -193,3 +193,15 @@ Logs beside invocation: `release-review-{preflash,device}-20261025.log`,
 Artifact `.local/maps/release-review-4b2986e6-20261025/manifest.json` retains
 the exact source/app and recovery hashes. Bench handoff restores prior manual
 gain 49.6 dB and LoRa Traffic without modifying receiver location or pairing.
+
+## Physical acceptance: setup/map redraws
+
+On October 25 the user checked COM17's updated setup Wi-Fi/status and Get Maps
+pages and confirmed: **"Looks steady and responsive."** This closes physical
+flicker/readability/responsiveness acceptance for those tested pages on the
+installed 4b2986e6 app. It does not close unrelated dashboard redraw findings,
+map-associated IQ losses, SD fault recovery, or the decoder/dongle release matrix.
+
+The subsequent bench handoff also observed two CRC-valid LoRa packets with zero
+decoder failures, including NODEINFO; see `release-review-handoff-device-20261025.log`.
+This is bounded ambient reception evidence, not controlled packet qualification.
