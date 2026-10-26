@@ -265,3 +265,17 @@ commands, hashes, logs, memory figures and limits are in the
 ## October 24: clean GitHub download baseline
 
 The [PNY 32 GB microSDHC U1 benchmark](evidence/maps/download-benchmarks/2026-10-24-com17-pny32/README.md) records source/card settings, 481 monotonic status samples, controlled pause/resume and complete 543,380,195-byte installation. Transfer took 19m40.3s; verification/activation 21m21.2s. Reception started partway through verification, with IQ activity, so this is not an idle-card speed comparison. The timed installer log has no SD read/write errors; restart discovery and offline regional rendering pass. Initial stale-mount/read errors after the card swap and three post-reboot driver drops/overruns remain separately recorded. No new blanket SD-reliability claim or attribution to buffer alignment follows from this single run. Original SD data and C6 were preserved.
+
+## October 26: LoRa logger recovery
+
+The logger now retains its current record across open/write/sync failures,
+retries every two seconds, and commits only after both journal and CSV sync.
+Retry rollback is restricted to that record's known append suffix; older data
+and unknown extra writes are protected. The bounded queue can still overflow
+during sustained storage failure, and pending RAM does not survive power loss.
+
+`python3 tests/lora_log_recovery_test.py` passed 19 focused cases. COM17 then
+encountered a real open error and recovered automatically without losing or
+duplicating the held record; the old CSV prefix remained identical. Native
+placement, preservation checks, logs and limits are recorded in the
+[repair evidence](evidence/maps/2026-10-26-lora-logger-recovery-fix.md).

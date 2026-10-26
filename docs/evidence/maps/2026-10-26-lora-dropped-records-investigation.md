@@ -98,3 +98,8 @@ state is STREAMING, logging ready, no error, queue empty and dropped count 9.
 Remaining work: expose the first failing logger stage/error code, reproduce it,
 then correct recovery without discarding queued data or duplicating partial
 writes. A manual logging restart is not a validated permanent fix.
+
+Follow-up: source `fd8b6de6` now retains pending records and retries automatically.
+Host fault tests and an actual COM17 open-error recovery passed; see
+[repair validation](2026-10-26-lora-logger-recovery-fix.md). The nine historical
+missing records were not reconstructed into device storage.

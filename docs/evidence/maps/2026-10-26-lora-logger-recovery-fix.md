@@ -52,7 +52,41 @@ Raw logs beside invocation in
 - `lora-log-recovery-cadence-host-20261026.log`
 - `lora-log-recovery-final-host-20261026.log`
 
-Native linking, PSRAM placement and device validation are pending at this source
-checkpoint. No physical card-failure or power-cut durability pass is claimed.
+Native build and COM17 app-only validation passed for source
+`fd8b6de623e5f85ee28534e8ac4e8db6eb87ca21`. App SHA-256:
+`3c700d175e9d5f35f507bbb3d8c836c870b2fe61f6623df8d6ccf3987350b5e1`.
+The app is 5,306,656 bytes with 984,800 bytes headroom. The retained record
+and journal path occupy 276 bytes in PSRAM; the 40 KiB DMA reserve is unchanged.
+NVS, SD data, world partition and C6 were preserved. COM39 was not flashed.
+
+COM17 naturally reported `journal_open errno=2` at 15:05:18.876 PDT,
+retried at 15:05:20.869 with one pending record, and reported recovery at
+15:05:21.945. This proves recovery from an actual open failure, not its
+underlying filesystem cause. The held packet (4109905239) was saved exactly
+once. All ten records in the new journal matched exactly one CSV row, and
+the complete preceding 218,738-byte CSV prefix was unchanged. An additional
+controlled NODEINFO packet (2457770009) was also saved once in both files.
+
+The initial strict serial-only packet verifier failed: one NODEINFO transmission
+was not observed on either receiver, and serial capture omitted a text that
+the saved CSV proves was received. These are retained as test limitations,
+not reported as a successful six-packet serial comparison. The additional
+COM39 reference capture could not open its occupied port; no owner was killed.
+
+A stationary 144,657 ms reception window at 960,000 samples/s recorded zero
+IQ pipeline drops, driver drops or overruns. Final COM17 status was streaming,
+logging ready, error false, queue/pending/dropped all zero, retry count one.
+The 19 focused recovery cases passed, including partial writes, sync/open
+failures, retry timing, OFF/ON, queue overflow and protected suffix rollback.
+
+Additional logs beside invocation:
+`release-review-native-lora-recovery-20261026.log`,
+`lora-recovery-artifact-inspection-20261026.log`,
+`lora-recovery-live-com17-20261026.log`,
+`lora-recovery-final-readback-com17-20261026.log`.
+CodeRabbit's incremental review of this source was still pending at this
+checkpoint; earlier clean comments apply to the previous source revision.
+
+No physical card-failure or power-cut durability pass is claimed.
 Pending RAM data is not nonvolatile storage, and sustained unavailability can
 fill the bounded queue. The earlier watchdog incident remains open separately.
