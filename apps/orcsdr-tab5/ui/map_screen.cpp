@@ -245,9 +245,8 @@ void draw_download_progress() {
     download_size(g_downloads.verified_bytes,checked,sizeof(checked));
     download_size(g_downloads.verify_total_bytes,total,sizeof(total));
     const auto percent=std::min(g_downloads.verified_bytes,g_downloads.verify_total_bytes)*100/g_downloads.verify_total_bytes;
-    std::snprintf(status,sizeof(status),"Verifying map, pass %lu: %s / %s (%u%%)",
-        static_cast<unsigned long>(g_downloads.verify_pass),checked,total,static_cast<unsigned>(percent));
-  } else if(verifying)std::snprintf(status,sizeof(status),"Verifying map integrity and installing... Please wait.");
+    std::snprintf(status,sizeof(status),"Checking map file: %s / %s (%u%%)",checked,total,static_cast<unsigned>(percent));
+  } else if(verifying)std::snprintf(status,sizeof(status),"Checking map file and installing...");
   else if(g_downloads.phase==maps::downloads::Phase::downloading) {
     char received[24],total[24];download_size(g_downloads.completed_bytes,received,sizeof(received));
     download_size(g_downloads.total_bytes,total,sizeof(total));

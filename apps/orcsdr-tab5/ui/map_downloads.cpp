@@ -54,7 +54,7 @@ void progress(void*,uint64_t used,uint64_t total) {
   g_snapshot.completed_bytes=used;g_snapshot.total_bytes=total;++g_snapshot.revision;
   portEXIT_CRITICAL(&g_lock);
 }
-void verifying(void*){publish(Phase::verifying,true,"Verifying saved map and installing...");}
+void verifying(void*){publish(Phase::verifying,true,"Checking saved map file and installing...");}
 void verify_progress(void*,uint64_t used,uint64_t total) {
   const auto now=static_cast<uint64_t>(esp_timer_get_time());
   if(used&&used!=total&&now-g_last_progress<100000)return;
@@ -66,7 +66,7 @@ void verify_progress(void*,uint64_t used,uint64_t total) {
   portEXIT_CRITICAL(&g_lock);
 }
 void verify_profile(void*,const transfer::VerificationProfile& p) {
-  std::printf("ORCMAPS_VERIFY_PROFILE bytes=%llu blocks=%llu read_us=%llu hash_us=%llu elapsed_us=%llu result=%u\n",
+    std::printf("ORCMAPS_VERIFY_PROFILE check=structure bytes=%llu blocks=%llu read_us=%llu hash_us=%llu elapsed_us=%llu result=%u\n",
       static_cast<unsigned long long>(p.bytes),static_cast<unsigned long long>(p.blocks),
       static_cast<unsigned long long>(p.read_us),static_cast<unsigned long long>(p.hash_us),
       static_cast<unsigned long long>(p.elapsed_us),static_cast<unsigned>(p.result));

@@ -196,38 +196,40 @@ int main(int argc,char** argv){
   t::Hooks measured_hooks{&measured,[](void* p){return static_cast<Verification*>(p)->cancel;},nullptr,nullptr,
     [](void* p,uint64_t used,uint64_t total){
       auto& v=*static_cast<Verification*>(p);v.used.push_back(used);v.total=total;
-      if(v.stop&&used>=65536)v.cancel=true;
+      if(v.stop&&used==0)v.cancel=true;
     },[](void* p,const t::VerificationProfile& profile){
       static_cast<Verification*>(p)->profiles.push_back(profile);
     }};
   check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::none&&
-        measured.used.size()>2&&measured.used.front()==0&&measured.used.back()==body.size()&&
-        measured.total==body.size()&&std::is_sorted(measured.used.begin(),measured.used.end()),
-        "verification reports actual monotonic checked bytes from zero to full file");
+        measured.used.size()==2&&measured.used.front()==0&&measured.used.back()>0&&
+        measured.used.back()<65536&&measured.total==measured.used.back(),
+        "quick check reads only bounded PMTiles metadata, not the entire archive");
   check(measured.profiles.size()==1&&measured.profiles[0].result==t::Error::none&&
-        measured.profiles[0].bytes==body.size()&&
-        measured.profiles[0].blocks==(body.size()+buffer.size()-1)/buffer.size()&&
-        measured.profiles[0].elapsed_us>=measured.profiles[0].read_us+measured.profiles[0].hash_us,
-        "successful verification profiles complete reads and hashing once");
+        measured.profiles[0].bytes==measured.used.back()&&measured.profiles[0].hash_us==0&&
+        measured.profiles[0].elapsed_us>=measured.profiles[0].read_us,
+        "quick check profiles actual metadata reads and no full-file hashing");
+  std::printf("QUICK_FILE_CHECK metadata_bytes=%llu archive_bytes=%llu hash_us=%llu\n",
+      static_cast<unsigned long long>(measured.profiles[0].bytes),
+      static_cast<unsigned long long>(body.size()),
+      static_cast<unsigned long long>(measured.profiles[0].hash_us));
   const auto verified_bytes=load(testfs::path(paths.archive.c_str()));
   measured.used.clear();measured.stop=true;
   check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::cancelled&&
-        measured.used.front()==0&&measured.used.back()<body.size()&&
-        load(testfs::path(paths.archive.c_str()))==verified_bytes,"verification progress retains cancellation and read-only archive");
-  check(measured.profiles.size()==2&&measured.profiles.back().result==t::Error::cancelled&&
-        measured.profiles.back().bytes==measured.used.back(),
-        "cancelled verification profiles only checked prefix without changing archive");
+        load(testfs::path(paths.archive.c_str()))==verified_bytes,
+        "quick check retains cancellation and read-only archive");
   measured={};auto damaged=verified_bytes;damaged.back()^=1;
   {std::ofstream out(testfs::path(paths.archive.c_str()),std::ios::binary);out.write(damaged.data(),damaged.size());}
-  check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::hash&&
-        !measured.used.empty()&&measured.used.back()==body.size(),"100 percent checked still rejects a bad archive hash");
-  check(measured.profiles.size()==1&&measured.profiles[0].result==t::Error::hash&&
-        measured.profiles[0].bytes==body.size(),"profile completion does not imply archive validity");
-  {std::ofstream out(testfs::path(paths.archive.c_str()),std::ios::binary);out.write(verified_bytes.data(),verified_bytes.size());}
-  Stream again;
-  check(run(again)==t::Error::none&&again.opens==0,"prepared pack revalidated without network");
+  check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::none,
+        "quick check intentionally does not scan unchanged-size tile payload for corruption");
+  damaged[0]=0;
+  {std::ofstream out(testfs::path(paths.archive.c_str()),std::ios::binary);out.write(damaged.data(),damaged.size());}
+  check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::archive,
+        "quick check rejects invalid PMTiles header");
+  {std::ofstream out(testfs::path(paths.archive.c_str()),std::ios::binary);out.write(verified_bytes.data(),verified_bytes.size()-1);}
+  check(t::verify_archive(fs,p,paths.archive,buffer.data(),buffer.size(),measured_hooks)==t::Error::storage,
+        "quick check rejects incorrect saved file size");
   reset();Stream corrupted;corrupted.corrupt_after=true;
-  check(run(corrupted)==t::Error::hash&&!fs.exists(paths.manifest.c_str()),"SD readback corruption rejected");
+  check(run(corrupted)==t::Error::archive&&!fs.exists(paths.manifest.c_str()),"SD header readback corruption rejected");
   reset();Stream manifest_rename_failure;testfs::fail_manifest=true;
   check(run(manifest_rename_failure)==t::Error::storage&&!fs.exists(paths.manifest.c_str()),"staging rename failure preserves old packs");
   testfs::fail_manifest=false;Stream recovery;
@@ -345,9 +347,9 @@ int main(int argc,char** argv){
         "recovery directory traversal refused");
   prepare_activation();
   {std::fstream archive(testfs::path(paths.archive.c_str()),std::ios::binary|std::ios::in|std::ios::out);
-   archive.seekp(-1,std::ios::end);archive.put('x');}
+   archive.seekp(0);archive.put('x');}
   check(activate()==activation::Error::corrupt&&fs.exists("/orcmaps/previous.manifest.json")&&
-        !fs.exists(target.c_str()),"activation rehashes staging before changing visible maps");
+        !fs.exists(target.c_str()),"activation checks staging header before changing visible maps");
   for(int point=1;point<=4;++point) {
     reset();Stream prepared;check(run(prepared)==t::Error::none,"first install staged");
     testfs::power_after=point;bool interrupted=false;

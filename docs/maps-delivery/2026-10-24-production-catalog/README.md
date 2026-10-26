@@ -1,5 +1,12 @@
 # Production catalog: no expiry
 
+**October 25 install-policy update:** the user requested a quick saved-file check
+instead of full payload hashing on device. The new path checks size, PMTiles
+header/root and coverage; it does not scan the whole archive. Catalog signatures,
+metadata identity, HTTPS and transaction/recovery protections remain. References
+below to full archive verification describe the earlier activation checkpoint.
+See [quick-check evidence](../../evidence/maps/2026-10-25-map-quick-file-check.md).
+
 **Activation update:** the user approved production activation. The [production catalog](https://github.com/hardcoreerik/OrcMaps/releases/tag/maps-catalog-v1) is published and has no expiry. Public HTTPS/signature checks pass; the map archive is unchanged. See [execution evidence](../../evidence/maps/2026-10-24-production-catalog-activation.md). The unsigned/prepared descriptions below preserve the review package checkpoint.
 
 User decision October 24: remove TEST-ONLY status and do not expire the catalog.

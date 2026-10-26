@@ -63,15 +63,22 @@ bool checkpoint(storage::FileSystem& fs,const Paths& paths,const orcmap::PackMan
 }
 class Source final:public orcmap::ByteSource {
  public:
-  Source(storage::FileSystem& fs,const std::string& path):file_(fs.open(path.c_str(),FILE_READ)){}
+  Source(storage::FileSystem& fs,const std::string& path,VerificationProfile* profile=nullptr):file_(fs.open(path.c_str(),FILE_READ)),profile_(profile){}
   ~Source(){file_.close();}
   size_t Read(uint64_t offset,void* data,size_t size)override{
-    return offset<=Size()&&size<=Size()-offset&&file_.seek(static_cast<size_t>(offset))?
+    const auto started=std::chrono::steady_clock::now();
+    const auto got=offset<=Size()&&size<=Size()-offset&&file_.seek(static_cast<size_t>(offset))?
         file_.read(static_cast<uint8_t*>(data),size):0;
+    if(profile_) {
+      profile_->bytes+=got;if(got)++profile_->blocks;
+      profile_->read_us+=static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now()-started).count());
+    }
+    return got;
   }
   uint64_t Size()const override{return file_?file_.size():0;}
   bool Valid()const override{return static_cast<bool>(file_);}
- private:storage::File file_;
+ private:storage::File file_;VerificationProfile* profile_;
 };
 Error verify_file(storage::FileSystem& fs,const std::string& path,const orcmap::PackManifest& expected,
                   uint8_t* buffer,size_t capacity,const Hooks& hooks) {
@@ -87,38 +94,21 @@ Error verify_file(storage::FileSystem& fs,const std::string& path,const orcmap::
   };
   auto file=fs.open(path.c_str(),FILE_READ);CloseFile close{file};
   if(!file||file.size()!=expected.size_bytes)return done(Error::storage);
-  mbedtls_sha256_context sha;mbedtls_sha256_init(&sha);
-  struct HashClose {mbedtls_sha256_context& sha;~HashClose(){mbedtls_sha256_free(&sha);}} hash_close{sha};
-  if(mbedtls_sha256_starts(&sha,0))return done(Error::hash);
-  uint64_t used=0;
-  if(hooks.verify_progress)hooks.verify_progress(hooks.context,0,expected.size_bytes);
-  while(used<expected.size_bytes) {
-    if(hooks.cancelled&&hooks.cancelled(hooks.context))return done(Error::cancelled);
-    const size_t take=static_cast<size_t>(std::min<uint64_t>(capacity,expected.size_bytes-used));
-    const auto read_started=Clock::now();
-    const auto got=file.read(buffer,take);
-    profile.read_us+=micros(read_started);
-    if(got!=take)return done(Error::storage);
-    const auto hash_started=Clock::now();
-    const auto hashed=mbedtls_sha256_update(&sha,buffer,take);
-    profile.hash_us+=micros(hash_started);
-    if(hashed)return done(Error::hash);
-    profile.bytes+=take;++profile.blocks;
-    used+=take;
-    if(hooks.verify_progress)hooks.verify_progress(hooks.context,used,expected.size_bytes);
-  }
-  uint8_t hash[32]{};
-  if(mbedtls_sha256_finish(&sha,hash)||!file.close())return done(Error::storage);
-  constexpr char hex[]="0123456789abcdef";
-  for(size_t i=0;i<32;++i)
-    if(expected.output_sha256[i*2]!=hex[hash[i]>>4]||expected.output_sha256[i*2+1]!=hex[hash[i]&15])return done(Error::hash);
-  Source source(fs,path);
+  if(!file.close())return done(Error::storage);
+  (void)buffer;(void)capacity;
+  if(hooks.verify_progress)hooks.verify_progress(hooks.context,0,0);
+  if(hooks.cancelled&&hooks.cancelled(hooks.context))return done(Error::cancelled);
+  // Quick structural check only: size, bounded header/root directory and coverage.
+  // Payload corruption is discovered on tile read, not by a full archive scan.
+  Source source(fs,path,&profile);
   auto reader=std::make_unique<orcmap::PmTilesReader>(&source,1);
   if(!source.Valid()||!reader->Open())return done(Error::archive);
   const auto& h=reader->Header();const auto& b=expected.bounds;
   if(expected.min_zoom<h.min_zoom||expected.max_zoom>h.max_zoom||
       b.min_lon_deg<h.min_lon_e7/1e7-1e-6||b.max_lon_deg>h.max_lon_e7/1e7+1e-6||
       b.min_lat_deg<h.min_lat_e7/1e7-1e-6||b.max_lat_deg>h.max_lat_e7/1e7+1e-6)return done(Error::archive);
+  if(hooks.cancelled&&hooks.cancelled(hooks.context))return done(Error::cancelled);
+  if(hooks.verify_progress)hooks.verify_progress(hooks.context,profile.bytes,profile.bytes);
   return done(Error::none);
 }
 Error prepare(storage::FileSystem& fs,const catalog::Pack& pack,size_t mirror,Stream& stream,

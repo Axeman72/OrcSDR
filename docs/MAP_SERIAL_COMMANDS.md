@@ -217,13 +217,13 @@ catalog trust, archive verification, activation/recovery or storage checks.
 
 Verification feedback adds `verified`, `verify_total` and
 `verify_pass` to the read-only `RTL_MAP DOWNLOAD LIST` status line. These are
-bytes checked in the current full-file scan and its pass number, not a promise
-that the archive is valid: 100% can still end in a hash/format failure. A later
-scan resets checked bytes and increments the pass number. Installed success
-still requires phase=2, busy=0 and the installed entry. Installed COM17
-`c552111f` exposes these fields and passes host/P4/link checks.
-A real file scan remains untested on this candidate; the earlier clean-install
-benchmark used `137e244a`, which lacked these fields.
+metadata bytes read by the current quick size/header/root/coverage check and its
+check number. The names are retained for serial compatibility; no full archive
+scan or payload hashing is performed by the new path. A completed quick check
+does not prove every tile is intact. Installed success still requires phase=2,
+busy=0 and the installed entry. Older firmware's full-scan timing records remain
+historical measurements. `ORCMAPS_VERIFY_PROFILE check=structure` identifies
+the new metadata-only measurements; `hash_us` is zero.
 
 Standard scripted builds now explicitly configure the published nonexpiring
 production catalog and public key. COM17 `46cf8148` passes production Check and

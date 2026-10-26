@@ -23,18 +23,20 @@ remains available without an SD card.
    Data & Maps → LOCAL MAPS**.
 3. Press **GET MAPS**, then **CHECK CATALOG**.
 4. Select **World regional detail - zoom 0-8** and press **DOWNLOAD/RESUME**.
-5. Wait for download, verification and installation to finish. The downloader
-   checks the signed catalog and archive hash. The tested candidate's verification
-   can take a substantial time after the byte counter reaches its total. One
-   [documented PNY-card test](https://github.com/hardcoreerik/OrcSDR/blob/main/docs/evidence/maps/download-benchmarks/2026-10-24-com17-pny32/README.md)
-   took about 21 minutes for verification/installation with reception enabled
-   partway through; this is an observation, not an expected-time guarantee.
+5. Wait for download and installation to finish. The new quick-check path checks
+   the saved file's size, PMTiles header, root directory and map coverage. It does
+   not reread the whole map or verify its payload checksum. The signed catalog
+   and HTTPS checks remain. Older firmware performed full-file scans; its
+   [PNY-card timing record](https://github.com/hardcoreerik/OrcSDR/blob/main/docs/evidence/maps/download-benchmarks/2026-10-24-com17-pny32/README.md)
+   does not predict the new installation time. Damaged tile data beyond the
+   quick check can remain undetected until it is used.
 6. Press **INSTALLED**, select the new map, then **USE THIS MAP**.
 
 The device downloads from GitHub release assets in the
 [OrcMaps repository](https://github.com/hardcoreerik/OrcMaps/releases).
-The current development build uses this
-[TEST-ONLY signed catalog](https://github.com/hardcoreerik/OrcMaps/releases/tag/maps-catalog-test-20261022).
+Current configured builds use the
+[production signed catalog](https://github.com/hardcoreerik/OrcMaps/releases/tag/maps-catalog-v1).
+It has no scheduled expiry. Earlier pilot builds used a separate test catalog.
 
 **STOP TRANSFER** and **DOWNLOAD/RESUME** support interrupted transfers.
 **RETRY LAST** is offered for recoverable failures. Existing installed maps
@@ -47,8 +49,8 @@ SD card and its partial-download files. Reconnect to Wi-Fi when needed, then
 select the same pack and press **DOWNLOAD/RESUME** (or **RETRY LAST** after an
 error). The device resumes from its last saved checkpoint; a small amount of
 unsaved progress may need downloading again. It checks that the remote file
-still matches before appending, then verifies the entire completed archive.
-An interrupted download is not an installed map until verification finishes.
+still matches before appending, then performs the quick file check described
+above. An interrupted download is not an installed map until installation finishes.
 
 ## Copy the map onto the SD card using a computer
 

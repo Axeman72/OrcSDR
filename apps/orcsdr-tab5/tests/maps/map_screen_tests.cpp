@@ -282,17 +282,17 @@ void screen_tests() {
   const int verifying_clears=M5.Display.screen_clears;
   for(int i=0;i<4;++i){test_millis+=300;map_screen::tick();map_screen::tick();}
   assert(M5.Display.screen_clears==verifying_clears);
-  assert(visible("Verifying map integrity and installing... Please wait."));
+  assert(visible("Checking map file and installing..."));
   download_status.verify_total_bytes=100ull*1024*1024;download_status.verify_pass=1;
   for(unsigned i=1;i<=4;++i) {
     download_status.verified_bytes=i*25ull*1024*1024;++download_status.revision;
     test_millis+=300;map_screen::tick();map_screen::tick();
     assert(M5.Display.screen_clears==verifying_clears);
   }
-  assert(visible("Verifying map, pass 1: 100.0 MB / 100.0 MB (100%)"));
+  assert(visible("Checking map file: 100.0 MB / 100.0 MB (100%)"));
   download_status.verify_pass=2;download_status.verified_bytes=25ull*1024*1024;++download_status.revision;
   test_millis+=300;map_screen::tick();map_screen::tick();
-  assert(visible("Verifying map, pass 2: 25.0 MB / 100.0 MB (25%)"));
+  assert(visible("Checking map file: 25.0 MB / 100.0 MB (25%)"));
   assert(M5.Display.screen_clears==verifying_clears);
   serial_command("RTL_MAP OPEN DOWNLOADS",false);
   assert(serial_output=="RTL_MAP_ERROR auth_required\n");

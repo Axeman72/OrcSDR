@@ -6,9 +6,9 @@
 namespace orcsdr::maps::transfer {
 enum class Error {none,input,space,resume,network,response,cancelled,storage,hash,archive,allocation};
 struct VerificationProfile {
-  // bytes/blocks count successfully hashed data. read_us measures block reads;
-  // hash_us measures block SHA updates. elapsed_us also includes other work,
-  // including cancellation/yields and PMTiles validation (before RAII cleanup).
+  // bytes/blocks count bounded PMTiles header/root reads. No full-file scan or
+  // payload hash is performed; hash_us stays zero for serial compatibility.
+  // elapsed_us includes structural validation (before RAII cleanup).
   uint64_t bytes=0,blocks=0,read_us=0,hash_us=0,elapsed_us=0;
   Error result=Error::none;
 };
@@ -28,7 +28,7 @@ struct Hooks {
   bool (*cancelled)(void*)=nullptr;
   void (*progress)(void*,uint64_t,uint64_t)=nullptr;
   void (*verifying)(void*)=nullptr; // Worker callback; never draw UI here.
-  // Per full-file check: starts at zero, advances after hashing each block.
+  // Quick structural check: starts at zero, completes with metadata bytes read.
   void (*verify_progress)(void*,uint64_t,uint64_t)=nullptr;
   // One observation per normally returned file check, including cancellation
   // and failure. Allocation exceptions retain the caller's existing handling.
@@ -45,7 +45,7 @@ Paths paths(const catalog::Pack&);
 // location, NVS setting or catalog revision is changed here.
 Error stage(storage::FileSystem&,const catalog::Pack&,size_t mirror,Stream&,
             uint64_t free_bytes,uint8_t* buffer,size_t buffer_bytes,const Hooks&) noexcept;
-// Read-only full hash and actual PMTiles checks for activation/revalidation.
+// Read-only quick size/header/root/coverage check. Does not verify payload hash.
 Error verify_archive(storage::FileSystem&,const catalog::Pack&,const std::string& path,
                      uint8_t*,size_t,const Hooks&) noexcept;
 } // namespace orcsdr::maps::transfer
