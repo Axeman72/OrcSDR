@@ -139,7 +139,6 @@ idf_component_register(
         "../ui/map_pipeline.cpp"
         "../ui/map_inventory.cpp"
         "../ui/map_service.cpp"
-        "../ui/display_writeback.cpp"
         "../ui/map_view.cpp"
         "../ui/map_preferences.cpp"
         "../ui/map_screen.cpp"

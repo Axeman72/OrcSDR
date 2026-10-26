@@ -1,5 +1,4 @@
 #include "map_service.hpp"
-#include "display_writeback.hpp"
 #include "map_timing.hpp"
 #include "map_preview.hpp"
 #include "map_inventory.hpp"
@@ -554,11 +553,6 @@ bool frame_info(FrameInfo* out) {
 void report(void (*write)(const char*)) {
   if(!write)return;
   char line[512];
-  const auto writeback=display_writeback::snapshot();
-  std::snprintf(line,sizeof(line),"ORC_DISPLAY_WRITEBACK calls=%lu chunks=%lu errors=%lu max_chunk_bytes=%lu max_chunk_us=%lu max_call_us=%lu\n",
-      static_cast<unsigned long>(writeback.calls),static_cast<unsigned long>(writeback.chunks),
-      static_cast<unsigned long>(writeback.errors),static_cast<unsigned long>(writeback.max_chunk_bytes),
-      static_cast<unsigned long>(writeback.max_chunk_us),static_cast<unsigned long>(writeback.max_call_us));write(line);
   using preferences::Consumer;
   std::snprintf(line,sizeof(line),"ORC_MAP_LABELS picker=%u lora=%u adsb=%u ft8=%u\n",
       preferences::labels(Consumer::picker)?1u:0u,preferences::labels(Consumer::lora)?1u:0u,

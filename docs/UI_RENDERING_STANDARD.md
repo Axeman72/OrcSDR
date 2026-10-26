@@ -61,20 +61,22 @@ Related practices: [SD reliability](SD_CARD_RELIABILITY.md) and
 [map serial commands](MAP_SERIAL_COMMANDS.md). Existing unrelated UI gaps should
 be recorded and addressed in scoped changes, not a broad rendering rewrite.
 
-## IQ continuity is a release invariant
+## IQ continuity and the accepted map-interaction limitation
 
-UI and maps must not cause IQ loss. Compare both the driver overrun/drop counters
-and application IQ-pipeline drop counters before and after each load phase.
-Opening, dragging, zooming, changing labels, storage activity and navigation must
-add zero drops under the recorded receiving configuration. A healthy idle period,
-a responsive screen, or zero driver drops alone is insufficient. Never suppress
-counters, reduce the requested receiver rate, stop reception outside an explicitly
-paused workflow, or waive missing samples to make this gate pass.
+Compare driver overrun/drop counters and application IQ-pipeline drop counters
+before and after each load phase. Idle reception and normal stationary use must
+not accumulate UI-related losses. A responsive screen or zero driver drops alone
+is insufficient evidence.
 
-Large framebuffer writebacks must release the cache synchronization mutex and
-interrupt critical section between bounded chunks. The app supplies M5GFX's weak
-writeback hook with a 4 KiB limit per `esp_cache_msync` call. SDK inner chunking
-alone retains the outer cache mutex for the whole image. Keep the app hook, its
-native strong-symbol check and its focused coverage when upgrading M5GFX/IDF.
-`RTL_MAP STATUS` exposes `ORC_DISPLAY_WRITEBACK`; its counters supplement rather
-than replace the radio continuity counters. Hardware acceptance remains required.
+On October 26, 2026, the owner explicitly accepted small, transient IQ drops while
+moving the map and filling in newly exposed detail for v0.5.0-beta.1. This narrow
+exception removes that observed interaction from the release blockers; it does
+not establish zero-loss rendering or a numerical loss budget. Preserve measured
+counts and disclose the limitation. Continued loss after the map settles, idle
+loss, crashes and unrelated reception regressions remain blockers. Never suppress
+counters or silently reduce receiver rate to hide losses.
+
+Avoid long uninterruptible graphics operations, but accept performance changes
+only with measured device benefit. The October 26 experiment replacing M5GFX's
+writeback hook with 4 KiB calls did not resolve IQ losses and is excluded from
+the shipping build. Its failed measurements remain in the release ledger.

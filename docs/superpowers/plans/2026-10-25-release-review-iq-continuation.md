@@ -13,8 +13,10 @@ firmware (COM17 3.0.6, COM39 1.4.1); leave unrelated worktrees alone.
   findings against current code rather than treating a green status as approval.
 - Build and test the final reviewed source on hardware. The installed `9e3f0378`
   does not include the later `271dca27` LoRa/FT8/storage review fixes.
-- Resolve map-related IQ loss. Measure driver and application counters by phase
-  under active reception. Cached drag acceptance does not waive dropped IQ.
+- Apply the October 26 owner decision: small, transient map-movement/detail-refill
+  IQ drops are accepted for this release. Preserve the measurements and disclose
+  the limitation; idle/stationary losses and continuing loss after settling remain
+  blockers. The earlier zero-loss criterion below is historical, not the current gate.
 - Keep release-matrix FAIL/BLOCKED rows visible; no unsupported relabeling.
 - Merge only after these gates pass; verify the merge on origin/main. Validate
   the tagged package before publication. Intended tag: `v0.5.0-beta.1`.
@@ -32,7 +34,7 @@ firmware (COM17 3.0.6, COM39 1.4.1); leave unrelated worktrees alone.
 | Download/render scheduling and shared SD ownership | Pending |
 | Current SD capacity and LoRa label behavior device checks | Pending |
 | Restore review scope; review tests and release notes | Temporary source-only filters removed; external full review pending |
-| Zero additional map-related IQ drops under recorded workloads | Pending; earlier cache chunking experiment failed this gate |
+| Map-interaction IQ loss | Owner accepted small transient movement/detail-refill drops on October 26; not a zero-loss pass. Preserve evidence and confirm idle/stationary recovery. |
 | Native build and COM17/COM39 final source validation | Pending |
 | Final review, CI, merge/main verification and package validation | Pending |
 
@@ -189,3 +191,19 @@ algorithms or loss counters was made.
 The bounded 89-file pass is complete. Unrestricted CodeRabbit path eligibility
 is restored; the next incremental review must cover the subsequent source,
 DSP diagnostics, test and documentation corrections without those exclusions.
+
+## Current release decision — October 26, 2026
+
+Owner: “I dont consider that a blocker. Small iq drops when moving the map are
+fine.” This supersedes the earlier zero-map-loss release criterion. Brief loss
+associated with movement/detail refill is an accepted limitation, not a fixed
+bug or a passing zero-loss measurement. Keep the failed experimental results as
+historical evidence. Do not continue optimization or diagnostic build loops
+solely to meet the superseded zero-loss criterion. Complete the outstanding
+review, final-device validation and package gates before merge/tag decisions.
+
+The unsuccessful application-level cache-writeback override is removed from the
+shipping candidate after the owner's acceptance decision. The original M5GFX
+hook and SDK defaults are restored; historical experiment results remain above.
+The measured DSP stage peaks remain available for future diagnosis. No further
+zero-loss optimization experiments are required for this release.
