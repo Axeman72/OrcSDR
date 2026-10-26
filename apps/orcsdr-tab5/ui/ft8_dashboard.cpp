@@ -255,8 +255,8 @@ void draw_header() {
   // repaints only its own band; the screen is never cleared.
   M5.Display.fillRect(0, 0, 1280, 92, TFT_BLACK);
   audio_header::draw_brand(family_brand(g_snapshot.mode));
-  M5.Display.drawFastVLine(365, 18, 66, kCyan);
-  text(family_title(g_snapshot.mode), 392, 38, TFT_WHITE, 4, middle_left);
+  M5.Display.drawFastVLine(audio_header::kTitleDividerX, 18, 66, kCyan);
+  text(family_title(g_snapshot.mode), audio_header::kTitleTextX, 38, TFT_WHITE, 4, middle_left);
   text("RECEIVE ONLY", 600, 40, kMuted, 1, middle_left);
 
   const BandPreset* preset = band(g_snapshot.selected_band);
@@ -704,6 +704,8 @@ M5Canvas g_world_canvas(&M5.Display); // one OrcMaps Mercator world; NEVER sampl
 bool g_map_canvas_ready = false, g_world_canvas_ready = false;
 bool g_map_composed = false, g_map_composed_labels = true;
 uint32_t g_map_revision_seen = 0;
+uint32_t g_map_poll_ms = 0, g_map_poll_revision = 0;
+bool g_map_pending = false;
 bool g_map_memory_retry = false, g_map_memory_attempted = false;
 uint32_t g_map_memory_attempt_ms = 0;
 constexpr uint32_t kMapMemoryRetryMs = 2000;
@@ -717,14 +719,33 @@ void draw_globe(lgfx::LovyanGFX& d, int sub_x, int sub_y, bool basemap) {
   if(basemap) {
     // One geographic revolution: latitude comes from the output row centre,
     // OrcMaps' Mercator scale from the fixed source square. No invented polar coastlines.
+    // Typed native RGB565 rows preserve color independently of destination
+    // byte-swap settings. Reuse PSRAM scratch instead of per-pixel driver calls.
+#ifdef ESP_PLATFORM
+    EXT_RAM_BSS_ATTR
+#endif
+    static uint16_t source_row[world_map::kMercatorSide];
+#ifdef ESP_PLATFORM
+    EXT_RAM_BSS_ATTR
+#endif
+    static lgfx::rgb565_t output_row[width];
+    const bool swap=g_world_canvas.getSwapBytes();
+    g_world_canvas.setSwapBytes(true);
+    int previous_source_y=-1;
     for(int row=0;row<height;++row) {
       int ignored=0,src_y=0;
       if(!world_map::source_pixel(0,row,width,height,&ignored,&src_y))continue;
-      for(int col=0;col<width;++col) {
-        const int src_x=((2*col+1)*world_map::kMercatorSide)/(2*width);
-        d.drawPixel(left+col-sub_x,top+row-sub_y,g_world_canvas.readPixel(src_x,src_y));
+      if(src_y!=previous_source_y) {
+        g_world_canvas.readRect(0,src_y,world_map::kMercatorSide,1,source_row);
+        previous_source_y=src_y;
+        for(int col=0;col<width;++col) {
+          const int src_x=((2*col+1)*world_map::kMercatorSide)/(2*width);
+          output_row[col].raw=source_row[src_x];
+        }
       }
+      d.pushImage(left-sub_x,top+row-sub_y,width,1,output_row);
     }
+    g_world_canvas.setSwapBytes(swap);
   }
   d.drawRect(left-sub_x,top-sub_y,width,height,kGrid);
   for(int lon=-180;lon<180;lon+=30) {
@@ -760,17 +781,8 @@ void draw_globe(lgfx::LovyanGFX& d, int sub_x, int sub_y, bool basemap) {
   }
 }
 
-void draw_map() {
+void draw_map(bool frame_only=false) {
   const Rect map{24,104,884,514};
-  if(g_map_canvas_ready) {
-    // A retained off-screen frame already covers the map rectangle. Redraw
-    // header and footer only; avoid blanking geography before pushSprite.
-    M5.Display.fillRect(map.x,map.y,map.w,54,kPanel);
-    M5.Display.fillRect(map.x,578,map.w,map.y+map.h-578,kPanel);
-    M5.Display.drawRoundRect(map.x,map.y,map.w,map.h,10,kCyan);
-  } else frame(map);
-  text("MAIDENHEAD GRID",42,124,kCyan,1,middle_left);
-  text("WHOLE WORLD",664,124,kMuted,0,middle_right);
   constexpr int left=50,top=158,width=824,height=420;
   const bool labels=maps::preferences::labels(maps::preferences::Consumer::ft8);
   const auto now=millis();
@@ -804,6 +816,19 @@ void draw_map() {
   if(g_map_canvas_ready&&g_world_canvas_ready)result=map_source::draw(g_world_canvas,labels);
   result.low_memory|=!g_map_canvas_ready||!g_world_canvas_ready;
   g_map_memory_retry=result.low_memory;
+  g_map_pending=result.state==map_source::State::pending;
+  g_map_poll_ms=now;g_map_poll_revision=observed_revision;
+  if(frame_only&&g_map_pending)return; // retain the displayed frame and all static panels
+  if(g_map_canvas_ready) {
+    // A retained off-screen frame already covers the map rectangle. Redraw
+    // header and footer only; avoid blanking geography before pushSprite.
+    M5.Display.fillRect(map.x,map.y,map.w,54,kPanel);
+    M5.Display.fillRect(map.x,578,map.w,map.y+map.h-578,kPanel);
+    M5.Display.drawRoundRect(map.x,map.y,map.w,map.h,10,kCyan);
+  } else frame(map);
+  text("MAIDENHEAD GRID",42,124,kCyan,1,middle_left);
+  text("WHOLE WORLD",664,124,kMuted,0,middle_right);
+
   // A published revision may still be locked. Do not consume it until draw
   // observes ready/unavailable, so the unchanged revision is retried next tick.
   if(result.state!=map_source::State::pending)g_map_revision_seen=observed_revision;
@@ -840,6 +865,7 @@ void draw_map() {
     text("YOU",std::min(left+width-34,left+g_map_you_x+14),
          std::clamp(top+g_map_you_y-12,top+14,top+height-14),TFT_WHITE,1,middle_left);
   const size_t n=std::min(g_snapshot.decode_count,kDecodeCapacity);
+  if(frame_only)return;
   const Rect recent{926,104,330,514};
   frame(recent,kGrid);
   text("RECENT GRIDS",946,127,kCyan,1,middle_left);
@@ -1740,9 +1766,11 @@ void update(const Snapshot& snapshot_value) {
                               previous.clock_valid != g_snapshot.clock_valid ||
                               previous.battery_percent != g_snapshot.battery_percent;
   if (g_tab==Tab::map && !overlay_open() && !tab_content_changed(g_tab,previous,g_snapshot) &&
-      !header_changed && (map_source::revision()!=g_map_revision_seen ||
-      (g_map_memory_retry && static_cast<uint32_t>(millis()-g_map_memory_attempt_ms)>=kMapMemoryRetryMs))) {
-    draw_map(); // worker has published a new full frame; never sample pending pixels
+      !header_changed && ((!g_map_pending || map_source::revision()!=g_map_poll_revision ||
+      static_cast<uint32_t>(millis()-g_map_poll_ms)>=250) &&
+      (map_source::revision()!=g_map_revision_seen ||
+      (g_map_memory_retry && static_cast<uint32_t>(millis()-g_map_memory_attempt_ms)>=kMapMemoryRetryMs)))) {
+    draw_map(true); // retry publication without repainting static map-tab panels
     return;
   }
   if (tab_content_changed(g_tab, previous, g_snapshot) || header_changed) {

@@ -24,8 +24,10 @@ int main() {
   auto paints=M5.Display.strings.size();
   map_download_notice::update(s,screens::Id::home,false);
   assert(M5.Display.strings.size()==paints);
+  const int calls=M5.Display.string_draw_calls;
   map_download_notice::invalidate();map_download_notice::update(s,screens::Id::home,false);
-  assert(M5.Display.strings.size()==paints+2);
+  assert(M5.Display.string_draw_calls==calls+2);
+  assert(M5.Display.strings.size()==paints&&visible("MAP DL")&&visible("25%"));
   for(int percent=26;percent<=30;++percent) {
     s.completed_bytes=percent;map_download_notice::update(s,screens::Id::home,false);
     assert(M5.Display.screen_clears==0);
@@ -43,8 +45,9 @@ int main() {
   assert(map_download_notice::hit(360,40,screens::Id::ft8,false));
   for(auto phase:{P::complete,P::cancelled,P::failed}) {
     s.phase=phase;s.busy=false;map_download_notice::update(s,screens::Id::ft8,false);
+    assert(visible(phase==P::complete?"READY":phase==P::cancelled?"PAUSED":"ERROR"));
   }
-  assert(visible("READY")&&visible("PAUSED")&&visible("ERROR"));
+  assert(!visible("READY")&&!visible("PAUSED")&&visible("ERROR"));
   for(auto screen:{screens::Id::maps,screens::Id::settings,screens::Id::documentation,screens::Id::visualizer}) {
     enter(screen);paints=M5.Display.strings.size();map_download_notice::update(s,screen,false);
     assert(M5.Display.strings.size()==paints&&!map_download_notice::hit(360,40,screen,false));

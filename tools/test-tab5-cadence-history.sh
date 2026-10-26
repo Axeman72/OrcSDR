@@ -14,3 +14,9 @@ run() {
 run home_cadence tests/home_cadence_tests.cpp
 run waterfall_style tests/waterfall_style_tests.cpp "$ui/waterfall_style.cpp"
 run lora_history tests/lora_history_tests.cpp "$ui/lora_history.cpp" "$ui/lora_packet_log.cpp"
+
+# Focused release-review lifecycle regressions exercise the production routines.
+python3 tests/setup_navigation_pause_test.py
+python3 tests/location_task_lifetime_test.py
+python3 tests/orcdial_init_backoff_test.py
+python3 tests/adsb_zoom_redraw_test.py

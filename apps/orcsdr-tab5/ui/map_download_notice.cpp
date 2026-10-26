@@ -23,6 +23,7 @@ bool visible(maps::downloads::Phase phase) {
       phase==P::cancelled||phase==P::failed;
 }
 static_assert(x>=128+6*6*5&&x+width<audio_header::kStatusBarX);
+static_assert(x+width<audio_header::kTitleDividerX&&x+width<audio_header::kTitleTextX);
 }
 void invalidate(){dirty=true;}
 bool hit(int32_t px,int32_t py,screens::Id screen,bool blocked) {

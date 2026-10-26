@@ -440,11 +440,14 @@ void draw() {
   if(g_message[0])text(g_message,32,location_step()&&!g_edit?704:610,2,TFT_ORANGE);
   g_dirty=false;
 }
-void tick() {
+void service_navigation() {
   if(g_setup_paused&&!screens::is_active(screens::Id::maps)) {
     setup_ui::reset();
     g_setup_paused=false;if(g_hooks.setup_reception)g_hooks.setup_reception(false);
   }
+}
+void tick() {
+  service_navigation();
   if(!screens::owns(screens::Id::maps))return;
   if(g_dirty)draw();
   const uint32_t now=millis();

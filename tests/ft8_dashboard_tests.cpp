@@ -1,6 +1,8 @@
 // Exercise the real dashboard actions and repaint decisions with a recording display.
 #include "ft8_dashboard.hpp"
 #include "ft8_map_source.hpp"
+#include "ft8_world_projection.hpp"
+#include "dashboard_audio_control.hpp"
 #include "map_preferences.hpp"
 #include "memory_reclaim.hpp"
 #include <cstring>
@@ -64,6 +66,7 @@ int main() {
   select_tab(Tab::hunter);
   const Action band_pick = handle_touch(360, 375); // 20 m card, row 1 / column 1
   assert(band_pick.kind == ActionKind::tune_band && band_pick.value == 14080000);
+  assert(painted_x("FT4 RX")>=420); // shared map notice ends at x412
   select_tab(Tab::live);
   (void)handle_touch(80, 130); // open Tune
   const Action first = handle_touch(885, 310); // + step
@@ -167,11 +170,22 @@ int main() {
   ++test_map_revision;test_frame=map_source::State::ready;
   lgfx::paints.clear();update(s);
   assert(painted("ORCMAPS WORLD") && lgfx::sampled_pixels>0 && lgfx::drawn_pixels>0);
+  assert(lgfx::row_reads>0&&!lgfx::row_images.empty());
+  for(const auto& row:lgfx::row_images) {
+    assert(row.x==0&&row.pixels.size()==824);
+    for(int col=0;col<824;++col) {
+      int sx=0,sy=0;assert(world_map::source_pixel(col,row.y,824,420,&sx,&sy));
+      assert(row.pixels[col]==lgfx::pixel_color(sx,sy));
+    }
+  }
+
   // Worker publishes revision while its mutex is still held: pending may be
   // observed once even though that revision's completed frame is now available.
   ++test_map_revision;test_frame=map_source::State::pending;
   lgfx::paints.clear();update(s);
-  assert(painted("LAST MAP FRAME"));
+  assert(lgfx::paints.empty()); // a locked pending publication never repaints static panels
+  for(int repeat=0;repeat<5;++repeat){update(s);assert(lgfx::paints.empty());}
+  test_millis+=250;
   test_frame=map_source::State::ready;
   lgfx::paints.clear();update(s);
   assert(painted("ORCMAPS WORLD"));

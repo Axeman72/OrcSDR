@@ -233,7 +233,7 @@ void draw_header() {
   M5.Display.fillRect(0, 0, 1280, kHeaderH, kBg);
   M5.Display.drawFastHLine(8, kHeaderH - 1, 1264, kCyan);
   audio_header::draw_brand("M5STACK TAB5");
-  M5.Display.drawFastVLine(362, 20, 80, kCyan);
+  M5.Display.drawFastVLine(audio_header::kTitleDividerX, 20, 80, kCyan);
   draw_radio_icon(458, 64, kGreen);
   text("LORA MESH", 520, 47, TFT_WHITE, 4, middle_left);
   text("Meshtastic RX Monitor", 520, 83, kCyan, 2, middle_left);

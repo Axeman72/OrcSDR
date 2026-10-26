@@ -15838,7 +15838,7 @@ bool point_in_button(int32_t x, int32_t y) {
 
 bool queue_local_rtl_listen(RtlBand band, uint32_t frequency_hz,
                             bool persist_navigation) {
-  if(setup_receiver_inhibit.load(std::memory_order_acquire))return false;
+  orcsdr::map_screen::service_navigation();
   if (band == RtlBand::adsb) frequency_hz = kAdsbDefaultHz;
   if (band == RtlBand::lora) {
     load_lora_config();
@@ -16006,7 +16006,7 @@ bool queue_local_rtl_listen(RtlBand band, uint32_t frequency_hz,
   // check) defers the start until resume_radio_after_io(). Starting here
   // anyway put USB streaming on top of a Hosted connect, which then timed
   // out (boot auto-start during the #66 start-at-boot connect).
-  if (catalog_radio_paused || wifi_connect_radio_paused || wifi_poweroff_radio_paused ||
+  if (setup_radio_paused || catalog_radio_paused || wifi_connect_radio_paused || wifi_poweroff_radio_paused ||
       wifi_c6_probe_radio_paused) {
     radio_io_resume_pending = true;
   } else {
@@ -16802,6 +16802,7 @@ void orcdial_poll() {
     if(!orcdial_outbox)orcdial_outbox=xQueueCreateWithCaps(16,sizeof(OrcDialFrame),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     if(orcdial_outbox&&!orcdial_tx_task && xTaskCreatePinnedToCoreWithCaps(orcdial_transmit,"orcdial_tx",4096,nullptr,2,&orcdial_tx_task,0,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT|MALLOC_CAP_RTCRAM)!=pdPASS)orcdial_tx_task=nullptr;
     log_dram_budget("orcdial_queues_task");
+    if(!orcdial_inbox||!orcdial_outbox||!orcdial_tx_task){initialization_retry_ms=millis()+5000;return;}
     if(orcdial_inbox&&orcdial_tx_task&&eh_host_feat_peer_data_init()==ESP_OK && (log_dram_budget("orcdial_peer_init"),true) && eh_host_peer_data_register(kOrcDialFromC6,orcdial_receive,nullptr)==ESP_OK) {
       log_dram_budget("orcdial_peer_register");
       uint8_t mac[6];
@@ -23279,6 +23280,7 @@ void loop() {
       Serial.printf("RTL_MAIN_STALL stage=serial_dispatch elapsed_ms=%u\n", elapsed_ms);
   }
   service_clock();
+  orcsdr::location_estimate::service();
   // Keep connection success/failure/timeout and radio resume progressing even
   // when a full-screen mode returns early from the rest of the UI loop.
   if (boot_auto_start_allowed) {
@@ -23288,6 +23290,7 @@ void loop() {
     if (elapsed_ms >= 500)
       Serial.printf("RTL_MAIN_STALL stage=wifi_poll elapsed_ms=%u\n", elapsed_ms);
   }
+  orcsdr::map_screen::service_navigation();
   service_rtl_speaker_idle();  // before the full-screen modes' early returns
   if (orcsdr::visualizer::active()) {
     service_rtl_speaker_watchdog();

@@ -20,7 +20,7 @@ class LovyanGFX {
   std::vector<std::string> strings;
   std::vector<std::pair<int,int>> positions;
   int screen_clears=0,map_clears=0;
-  int region_clears=0;
+  int region_clears=0,string_draw_calls=0;
   template<class... T> void setFont(T...) {}
   template<class... T> void setTextDatum(T...) {}
   template<class... T> void setTextSize(T...) {}
@@ -43,6 +43,7 @@ class LovyanGFX {
   template<class... T> void drawLine(T...) {}
   template<class... T> void drawFastHLine(T...) {}
   void drawString(const char* value,int x,int y) {
+    ++string_draw_calls;
     if(positions.size()!=strings.size())positions.assign(strings.size(),{-1,-1});
     strings.emplace_back(value);positions.emplace_back(x,y);
   }

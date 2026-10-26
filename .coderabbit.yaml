@@ -1,17 +1,6 @@
 # Review ready pull requests automatically and recheck each pushed update.
 reviews:
-  # PR #211 source pass (96 changed files before this config). Tests and the
-  # shipping docs require a separate pass; restore broad scope before merge.
-  path_filters:
-    - "apps/orcsdr-tab5/ui/**"
-    - "apps/orcsdr-tab5/main/**"
-    - "apps/orcsdr-tab5/tools/**"
-    - "orcdial/src/**"
-    - "apps/orcsdr-tab5/CMakeLists.txt"
-    - "apps/orcsdr-tab5/partitions.csv"
-    - "apps/orcsdr-tab5/sdkconfig.defaults"
-    - "tools/check_tab5_ft8_scratch.py"
-    - ".coderabbit.yaml"
+  # Review source, tests and shipping documentation together before release.
   auto_review:
     enabled: true
     drafts: false

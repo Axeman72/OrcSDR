@@ -10,7 +10,8 @@
 #include <cstdlib>
 #include <cstring>
 namespace orcsdr::location_estimate { namespace {
-State g_state{}; portMUX_TYPE g_lock=portMUX_INITIALIZER_UNLOCKED; std::atomic_bool g_busy{false};
+State g_state{}; portMUX_TYPE g_lock=portMUX_INITIALIZER_UNLOCKED; std::atomic_bool g_busy{false},g_finished{false};
+TaskHandle_t g_task=nullptr;
 char g_query[64]{};
 void set(const State& value) { portENTER_CRITICAL(&g_lock); g_state=value; portEXIT_CRITICAL(&g_lock); }
 bool encode_query(const char* input, char* output, size_t capacity) {
@@ -52,10 +53,21 @@ void worker(void*) { const bool address = g_query[0] != '\0'; State next{}; next
   const double latitude=coordinate(lat,address);
   const double longitude=coordinate(lon,address);
   const cJSON* label=result?cJSON_GetObjectItem(result,address?"display_name":"city"):nullptr;
-  if(result && std::isfinite(latitude) && std::isfinite(longitude) && fabs(latitude)<=90 && fabs(longitude)<=180) { next.ready=true; next.latitude_e7=(int32_t)llround(latitude*10000000.0); next.longitude_e7=(int32_t)llround(longitude*10000000.0); snprintf(next.label,sizeof(next.label),"%s: %s",address?"SEARCH":"IP AREA",cJSON_IsString(label)?label->valuestring:"UNKNOWN"); strlcpy(next.message,address?"Address found; confirm to save":"Approximate IP area; confirm to save",sizeof(next.message));  } else strlcpy(next.message,address?"Address not found":"IP area lookup failed",sizeof(next.message)); if(root)cJSON_Delete(root); set(next); g_busy.store(false,std::memory_order_release); vTaskDelete(nullptr); }
+  if(result && std::isfinite(latitude) && std::isfinite(longitude) && fabs(latitude)<=90 && fabs(longitude)<=180) { next.ready=true; next.latitude_e7=(int32_t)llround(latitude*10000000.0); next.longitude_e7=(int32_t)llround(longitude*10000000.0); snprintf(next.label,sizeof(next.label),"%s: %s",address?"SEARCH":"IP AREA",cJSON_IsString(label)?label->valuestring:"UNKNOWN"); strlcpy(next.message,address?"Address found; confirm to save":"Approximate IP area; confirm to save",sizeof(next.message));  } else strlcpy(next.message,address?"Address not found":"IP area lookup failed",sizeof(next.message)); if(root)cJSON_Delete(root); set(next); g_finished.store(true,std::memory_order_release); vTaskSuspend(nullptr); }
+}
+// All callers run on the UI task. The worker suspends after publishing its
+// result; delete its WithCaps allocation here, without allocating a reaper task.
+void service() {
+  if(!g_task || !g_finished.load(std::memory_order_acquire) ||
+     eTaskGetState(g_task)!=eSuspended)return;
+  vTaskDeleteWithCaps(g_task);
+  g_task=nullptr;
+  g_finished.store(false,std::memory_order_relaxed);
+  g_busy.store(false,std::memory_order_release);
 }
 bool request(bool wifi_connected) { return request(nullptr, wifi_connected); }
 bool request(const char* query, bool wifi_connected) {
+  service();
   if(!wifi_connected) {
     State error{};
     strlcpy(error.message,"Connect Wi-Fi before lookup",sizeof(error.message));
@@ -71,12 +83,12 @@ bool request(const char* query, bool wifi_connected) {
   State pending{};pending.busy=true;
   strlcpy(pending.message,g_query[0]?"Address lookup queued":"IP area lookup queued",sizeof(pending.message));
   set(pending);
-  if(xTaskCreatePinnedToCoreWithCaps(worker,"location_lookup",8192,nullptr,3,nullptr,1,
+  if(xTaskCreatePinnedToCoreWithCaps(worker,"location_lookup",8192,nullptr,3,&g_task,1,
                                    MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)==pdPASS)return true;
   g_busy.store(false,std::memory_order_release);pending.busy=false;
   strlcpy(pending.message,"Location lookup unavailable",sizeof(pending.message));
   set(pending);return false;
 }
-State state(){State copy{};portENTER_CRITICAL(&g_lock);copy=g_state;portEXIT_CRITICAL(&g_lock);return copy;}
+State state(){service();State copy{};portENTER_CRITICAL(&g_lock);copy=g_state;portEXIT_CRITICAL(&g_lock);return copy;}
 bool self_check(){char encoded[64]{};return encode_query("97401 Main St",encoded,sizeof(encoded))&&strcmp(encoded,"97401%20Main%20St")==0&&!encode_query("bad\nquery",encoded,sizeof(encoded));}
 }

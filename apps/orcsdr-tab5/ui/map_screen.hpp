@@ -30,6 +30,9 @@ State state();
 bool control(Control,int32_t first=0,int32_t second=0,const char* identity=nullptr);
 void refresh();
 void draw();
+// Release setup reception ownership after external navigation, without painting.
+// UI-task only; safe before screen-specific early returns and queued tuning.
+void service_navigation();
 void tick();
 void touch(int x,int y,bool pressed,bool new_press);
 void key(const keyboard_input::Key&);

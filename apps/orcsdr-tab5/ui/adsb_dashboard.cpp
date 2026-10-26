@@ -424,9 +424,39 @@ void draw_selected_summary(int x, int y, int w, int h) {
   text("ADS-B 1090", x + 82, y + 491, TFT_LIGHTGREY, 1, middle_left);
 }
 
-void draw_radar() {
+void draw_radar_map() {
   constexpr int cx = kRadarPanelX + kMapX + kMapW / 2;
   constexpr int cy = kRadarPanelY + kMapY + kMapH / 2;
+  draw_radar_base();
+  if (g_radar_base.getBuffer()) g_radar_base.pushSprite(kRadarPanelX, kRadarPanelY);
+  else card(kRadarPanelX, kRadarPanelY, kRadarPanelW, kRadarPanelH);
+  text("LIVE TRAFFIC", kRadarPanelX + 22, kRadarPanelY + 26, kGreen, 2, middle_left);
+  char location[72];
+  if (g_settings.location_configured)
+    snprintf(location, sizeof(location), "LAT %.4f   LON %.4f   RANGE %u NM",
+             g_settings.latitude_e7 / 10000000.0, g_settings.longitude_e7 / 10000000.0,
+             g_settings.radar_range_nm);
+  else strlcpy(location, "RECEIVER LOCATION NOT SET", sizeof(location));
+  text(location, kRadarPanelX + 22, kRadarPanelY + 54, kBlue, 1, middle_left);
+  M5.Display.setClipRect(kRadarPanelX+kMapX,kRadarPanelY+kMapY,kMapW,kMapH);
+  if (g_settings.location_configured) M5.Display.fillCircle(cx, cy, 7, kGreen);
+  for (size_t i = 0; i < g_aircraft_count; ++i) {
+    if (!g_aircraft[i].has_position || !g_settings.location_configured) continue;
+    int px=0,py=0;
+    if(!radar_position(g_aircraft[i],&px,&py))continue;
+    plane(px, py, i == g_selected ? 16 : 12, i == g_selected ? kBlue : kGreen);
+    text(g_aircraft[i].callsign, px + 18, py - 5,
+         i == g_selected ? TFT_WHITE : TFT_LIGHTGREY, 1, middle_left);
+  }
+  M5.Display.clearClipRect();
+  button("+", kZoomX, kZoomY, kZoomSize, kZoomSize,
+         g_settings.radar_range_nm==kRanges[0] ? TFT_DARKGREY : TFT_DARKCYAN);
+  button("-", kZoomX, kZoomY+kZoomStep, kZoomSize, kZoomSize,
+         g_settings.radar_range_nm==kRanges[std::size(kRanges)-1] ? TFT_DARKGREY : TFT_DARKCYAN);
+
+}
+
+void draw_radar() {
   card(14, 88, 210, 226);
   text("STATUS", 32, 113, TFT_WHITE, 2, middle_left);
   M5.Display.drawFastHLine(30, 137, 178, kBorder);
@@ -458,32 +488,7 @@ void draw_radar() {
     if (i < 4) M5.Display.drawFastHLine(32, yy + 20, 174, kBorder);
   }
 
-  draw_radar_base();
-  if (g_radar_base.getBuffer()) g_radar_base.pushSprite(kRadarPanelX, kRadarPanelY);
-  else card(kRadarPanelX, kRadarPanelY, kRadarPanelW, kRadarPanelH);
-  text("LIVE TRAFFIC", kRadarPanelX + 22, kRadarPanelY + 26, kGreen, 2, middle_left);
-  char location[72];
-  if (g_settings.location_configured)
-    snprintf(location, sizeof(location), "LAT %.4f   LON %.4f   RANGE %u NM",
-             g_settings.latitude_e7 / 10000000.0, g_settings.longitude_e7 / 10000000.0,
-             g_settings.radar_range_nm);
-  else strlcpy(location, "RECEIVER LOCATION NOT SET", sizeof(location));
-  text(location, kRadarPanelX + 22, kRadarPanelY + 54, kBlue, 1, middle_left);
-  M5.Display.setClipRect(kRadarPanelX+kMapX,kRadarPanelY+kMapY,kMapW,kMapH);
-  if (g_settings.location_configured) M5.Display.fillCircle(cx, cy, 7, kGreen);
-  for (size_t i = 0; i < g_aircraft_count; ++i) {
-    if (!g_aircraft[i].has_position || !g_settings.location_configured) continue;
-    int px=0,py=0;
-    if(!radar_position(g_aircraft[i],&px,&py))continue;
-    plane(px, py, i == g_selected ? 16 : 12, i == g_selected ? kBlue : kGreen);
-    text(g_aircraft[i].callsign, px + 18, py - 5,
-         i == g_selected ? TFT_WHITE : TFT_LIGHTGREY, 1, middle_left);
-  }
-  M5.Display.clearClipRect();
-  button("+", kZoomX, kZoomY, kZoomSize, kZoomSize,
-         g_settings.radar_range_nm==kRanges[0] ? TFT_DARKGREY : TFT_DARKCYAN);
-  button("-", kZoomX, kZoomY+kZoomStep, kZoomSize, kZoomSize,
-         g_settings.radar_range_nm==kRanges[std::size(kRanges)-1] ? TFT_DARKGREY : TFT_DARKCYAN);
+  draw_radar_map();
 
   card(234, 488, 646, 136);
   text("SIGNAL LEVEL", 250, 512, TFT_WHITE, 1, middle_left);
@@ -1033,8 +1038,10 @@ Action handle_touch(int32_t x, int32_t y) {
     }
     const bool zoom_in=hit(x,y,kZoomX,kZoomY,kZoomSize,kZoomSize);
     if (zoom_in || hit(x,y,kZoomX,kZoomY+kZoomStep,kZoomSize,kZoomSize)) {
-      set_map_range(zoomed_range(g_settings.radar_range_nm,zoom_in));
-      redraw();
+      const auto range=zoomed_range(g_settings.radar_range_nm,zoom_in);
+      if(range==g_settings.radar_range_nm)return Action::none;
+      set_map_range(range);
+      draw_radar_map();
       return Action::settings_changed;
     }
     for (size_t i = 0; i < g_aircraft_count; ++i) {
