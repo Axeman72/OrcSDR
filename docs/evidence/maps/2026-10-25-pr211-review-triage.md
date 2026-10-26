@@ -7,7 +7,7 @@ This is a partial triage, not a clean whole-PR review. Continue on PR #211.
 | Settings removal confirmation survives hidden catalog changes (4372201757) | FIX BEFORE MERGE | Source corrected; focused regression and P4 syntax pass; not installed on device yet |
 | Map/setup value updates clear the full screen (4372201746) | FIX BEFORE MERGE | Source corrected; recording-display regressions and P4 syntax pass; native/physical checks pending |
 | Unauthenticated saved receiver coordinates in new map status (4372201751) | FIX BEFORE MERGE | Source corrected in picker and LoRa status; authenticated/unauthenticated regressions and P4 syntax pass; device check pending |
-| FT8 append retry can duplicate partially persisted rows (review 5645729155, outside diff, main.cpp:13505) | FIX BEFORE MERGE | Verified current branch code; correction/fault-injection tests pending |
+| FT8 append retry can duplicate partially persisted rows (review 5645729155, outside diff, main.cpp:13505) | FIX BEFORE MERGE | Fixed-position retry source corrected; fault-injection and P4 syntax pass; native/device checks pending |
 
 Eleven other earlier inline findings still require verification/classification.
 Do not label them stale, optional or fixed without checking current code. The
@@ -81,3 +81,25 @@ Logs: `map-privacy-red-test2-20261025.log`, `lora-map-privacy-red-20261025.log`,
 `map-redraw-{red,green3}-20261025.log`, `map-review-focused-build-20261025.log`,
 `map-review-p4-syntax-20261025.log`. Device still runs the previously verified
 5e79fd44 app; these source corrections await a combined native build/flash.
+
+## FT8 CSV retry correction
+
+The staged batch records its original file offset before its first write.
+Retries reopen the same daily file read/write and seek to that offset instead
+of appending the whole batch again. A partial new-file header is rewritten too.
+The offset resets only after successful write, sync and close. Missing pending
+files, status errors, or a file shorter than the saved offset fail closed.
+No decoder changes, audio fixtures or new logging format are involved.
+
+`python tests/ft8_log_retry_test.py` first reproduced corruption after a partial
+header, then PASS against the production flush function. Cases cover partial
+header/data writes, sync and close failures, additional staged rows before retry,
+open/seek failures, unavailable file status and a missing pending file. The test
+also verifies exact complete CSV bytes, not only return codes. Address/undefined
+sanitizer run PASS. Main-file P4 syntax PASS.
+
+Scope: in-session retries with the application as sole writer. RAM staging and
+the retry offset are not journaled across power loss, so crash recovery and
+concurrent external writers are not claimed. SD hardware validation remains
+separate. Logs beside invocation: `ft8-log-retry-{red,final,sanitized}-20261025.log`
+and `ft8-log-retry-p4-syntax-20261025.log`.

@@ -13465,6 +13465,9 @@ static void ft8_log_stage_rows(const orcsdr::ft8::Decode* decodes, const uint8_t
 
 // Writes the staged rows if the card can be used right now. Returns true when nothing is left staged.
 static bool ft8_log_flush(bool force) {
+  // The staged batch survives failed flushes. Retry its original position,
+  // including a partially written header, rather than appending it again.
+  static size_t batch_offset = SIZE_MAX;
   if (g_ft8_log_stage_rows == 0) return true;
   const uint32_t now = millis();
   if (!force && now - g_ft8_log_last_try_ms < 20000u) return false;
@@ -13482,23 +13485,37 @@ static bool ft8_log_flush(bool force) {
   snprintf(path, sizeof(path), "/orcsdr/ft8/log-%04d%02d%02d.csv", tm_utc.tm_year + 1900, tm_utc.tm_mon + 1, tm_utc.tm_mday);
   (void)g_sd_fs->mkdir("/orcsdr");
   (void)g_sd_fs->mkdir("/orcsdr/ft8");
-  const bool existed = g_sd_fs->exists(path);
-  File file = g_sd_fs->open(path, FILE_APPEND, true);
+  const auto entry = g_sd_fs->status(path);
+  const bool existed = entry == orcsdr::storage::EntryStatus::file;
+  if ((!existed && entry != orcsdr::storage::EntryStatus::missing) ||
+      (!existed && batch_offset != SIZE_MAX)) {
+    ++g_ft8_log_errors;
+    Serial.println("ORC_FT8_LOG_ERR stage=file_identity");
+    return false;
+  }
+  File file = g_sd_fs->open(path, existed ? "r+" : "w+", true);
   if (!file) {
     ++g_ft8_log_errors;
     Serial.printf("ORC_FT8_LOG_ERR stage=open path=%s existed=%d dma_largest=%u\n", path, existed ? 1 : 0,
                   static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA)));
     return false;
   }
-  if (file.size() > kFt8LogMaxFileBytes) {
+  if (batch_offset == SIZE_MAX && file.size() > kFt8LogMaxFileBytes) {
     file.close();
     g_ft8_log_dropped += g_ft8_log_stage_rows;   // day's cap reached: drop, never grow without bound
     g_ft8_log_stage_len = 0;
     g_ft8_log_stage_rows = 0;
     return true;
   }
+  if (batch_offset == SIZE_MAX) batch_offset = file.size();
+  if (file.size() < batch_offset || !file.seek(batch_offset)) {
+    (void)file.close();
+    ++g_ft8_log_errors;
+    Serial.println("ORC_FT8_LOG_ERR stage=retry_position");
+    return false;
+  }
   constexpr char header[] = "utc,mode,band,dial_hz,audio_hz,dt_ms,snr_db,callsign,grid,kind,message\n";
-  const bool header_ok = (existed && file.size() != 0) || file.print(header) == sizeof(header) - 1;
+  const bool header_ok = batch_offset != 0 || file.print(header) == sizeof(header) - 1;
   const size_t written = header_ok ? file.write(reinterpret_cast<const uint8_t*>(g_ft8_log_stage), g_ft8_log_stage_len) : 0;
   const bool sync_ok = header_ok && written == g_ft8_log_stage_len && file.sync();
   const bool close_ok = file.close();
@@ -13512,6 +13529,7 @@ static bool ft8_log_flush(bool force) {
   g_ft8_log_rows += g_ft8_log_stage_rows;
   g_ft8_log_stage_len = 0;
   g_ft8_log_stage_rows = 0;
+  batch_offset = SIZE_MAX;
   g_ft8_log_errors = 0;
   return true;
 }
