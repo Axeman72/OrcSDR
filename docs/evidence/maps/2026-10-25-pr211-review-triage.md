@@ -162,3 +162,34 @@ All invoked from the integration worktree; raw logs remain beside invocation.
 
 These results do not close native/physical UI acceptance, live storage fault
 recovery, map-associated RF drops, decoder/dongle qualification or package gates.
+
+## Combined COM17 candidate check
+
+Source 4b2986e6, app SHA-256
+`1e9cf0a2c648d84c38de608e4bd4077c54e31e314c6ec778848b1bc24e24e41a`
+was flashed app-only on COM17. Prior app verification, fresh non-app backups,
+post-flash app/non-app verification and normal startup PASS. SD, NVS, world and
+C6 preserved; COM39 untouched. The installed app includes 513f68f5's earlier
+catalog-confirmation correction as well as f02d4bc3 and 4b2986e6.
+
+The bounded named-command check PASS: cold unauthenticated status hides exact
+coordinates and followed-node identity; authenticated status returns the saved
+point. Setup Welcome/Network/Location, Cancel, LoRa map pan, picker pan/Cancel
+and Traffic return completed. The saved location stayed unchanged throughout.
+The recording-display tests prove full-clear behavior on host; physical flicker
+acceptance is still requested separately. No hardware partial-write fault was
+injected, so the FT8 storage failure-path claims remain host fault-injection.
+
+After map activity, driver counters showed four drops/overruns at 960 ksps.
+Thus this candidate does not resolve the separate radio-continuity gate. LoRa
+decoder failure count was zero but no ambient packets arrived in the short
+initial check; that window is neither positive decoder qualification nor a
+failure. PSRAM free 3,168,104 / largest 1,441,792 with map state retained.
+
+Logs beside invocation: `release-review-{preflash,device}-20261025.log`,
+`release-review-flash-console-20261025.log`,
+`release-review-boot-native-monitor-20261025.log`,
+`release-review-device-result-20261025.json`.
+Artifact `.local/maps/release-review-4b2986e6-20261025/manifest.json` retains
+the exact source/app and recovery hashes. Bench handoff restores prior manual
+gain 49.6 dB and LoRa Traffic without modifying receiver location or pairing.
