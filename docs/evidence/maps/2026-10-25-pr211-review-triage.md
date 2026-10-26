@@ -9,8 +9,8 @@ This is a partial triage, not a clean whole-PR review. Continue on PR #211.
 | Unauthenticated saved receiver coordinates in new map status (4372201751) | FIX BEFORE MERGE | Source corrected in picker and LoRa status; authenticated/unauthenticated regressions and P4 syntax pass; device check pending |
 | FT8 append retry can duplicate partially persisted rows (review 5645729155, outside diff, main.cpp:13505) | FIX BEFORE MERGE | Fixed-position retry source corrected; fault-injection and P4 syntax pass; native/device checks pending |
 
-Eleven other earlier inline findings still require verification/classification.
-Do not label them stale, optional or fixed without checking current code. The
+The other earlier findings are classified below from bounded current-source
+inspection. They are not fixed or waived merely because the LoRa review passed. The
 latest CodeRabbit pass on a9e04c49 added no inline comments on the LoRa memory
 changes, but did raise the outside-diff append finding above.
 
@@ -103,3 +103,25 @@ the retry offset are not journaled across power loss, so crash recovery and
 concurrent external writers are not claimed. SD hardware validation remains
 separate. Logs beside invocation: `ft8-log-retry-{red,final,sanitized}-20261025.log`
 and `ft8-log-retry-p4-syntax-20261025.log`.
+
+## Remaining earlier findings: bounded source verification
+
+All are FIX BEFORE MERGE; none has been silently downgraded to OPTIONAL/STALE.
+
+| ID | Current evidence | Next scoped check |
+|---|---|---|
+| 4372201699 | Temporary source-only `.coderabbit.yaml` filters still present | Review tests/shipping docs, then restore broad filters |
+| 4372201703 | ADS-B zoom still calls full `redraw()` and reports settings_changed at range limits | Recording test for map-only zoom and no-op bounds |
+| 4372201719 | FT8 globe still calls readPixel/drawPixel for every output pixel | Row-transfer equivalence/byte-order test before optimization |
+| 4372201722 | FT8 pending publication leaves revision unchanged; update retries the map tab | Recording test for pending retries without static-panel clears |
+| 4372201726 | Location worker uses WithCaps task allocation but ends with vTaskDelete | Task ownership/reaping fault tests against installed IDF 5.5.4 before changing deletion |
+| 4372201727 | LoRa label toggle still calls draw_static | Recording test for bounded label/overlay update |
+| 4372201733 | queue_local_rtl_listen returns immediately under setup_receiver_inhibit; later I/O deferral excludes setup_radio_paused | Lifecycle test for external navigation while setup is paused |
+| 4372201738 | OrcDial TX task failure leaves null handle without setting initialization_retry_ms | Allocation-failure/backoff test; preserve paired-device behavior |
+| 4372201742 | Download notice x318..412 intersects FT8 title/divider and LoRa divider | Header-geometry/recording checks for notice appearance and removal |
+| 4372201745 | storage::used_bytes() returns zero, so capacity check is not real free space | FATFS capacity failure/full-card tests; no filling user's SD |
+| 4372201755 | downloads::service executes synchronously ahead of map queue receive | Bounded concurrent transfer/render scheduling with shared-storage ownership tests |
+
+The source inspection does not endorse the review's suggested implementation.
+In particular, task self-deletion and transfer/render concurrency need their
+own narrow ownership tests; do not replace them with an unverified one-line fix.
