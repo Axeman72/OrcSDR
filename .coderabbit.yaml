@@ -1,44 +1,6 @@
 # Review ready pull requests automatically and recheck each pushed update.
 reviews:
-  # Temporary bounded PR #211 pass: relevant tests, shipping docs and followups.
-  # Restore unrestricted scope after this pass; the bot rejects >100 files.
-  path_filters:
-    - "apps/orcsdr-tab5/tests/maps/**"
-    - "tests/*map*"
-    - "tests/ft8_dashboard_tests.cpp"
-    - "tests/ft8_ui_stubs/**"
-    - "tests/*space_query*"
-    - "tests/*handoff*"
-    - "tests/*navigation_pause*"
-    - "tests/*location_task*"
-    - "tests/*orcdial_init*"
-    - "tests/*display_writeback*"
-    - "tests/display_writeback_stubs/**"
-    - "tests/*map_worker*"
-    - "docs/releases/**"
-    - "docs/MAP*"
-    - "docs/SD_CARD_RELIABILITY.md"
-    - "docs/UI_RENDERING_STANDARD.md"
-    - "docs/maps/**"
-    - "docs/user-guide/**"
-    - "docs/TAB5_SD_PERFORMANCE.md"
-    - "docs/lora-history.md"
-    - ".coderabbit.yaml"
-    - "apps/orcsdr-tab5/main/CMakeLists.txt"
-    - "apps/orcsdr-tab5/ui/adsb_dashboard.cpp"
-    - "apps/orcsdr-tab5/ui/dashboard_audio_control.hpp"
-    - "apps/orcsdr-tab5/ui/display_writeback.cpp"
-    - "apps/orcsdr-tab5/ui/display_writeback.hpp"
-    - "apps/orcsdr-tab5/ui/ft8_dashboard.cpp"
-    - "apps/orcsdr-tab5/ui/location_estimate.cpp"
-    - "apps/orcsdr-tab5/ui/location_estimate.hpp"
-    - "apps/orcsdr-tab5/ui/lora_dashboard.cpp"
-    - "apps/orcsdr-tab5/ui/main.cpp"
-    - "apps/orcsdr-tab5/ui/map_download_notice.cpp"
-    - "apps/orcsdr-tab5/ui/map_downloads.hpp"
-    - "apps/orcsdr-tab5/ui/map_screen.cpp"
-    - "apps/orcsdr-tab5/ui/map_screen.hpp"
-    - "apps/orcsdr-tab5/ui/map_service.cpp"
+  # Source, tests and shipping documentation remain eligible for review.
   auto_review:
     enabled: true
     drafts: false

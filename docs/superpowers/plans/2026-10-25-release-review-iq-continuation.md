@@ -185,3 +185,7 @@ Logs beside invocation: `pr211-energy-isolation{-restore,}-com17-20261026.log`,
 The native `ba770de5` diagnostic reports long peaks across signal level,
 spectrum-copy and decoder stages during detail generation; no change to decoder
 algorithms or loss counters was made.
+
+The bounded 89-file pass is complete. Unrestricted CodeRabbit path eligibility
+is restored; the next incremental review must cover the subsequent source,
+DSP diagnostics, test and documentation corrections without those exclusions.
