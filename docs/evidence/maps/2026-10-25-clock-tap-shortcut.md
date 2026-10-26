@@ -30,3 +30,10 @@ Source checks, run from `F:\AI\OrcSDR-TEMP\maps-integration-completion`:
   claimed at this checkpoint.
 
 Raw logs stay beside invocation outside Git. COM39's map download is not touched.
+
+The combined `9e3f0378` candidate is now installed on COM17. Native build,
+flash/preservation, startup Home self-check and named `RTL_UI OPEN CLOCK` passed.
+Its captured editor was inspected; Save, Cancel and Sync NTP are visible.
+See [combined device evidence](2026-10-25-map-quick-file-check.md). COM17 was
+returned to Home for the pending physical time/date tap check; no clock value
+was saved or changed by these tests.
