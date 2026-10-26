@@ -140,8 +140,13 @@ File FileSystem::open(const char* path, const char* mode, bool) const {
   }
   auto state = std::make_shared<File::State>();
   const bool appending = mode && mode[0] == 'a';   // FILE_APPEND: keep the existing content, create the file if missing
-  const bool writing = mode && (mode[0] == 'w' || appending);
-  state->stream = fopen(mounted.c_str(), appending ? "ab" : writing ? "wb" : "rb");
+  const bool updating = mode && strchr(mode, '+');
+  const bool truncating = mode && mode[0] == 'w';
+  const bool writing = truncating || appending || updating;
+  const char* native_mode = appending ? (updating ? "a+b" : "ab")
+      : truncating ? (updating ? "w+b" : "wb")
+      : updating ? "r+b" : "rb";
+  state->stream = fopen(mounted.c_str(), native_mode);
   if (state->stream && writing) {
     state->write_buffer = static_cast<uint8_t*>(heap_caps_malloc(
         kWriteBufferBytes,

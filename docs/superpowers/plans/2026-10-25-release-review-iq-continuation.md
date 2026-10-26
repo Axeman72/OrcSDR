@@ -192,10 +192,10 @@ The bounded 89-file pass is complete. Unrestricted CodeRabbit path eligibility
 is restored; the next incremental review must cover the subsequent source,
 DSP diagnostics, test and documentation corrections without those exclusions.
 
-## Current release decision — October 26, 2026
+## Current release decision - October 26, 2026
 
-Owner: “I dont consider that a blocker. Small iq drops when moving the map are
-fine.” This supersedes the earlier zero-map-loss release criterion. Brief loss
+Owner: "I don't consider that a blocker. Small iq drops when moving the map are
+fine." This supersedes the earlier zero-map-loss release criterion. Brief loss
 associated with movement/detail refill is an accepted limitation, not a fixed
 bug or a passing zero-loss measurement. Keep the failed experimental results as
 historical evidence. Do not continue optimization or diagnostic build loops
@@ -207,3 +207,11 @@ shipping candidate after the owner's acceptance decision. The original M5GFX
 hook and SDK defaults are restored; historical experiment results remain above.
 The measured DSP stage peaks remain available for future diagnosis. No further
 zero-loss optimization experiments are required for this release.
+
+
+## Final candidate validation and follow-up
+
+Candidate 00977434 booted on COM17 and COM39. App-only COM39 flash preserved NVS, PHY, coredump, world, bootloader and partition table by readback comparison. COM17's stationary LoRa map window (14,272 ms) kept cumulative IQ drops at 2,059 and driver overruns/drops at 74; these are unchanged counters, not zero lifetime loss. Log: pr211-shipping-stationary-map-com17-20261026.log. Three production catalog checks completed while rendering, with the internal download-worker stack reclaimed after each job.
+
+CodeRabbit review 5656364274 found a valid existing-file FT8 log regression: the SD wrapper translated r+ into rb. The correction preserves update access and write buffering. The production-mode regression fails at the retry write before the fix and passes afterward; all nine FT8 log fault cases also pass. Commands: bash -lc 'python3 tests/storage_update_mode_test.py && python3 tools/test_ft8_log_storage.py'. A rebuilt artifact and device validation remain required after this correction. The review's replacement-character documentation finding is also corrected.
+
