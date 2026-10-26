@@ -111,3 +111,16 @@ reentrant locking, and activation preserves the old archive. Host tests exercise
 a blocked transfer alongside queued rendering, deferred discovery, and cleanup
 at all six startup allocation/task failure points. Actual concurrent SD/render
 and radio validation remain required.
+
+A bounded review pass now includes the relevant map/SD/lifecycle tests, user
+map/setup documentation, release notes and all source followups after 271dca27.
+Its path manifest is saved outside Git at
+`.local/maps/review-tests-docs-pass1-20261026.json`. Configuration must be restored
+to unrestricted scope after this pass. Other historical evidence files are not
+being represented as externally reviewed by this bounded pass.
+
+The existing HTTP location-lookup regression initially failed to compile after
+the new lifecycle APIs; its FreeRTOS stub now models task handles, suspension
+and WithCaps deletion. Its sanitized CTest passes 1/1, including twenty repeated
+actual worker completions with creation/deletion counts matched. Logs:
+`pr211-location-lookup-{regression-red,build,test}-20261026.log`.

@@ -11,6 +11,7 @@
 struct esp_http_client {std::string body;size_t offset=0;};
 namespace {
 TaskFunction_t pending=nullptr;
+eTaskState task_state=eRunning;int created=0,deleted=0;
 bool task_ok=true;
 int requests=0,status=200;
 std::string address_body=R"([{"lat":"52.5","lon":"13.4","display_name":"Berlin"}])";
@@ -34,11 +35,13 @@ extern "C" int esp_http_client_read(esp_http_client_handle_t client,char* out,in
 extern "C" bool esp_http_client_is_complete_data_received(esp_http_client_handle_t client){return client->offset==client->body.size();}
 extern "C" esp_err_t esp_http_client_close(esp_http_client_handle_t){return ESP_OK;}
 extern "C" esp_err_t esp_http_client_cleanup(esp_http_client_handle_t client){delete client;return ESP_OK;}
-int xTaskCreatePinnedToCoreWithCaps(TaskFunction_t task,const char*,unsigned bytes,void*,unsigned,void*,int core,unsigned caps){
+int xTaskCreatePinnedToCoreWithCaps(TaskFunction_t task,const char*,unsigned bytes,void*,unsigned,TaskHandle_t* handle,int core,unsigned caps){
   assert(bytes==8192&&core==1&&caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
-  if(!task_ok)return 0;assert(!pending);pending=task;return pdPASS;
+  if(!task_ok)return 0;assert(!pending&&created==deleted);pending=task;task_state=eRunning;*handle=reinterpret_cast<void*>(1);++created;return pdPASS;
 }
-void vTaskDelete(void*){}
+void vTaskSuspend(TaskHandle_t task){assert(!task);task_state=eSuspended;}
+void vTaskDeleteWithCaps(TaskHandle_t task){assert(task==reinterpret_cast<void*>(1)&&task_state==eSuspended);++deleted;}
+eTaskState eTaskGetState(TaskHandle_t task){assert(task==reinterpret_cast<void*>(1));return task_state;}
 
 int main(){
   using namespace orcsdr::location_estimate;
@@ -59,5 +62,6 @@ int main(){
   status=503;assert(request("Unavailable",true));run();assert(!state().ready);status=200;
   task_ok=false;assert(!request("Task failure",true)&&!state().busy&&!pending);task_ok=true;
   assert(request("Sydney",true));run();ready(-339000000,1512000000);
+  for(int i=0;i<20;++i){char query[24];std::snprintf(query,sizeof(query),"repeat-%d",i);assert(request(query,true));run();ready(-339000000,1512000000);assert(created==deleted);}
   std::puts("LOCATION_LOOKUP_PASS cache identity, busy ownership, malformed coordinates, HTTP/task failures; no network or persistence");
 }
