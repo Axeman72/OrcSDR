@@ -39,8 +39,19 @@ outside Git.
   `ft8-map-recovery-p4-20261025.log`.
 - `git diff --check`: PASS.
 
-Native linking and COM17 LoRa→FT8 transition/recovery remain unverified at this
-source checkpoint. No reset, tuning change, reclaim command or flash was issued
+Native build of source `9344fce7` and artifact inspection subsequently passed:
+
+- `python .local/maps/build_release_ft8_map_20261025.py build` — exit 0,
+  `release-ft8-map-native-build-20261025.log`.
+- `python .local/maps/inspect_release_ft8_map_20261025.py` — PASS,
+  `release-ft8-map-native-inspection-20261025.log`. Artifact and hash manifest:
+  `.local/maps/release-ft8-map-9344fce7-20261025/manifest.json`.
+- Existing 40 KiB internal reserve, production catalog, PSRAM placement, pinned
+  engine and symbol checks passed inspection. This candidate also includes the
+  previously prepared SD-capacity, LoRa label-redraw and start/pause fixes.
+
+COM17 LoRa→FT8 transition/recovery remains unverified. No reset, tuning change,
+reclaim command or flash was issued
 during this correction. COM39 remains untouched. This is not a claim that maps
 can allocate through arbitrary exhausted memory or that live buffers may be
 discarded; the required hardware gate is the reported ordinary mode transition.
