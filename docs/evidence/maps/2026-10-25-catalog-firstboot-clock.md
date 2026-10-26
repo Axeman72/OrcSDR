@@ -37,7 +37,29 @@ without setting its clock manually. Preserve COM39 C6 1.4.1 and SD contents.
 - `git diff --check`: PASS.
 
 Logs are in the invocation directory
-`F:\AI\OrcSDR-TEMP\maps-integration-completion`, outside Git. Native linking,
-real time sync, catalog access and physical progress remain unverified here.
+`F:\AI\OrcSDR-TEMP\maps-integration-completion`, outside Git. Real automatic time
+sync, catalog access and physical progress remain unverified here.
 The bounded wait occupies the existing map worker; UI cancellation/status stay
 responsive. Background transfer/render worker separation remains another gate.
+
+## Native candidate and hardware scheduling
+
+Source `018b54ef` native build and artifact inspection passed. The first build
+was rejected before compilation because the diagnostic build ID exceeded the
+39-character limit; shortening only that build input corrected it. Commands:
+
+- `python .local/maps/build_catalog_clock_20261025.py build build2` — exit 0,
+  `catalog-clock-native-build2-20261025.log`.
+- `python .local/maps/inspect_catalog_clock_20261025.py` — PASS,
+  `catalog-clock-native-inspection-20261025.log`. Frozen artifact/manifest:
+  `.local/maps/catalog-clock-018b54ef-20261025/`.
+- App size 5,301,728 bytes, SHA-256
+  `3d4d7502b131279f421191c284027005d1ff98c4e771c29bfc834714a8f210d5`.
+
+During implementation, the user set COM39's clock and began downloading the map.
+No app update, reset, erase, cancellation or serial control was performed after
+that report. Its active download must finish or be deliberately paused before
+installing this candidate. That download is not evidence of automatic first-boot
+time acquisition, because the user set the clock manually. A controlled unset-
+clock test is still required; do not erase its setup state merely to obtain it.
+The candidate is not installed. COM17 remains untouched during this clock fix.
