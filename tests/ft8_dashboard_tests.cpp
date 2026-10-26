@@ -2,6 +2,7 @@
 #include "ft8_dashboard.hpp"
 #include "ft8_map_source.hpp"
 #include "map_preferences.hpp"
+#include "memory_reclaim.hpp"
 #include <cstring>
 #include <M5Unified.h>
 #include <cassert>
@@ -11,7 +12,16 @@ namespace {
 orcsdr::ft8::map_source::State test_frame=orcsdr::ft8::map_source::State::pending;
 uint32_t test_map_revision=0;
 bool test_labels=true, test_save_fail=false, last_requested_labels=true;
+bool test_map_low_memory=false;
 int map_requests=0;
+int reclaim_calls=0;
+bool holder_busy=false;
+size_t reclaim_test_buffers() {
+  ++reclaim_calls;
+  if(holder_busy)return 0;
+  lgfx::sprite_fail=false;
+  return 15840000;
+}
 }
 namespace orcsdr::maps::preferences {
 void load() {}
@@ -26,7 +36,7 @@ Result draw(lgfx::LovyanGFX&,bool labels) {
   ++map_requests;last_requested_labels=labels;
   Result r{};r.state=test_frame;
   std::strcpy(r.credit,"Made with Natural Earth");
-  r.low_memory=false;
+  r.low_memory=test_map_low_memory;
   return r;
 }
 uint32_t revision(){return test_map_revision;}
@@ -195,6 +205,30 @@ int main() {
   enter(s);
   lgfx::paints.clear();select_tab(Tab::map);
   assert(painted("LOW MEMORY - GRID ONLY") && painted("LABELS ON"));
+  // A busy holder must not strand the map until another navigation or reboot.
+  orcsdr::memory_reclaim::register_holder({"test inactive buffers", []()->size_t{return 15840000;},reclaim_test_buffers});
+  holder_busy=true;
+  test_millis+=2000;
+  const int clears=lgfx::screen_clears;
+  lgfx::paints.clear();update(s);
+  assert(reclaim_calls==1 && painted("LOW MEMORY - GRID ONLY"));
+  for(int i=0;i<10;++i)update(s);
+  assert(reclaim_calls==1); // no reclaim loop on every receiver update
+  holder_busy=false;test_frame=map_source::State::ready;
+  test_millis+=2000;
+  lgfx::paints.clear();update(s);
+  assert(reclaim_calls==2 && painted("ORCMAPS WORLD"));
+  assert(lgfx::screen_clears==clears);
+  // Once healthy, ordinary updates must not evict the completed map cache.
+  test_millis+=2000;update(s);assert(reclaim_calls==2);
+  // Worker allocation failure also retries without a new worker revision.
+  test_map_low_memory=true;test_frame=map_source::State::unavailable;
+  ++test_map_revision;lgfx::paints.clear();update(s);
+  assert(painted("LAST MAP FRAME"));
+  test_map_low_memory=false;test_frame=map_source::State::ready;
+  test_millis+=2000;lgfx::paints.clear();update(s);
+  assert(reclaim_calls==3 && painted("ORCMAPS WORLD"));
+  assert(lgfx::screen_clears==clears);
   lgfx::sprite_fail=false;
   leave();
   std::puts("ft8_dashboard_tests: PASS");

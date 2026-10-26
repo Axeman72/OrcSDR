@@ -5,6 +5,7 @@
 #include "ft8_map_source.hpp"
 #include "ft8_world_projection.hpp"
 #include "map_preferences.hpp"
+#include "memory_reclaim.hpp"
 
 #include "dashboard_audio_control.hpp"
 #include "ft8_decoder_backend.hpp"
@@ -703,6 +704,9 @@ M5Canvas g_world_canvas(&M5.Display); // one OrcMaps Mercator world; NEVER sampl
 bool g_map_canvas_ready = false, g_world_canvas_ready = false;
 bool g_map_composed = false, g_map_composed_labels = true;
 uint32_t g_map_revision_seen = 0;
+bool g_map_memory_retry = false, g_map_memory_attempted = false;
+uint32_t g_map_memory_attempt_ms = 0;
+constexpr uint32_t kMapMemoryRetryMs = 2000;
 char g_map_attribution[192]{};
 bool g_map_you_valid = false;
 int g_map_you_x = 0, g_map_you_y = 0;
@@ -769,15 +773,24 @@ void draw_map() {
   text("WHOLE WORLD",664,124,kMuted,0,middle_right);
   constexpr int left=50,top=158,width=824,height=420;
   const bool labels=maps::preferences::labels(maps::preferences::Consumer::ft8);
-  if(!g_map_canvas_ready) {
-    g_map_canvas.setPsram(true);
-    g_map_canvas.setColorDepth(16);
-    g_map_canvas_ready=g_map_canvas.createSprite(width,height)!=nullptr;
-  }
-  if(!g_world_canvas_ready) {
-    g_world_canvas.setPsram(true);
-    g_world_canvas.setColorDepth(16);
-    g_world_canvas_ready=g_world_canvas.createSprite(world_map::kMercatorSide,world_map::kMercatorSide)!=nullptr;
+  const auto now=millis();
+  const bool memory_due=!g_map_memory_attempted ||
+      static_cast<uint32_t>(now-g_map_memory_attempt_ms)>=kMapMemoryRetryMs;
+  if(memory_due && (g_map_memory_retry || !g_map_canvas_ready || !g_world_canvas_ready)) {
+    // Holders protect live captures themselves. Retry busy holders later,
+    // without requiring navigation, a decoder restart or a worker revision.
+    memory_reclaim::reclaim_all(nullptr,0,nullptr);
+    g_map_memory_attempted=true;g_map_memory_attempt_ms=now;
+    if(!g_map_canvas_ready) {
+      g_map_canvas.setPsram(true);
+      g_map_canvas.setColorDepth(16);
+      g_map_canvas_ready=g_map_canvas.createSprite(width,height)!=nullptr;
+    }
+    if(!g_world_canvas_ready) {
+      g_world_canvas.setPsram(true);
+      g_world_canvas.setColorDepth(16);
+      g_world_canvas_ready=g_world_canvas.createSprite(world_map::kMercatorSide,world_map::kMercatorSide)!=nullptr;
+    }
   }
   // Observe the worker generation BEFORE draw: a publication racing draw()
   // must remain visible to the next tick, not be marked as already painted.
@@ -785,6 +798,7 @@ void draw_map() {
   map_source::Result result{};
   if(g_map_canvas_ready&&g_world_canvas_ready)result=map_source::draw(g_world_canvas,labels);
   result.low_memory|=!g_map_canvas_ready||!g_world_canvas_ready;
+  g_map_memory_retry=result.low_memory;
   // A published revision may still be locked. Do not consume it until draw
   // observes ready/unavailable, so the unchanged revision is retried next tick.
   if(result.state!=map_source::State::pending)g_map_revision_seen=observed_revision;
@@ -1721,7 +1735,8 @@ void update(const Snapshot& snapshot_value) {
                               previous.clock_valid != g_snapshot.clock_valid ||
                               previous.battery_percent != g_snapshot.battery_percent;
   if (g_tab==Tab::map && !overlay_open() && !tab_content_changed(g_tab,previous,g_snapshot) &&
-      !header_changed && map_source::revision()!=g_map_revision_seen) {
+      !header_changed && (map_source::revision()!=g_map_revision_seen ||
+      (g_map_memory_retry && static_cast<uint32_t>(millis()-g_map_memory_attempt_ms)>=kMapMemoryRetryMs))) {
     draw_map(); // worker has published a new full frame; never sample pending pixels
     return;
   }
@@ -1936,6 +1951,7 @@ void leave() {
   // FT8 owns both sprites; never retain a map frame across an exit/re-entry.
   g_map_canvas.deleteSprite();g_world_canvas.deleteSprite();
   g_map_canvas_ready=false;g_world_canvas_ready=false;g_map_composed=false;
+  g_map_memory_retry=false;g_map_memory_attempted=false;
   g_map_attribution[0]=0;
   g_map_you_valid=false;
   g_tune_open = false;
