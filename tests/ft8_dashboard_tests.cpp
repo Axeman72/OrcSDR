@@ -231,5 +231,15 @@ int main() {
   assert(lgfx::screen_clears==clears);
   lgfx::sprite_fail=false;
   leave();
+  // A fresh clock is not a prerequisite for geography or map controls.
+  s.clock_valid=false;s.utc_ms=0;s.decoder_state=DecoderState::armed;
+  test_frame=map_source::State::ready;
+  enter(s);lgfx::paints.clear();lgfx::sampled_pixels=0;
+  select_tab(Tab::map);
+  assert(painted("ORCMAPS WORLD") && painted("LABELS ON") && lgfx::sampled_pixels>0);
+  const int no_clock_clears=lgfx::screen_clears;
+  ++test_map_revision;lgfx::paints.clear();update(s);
+  assert(painted("ORCMAPS WORLD") && lgfx::screen_clears==no_clock_clears);
+  leave();
   std::puts("ft8_dashboard_tests: PASS");
 }

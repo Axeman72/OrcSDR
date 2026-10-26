@@ -63,3 +63,23 @@ installing this candidate. That download is not evidence of automatic first-boot
 time acquisition, because the user set the clock manually. A controlled unset-
 clock test is still required; do not erase its setup state merely to obtain it.
 The candidate is not installed. COM17 remains untouched during this clock fix.
+
+## Map display is independent of clock trust
+
+The user clarified that map display must never wait for a clock. Inspection of
+`ft8_map_source.cpp`, `map_service.cpp` and FT8 Map rendering found no wall-clock
+gate. The FT8 runtime's `waiting_clock` state controls decode slot timing only.
+The earlier COM17 missing-map symptom was the separately verified retained-LoRa
+allocation issue, not time trust. Shared renderer timing uses monotonic uptime,
+which works without a set calendar clock.
+
+An explicit regression in `tests/ft8_dashboard_tests.cpp` sets `clock_valid=false`,
+`utc_ms=0`, opens Map and verifies rendered geography, controls and a subsequent
+worker revision without another full-screen clear. The focused optimized
+dashboard executable passed; log `ft8-map-no-clock-test-20261025.log`. No
+production renderer or decoder-clock policy change was necessary. This host
+result does not replace a physical unset-clock check.
+
+Catalog download verification is distinct from displaying embedded or installed
+maps. The automatic-time candidate removes its manual setup step while retaining
+HTTPS and signed-catalog validation; it does not add a display dependency.
