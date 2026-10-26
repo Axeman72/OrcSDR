@@ -1436,6 +1436,7 @@ using LoraDisplayPacket = orcsdr::lora_log::Record;
 constexpr size_t kLoraDisplayPacketCount = 8;
 static LoraDisplayPacket lora_display_packets[kLoraDisplayPacketCount]{};
 constexpr size_t kLoraLogQueueDepth = 32;
+constexpr uint32_t kLoraLogRetryMs = 2000;
 constexpr char kLoraLogPath[] = "/orcsdr/lora_packets_v2.csv";
 EXT_RAM_BSS_ATTR static orcsdr::lora_history::Store lora_history;
 static std::atomic<bool> lora_history_loaded{false};
@@ -1449,6 +1450,10 @@ static TaskHandle_t lora_log_task_handle = nullptr;
 static std::atomic<bool> lora_log_requested{false};
 static std::atomic<bool> lora_log_ready{false};
 static std::atomic<bool> lora_log_error{false};
+static std::atomic<bool> lora_log_pending{false}, lora_log_retry_requested{false};
+static std::atomic<uint32_t> lora_log_retry_count{0};
+static std::atomic<const char*> lora_log_error_stage{"none"};
+static std::atomic<int> lora_log_error_errno{0};
 static std::atomic<uint32_t> lora_log_dropped{0};
 static std::atomic<uint32_t> lora_log_last_packet_ms{0};
 struct LoraNativeDecodeWork {
@@ -4326,20 +4331,49 @@ static bool lora_archive_name(const std::string& name) {
   return day.size() == 8 && day.find_first_not_of("0123456789") == std::string::npos;
 }
 
+void lora_sd_log_failure(const char* stage, int error) {
+  lora_log_error_stage.store(stage, std::memory_order_relaxed);
+  lora_log_error_errno.store(error, std::memory_order_relaxed);
+  lora_log_ready.store(false, std::memory_order_release);
+  lora_log_error.store(true, std::memory_order_release);
+  Serial.printf("LORA_SD_LOG_ERROR stage=%s errno=%d\n", stage, error);
+}
+
 void lora_sd_log_task(void*) {
   File csv, journal;
   EXT_RAM_BSS_ATTR static char line[orcsdr::lora_history::kLineMax];
+  EXT_RAM_BSS_ATTR static LoraDisplayPacket record;
+  EXT_RAM_BSS_ATTR static char journal_path[80];
+  orcsdr::lora_log::AppendCheckpoint checkpoint;
   bool replayed = false;
-  uint32_t sequence = 0, last_flush_ms = millis();
+  bool have_record = false, journal_owned = false, recovering = false;
+  uint32_t sequence = 0, retry_due_ms = 0;
   char journal_day[16]{};
-  size_t pending = 0;
   for (;;) {
     const bool requested = lora_log_requested.load(std::memory_order_acquire);
+    const bool retry_now = lora_log_retry_requested.exchange(false, std::memory_order_acq_rel);
+    if (lora_log_error.load(std::memory_order_acquire)) {
+      if (csv) csv.close();
+      if (journal) journal.close();
+      lora_log_ready.store(false, std::memory_order_release);
+      const uint32_t now = millis();
+      if (!retry_due_ms) { retry_due_ms = now + kLoraLogRetryMs; if (!retry_due_ms) retry_due_ms = 1; }
+      if (!requested || (!retry_now && static_cast<int32_t>(now - retry_due_ms) < 0)) {
+        vTaskDelay(pdMS_TO_TICKS(200));
+        continue;
+      }
+      retry_due_ms = 0;
+      lora_log_retry_count.fetch_add(1, std::memory_order_relaxed);
+      lora_log_error.store(false, std::memory_order_release);
+      recovering = true;
+      Serial.printf("LORA_SD_LOG_RETRY queued=%u pending=%u\n",
+          unsigned(uxQueueMessagesWaiting(lora_log_queue)), unsigned(have_record));
+    }
     if (requested && !csv && !lora_log_error.load(std::memory_order_relaxed)) {
       if (!ensure_tab5_sd() || !g_sd_fs ||
           (!g_sd_fs->exists("/orcsdr") && !g_sd_fs->mkdir("/orcsdr")) ||
           (!g_sd_fs->exists("/orcsdr/lora") && !g_sd_fs->mkdir("/orcsdr/lora"))) {
-        lora_log_error.store(true); Serial.println("LORA_SD_LOG_ERROR mount_or_directory");
+        lora_sd_log_failure("mount_or_directory", errno);
       } else {
         if (!replayed) {
           // A retry rebuilds from scratch; partial replay must not double counts.
@@ -4350,7 +4384,7 @@ void lora_sd_log_task(void*) {
           lora_history_rejected.store(0);
           std::vector<std::string> names;
           File dir = g_sd_fs->open("/orcsdr/lora");
-          if (!dir) lora_log_error.store(true);
+          if (!dir) lora_sd_log_failure("replay_directory", errno);
           for (File entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
             std::string name = entry.name();
             const auto slash = name.find_last_of('/');
@@ -4362,12 +4396,12 @@ void lora_sd_log_task(void*) {
             sequence = std::max<uint32_t>(sequence, strtoul(name.c_str(), nullptr, 10));
             const std::string path = "/orcsdr/lora/" + name;
             File input = g_sd_fs->open(path.c_str());
-            if (!input) { lora_log_error.store(true); break; }
+            if (!input) { lora_sd_log_failure("replay_open", errno); break; }
             size_t used = 0; bool overflow = false;
             uint8_t chunk[256];
             while (input.available()) {
               const size_t n = input.read(chunk, sizeof(chunk));
-              if (!n) { lora_log_error.store(true); break; }
+              if (!n) { lora_sd_log_failure("replay_read", errno); break; }
               for (size_t i = 0; i < n; ++i) {
                 if (chunk[i] == '\n') {
                   LoraDisplayPacket record{};
@@ -4386,65 +4420,93 @@ void lora_sd_log_task(void*) {
             }
             if (used || overflow) lora_history_rejected.fetch_add(1); // power-cut tail
             input.close();
+            if (lora_log_error.load()) break;
           }
           replayed = !lora_log_error.load();
           lora_history_loaded.store(replayed, std::memory_order_release);
           lora_history_revision.fetch_add(1);
         }
         if (!lora_log_error.load()) {
-          csv = g_sd_fs->open(kLoraLogPath, FILE_APPEND, true);
-          if (csv && csv.size() == 0) {
-            const char* header = "uptime_ms,wallclock_valid,wallclock_source,received_utc,frequency_hz,from,to,packet_id,port,snr_tenths,signal_tenths,latitude_e7,longitude_e7,text,short_name,long_name,encrypted,from_host\n";
-            if (csv.print(header) != strlen(header) || !csv.flush()) lora_log_error.store(true);
+          const auto status = g_sd_fs->status(kLoraLogPath);
+          if (status == orcsdr::storage::EntryStatus::error ||
+              status == orcsdr::storage::EntryStatus::directory ||
+              (checkpoint.valid && status != orcsdr::storage::EntryStatus::file)) {
+            lora_sd_log_failure("csv_status",
+                status == orcsdr::storage::EntryStatus::directory ? EISDIR :
+                status == orcsdr::storage::EntryStatus::missing ? ENOENT : errno);
+          } else {
+            csv = g_sd_fs->open(kLoraLogPath,
+                status == orcsdr::storage::EntryStatus::missing ? "w+" : "r+", true);
+            if (!csv) lora_sd_log_failure("csv_open", errno);
           }
-          if (!csv) lora_log_error.store(true);
           lora_log_ready.store(csv && !lora_log_error.load());
           if (lora_log_ready.load()) Serial.printf("LORA_SD_LOG_READY path=\"%s\"\n", kLoraLogPath);
         }
       }
     }
-    LoraDisplayPacket record;
-    if (xQueueReceive(lora_log_queue, &record, pdMS_TO_TICKS(200)) == pdTRUE) {
+    if (lora_log_error.load()) continue;
+    if (!have_record && xQueueReceive(lora_log_queue, &record, pdMS_TO_TICKS(200)) == pdTRUE) {
+      have_record = true;
+      lora_log_pending.store(true, std::memory_order_release);
+    }
+    if (have_record) {
       portENTER_CRITICAL(&lora_message_mux);
       const bool changed = !record.history_observed && lora_history.observe(record);
+      record.history_observed = true;
       portEXIT_CRITICAL(&lora_message_mux);
       if (changed) lora_history_revision.fetch_add(1);
-      bool ok = csv && !lora_log_error.load();
       char day[16]; orcsdr::lora_history::day_key(record.received_utc, day, sizeof(day));
-      if (ok && (!journal || strcmp(day, journal_day) != 0)) {
+      if (strcmp(day, journal_day) != 0) {
         if (journal) {
-          const bool flushed = journal.flush();
           const bool closed = journal.close();
-          if (!flushed || !closed) ok = false;
+          if (!closed) lora_sd_log_failure("journal_close", errno);
         }
-        if (ok && sequence < 99999999u) {
-          char path[80]; snprintf(path, sizeof(path), "/orcsdr/lora/%08lu-%s.jsonl",
-                                  static_cast<unsigned long>(++sequence), day);
-          if (g_sd_fs->exists(path)) ok = false; // never overwrite another session
-          else journal = g_sd_fs->open(path, FILE_WRITE, true);
-          strlcpy(journal_day, day, sizeof(journal_day));
-          ok = ok && static_cast<bool>(journal);
-        } else ok = false;
+        journal_owned = false;
+        journal_path[0] = '\0';
       }
-      size_t bytes = orcsdr::lora_history::format_line(record, line, sizeof(line));
-      if (ok) ok = bytes && journal.write(reinterpret_cast<const uint8_t*>(line), bytes) == bytes;
-      bytes = orcsdr::lora_log::format_csv(line, sizeof(line), record);
-      if (ok) ok = bytes && csv.write(reinterpret_cast<const uint8_t*>(line), bytes) == bytes;
-      if (ok) { ++pending; lora_history_written.fetch_add(1); }
-      else { lora_log_dropped.fetch_add(1); lora_log_error.store(true); }
+      if (lora_log_error.load()) continue;
+      if (!journal) {
+        if (journal_owned) {
+          journal = g_sd_fs->open(journal_path, "r+", true);
+          if (!journal) lora_sd_log_failure("journal_reopen", errno);
+        } else if (sequence < 99999999u) {
+          snprintf(journal_path, sizeof(journal_path), "/orcsdr/lora/%08lu-%s.jsonl",
+                   static_cast<unsigned long>(++sequence), day);
+          const auto status = g_sd_fs->status(journal_path);
+          if (status != orcsdr::storage::EntryStatus::missing) {
+            lora_sd_log_failure("journal_status",
+                status == orcsdr::storage::EntryStatus::file ? EEXIST :
+                status == orcsdr::storage::EntryStatus::directory ? EISDIR : errno);
+          } else {
+            journal = g_sd_fs->open(journal_path, "w+", true);
+            journal_owned = static_cast<bool>(journal);
+            if (!journal) lora_sd_log_failure("journal_open", errno);
+          }
+          strlcpy(journal_day, day, sizeof(journal_day));
+        } else lora_sd_log_failure("journal_sequence", EOVERFLOW);
+      }
+      if (lora_log_error.load()) continue;
+      const auto result = orcsdr::lora_log::append_record(journal, csv, record, checkpoint,
+                                                       line, sizeof(line));
+      if (!result) {
+        lora_sd_log_failure(result.stage, result.error);
+        continue;
+      }
+      have_record = false;
+      lora_log_pending.store(false, std::memory_order_release);
+      lora_history_written.fetch_add(1);
+      if (recovering) {
+        Serial.printf("LORA_SD_LOG_RECOVERED retries=%lu\n",
+            static_cast<unsigned long>(lora_log_retry_count.load()));
+        recovering = false;
+      }
     }
-    const uint32_t now = millis();
-    // Buffered writes stay off the decoder/UI tasks. Bound power-cut exposure
-    // to a five-second flush interval even during continuous reception.
-    if (pending && (now - last_flush_ms >= 5000 || !requested)) {
-      const bool journal_flushed = journal.sync();
-      const bool csv_flushed = csv.sync();
-      if (!journal_flushed || !csv_flushed) lora_log_error.store(true);
-      pending = 0; last_flush_ms = now;
-    }
-    if ((!requested && uxQueueMessagesWaiting(lora_log_queue) == 0) || lora_log_error.load()) {
-      if (csv) { if (!csv.close()) lora_log_error.store(true); }
-      if (journal) { if (!journal.close()) lora_log_error.store(true); }
+    if (!requested && !have_record && uxQueueMessagesWaiting(lora_log_queue) == 0) {
+      if (csv && !csv.close()) lora_sd_log_failure("csv_close", errno);
+      if (journal && !journal.close()) lora_sd_log_failure("journal_close", errno);
+      journal_owned = false;
+      journal_day[0] = '\0';
+      journal_path[0] = '\0';
       lora_log_ready.store(false);
     }
   }
@@ -4459,12 +4521,11 @@ void set_lora_sd_logging(bool enabled) {
         (lora_log_task_handle == nullptr &&
          xTaskCreatePinnedToCore(lora_sd_log_task, "lora_sd_log", 6144, nullptr, 1,
                                  &lora_log_task_handle, 0) != pdPASS)) {
-      lora_log_error.store(true, std::memory_order_release);
-      Serial.println("LORA_SD_LOG_ERROR task_failed");
+      lora_sd_log_failure("task_failed", 0);
       return;
     }
     if (!g_sd_ready) g_sd_tried = false;
-    lora_log_error.store(false, std::memory_order_release);
+    lora_log_retry_requested.store(true, std::memory_order_release);
   }
   lora_log_requested.store(enabled, std::memory_order_release);
   bump_rtl_ui();
@@ -20930,7 +20991,7 @@ void process_command(char* command) {
   if (strcmp(command, "LORA_SD_LOG STATUS") == 0) {
     Serial.printf(
         "LORA_SD_LOG_STATUS requested=%s ready=%s error=%s queued=%u "
-        "dropped=%lu path=\"%s\"\n",
+        "dropped=%lu path=\"%s\" pending=%u retry_attempts=%lu last_error_stage=%s last_errno=%d\n",
         lora_log_requested.load(std::memory_order_relaxed) ? "true" : "false",
         lora_log_ready.load(std::memory_order_relaxed) ? "true" : "false",
         lora_log_error.load(std::memory_order_relaxed) ? "true" : "false",
@@ -20939,7 +21000,10 @@ void process_command(char* command) {
             : static_cast<unsigned>(uxQueueMessagesWaiting(lora_log_queue)),
         static_cast<unsigned long>(
             lora_log_dropped.load(std::memory_order_relaxed)),
-        kLoraLogPath);
+        kLoraLogPath, unsigned(lora_log_pending.load(std::memory_order_acquire)),
+        static_cast<unsigned long>(lora_log_retry_count.load(std::memory_order_relaxed)),
+        lora_log_error_stage.load(std::memory_order_relaxed),
+        lora_log_error_errno.load(std::memory_order_relaxed));
     return;
   }
   if (strncmp(command, "LORA_MESSAGE ", 13) == 0) {

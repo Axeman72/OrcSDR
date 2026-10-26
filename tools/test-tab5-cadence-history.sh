@@ -23,5 +23,6 @@ python3 tests/adsb_zoom_redraw_test.py
 python3 tests/map_download_scheduling_test.py
 python3 tests/map_worker_startup_test.py
 python3 tests/storage_update_mode_test.py
+python3 tests/lora_log_recovery_test.py
 run dsp_stage_stats -Iapps/orcsdr-tab5/dsp tests/dsp_stage_stats_tests.cpp apps/orcsdr-tab5/dsp/dsp_stats.cpp
 python3 tests/map_download_task_lifetime_test.py
