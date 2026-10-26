@@ -305,3 +305,16 @@ It was deliberately not flashed after the direct-start finding was verified.
 The pause guard must join the next combined build/device test. COM17 continues
 running verified 4b2986e6, and COM39 was not accessed during this work. Do not
 describe the source fixes as installed or the release gate as complete.
+
+## Subsequent FT8 map memory validation
+
+The installed state above is superseded: COM17 now runs `6f625f66`, including
+the prior SD-space, label, pause-guard and FT8-map fixes. Installation does not
+close each fix's distinct hardware gate. The new FT8 memory handoff did pass
+three complete LoRa↔FT8 Map round trips: full LoRa buffers allocated on entry,
+released on every FT8 return, and world geography rendered without a reboot or
+manual reclaim. The first candidate exposed an outgoing-FT8 cleanup-order bug;
+the final candidate corrects it. See
+[the scoped evidence](2026-10-25-ft8-map-memory-recovery.md) for hashes, commands,
+logs and limits. Overall PR review, radio/drop and release-matrix gates remain
+open; no merge, tag or full release approval follows from this result.

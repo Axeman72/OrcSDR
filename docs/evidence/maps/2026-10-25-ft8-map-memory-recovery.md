@@ -50,9 +50,9 @@ Native build of source `9344fce7` and artifact inspection subsequently passed:
   engine and symbol checks passed inspection. This candidate also includes the
   previously prepared SD-capacity, LoRa label-redraw and start/pause fixes.
 
-COM17 LoRa→FT8 transition/recovery remains unverified. No reset, tuning change,
-reclaim command or flash was issued
-during this correction. COM39 remains untouched. This is not a claim that maps
+At that source checkpoint, COM17 transition/recovery was unverified and no reset,
+tuning change, reclaim command or flash had been issued. Subsequent device
+results follow below. COM39 remains untouched. This is not a claim that maps
 can allocate through arbitrary exhausted memory or that live buffers may be
 discarded; the required hardware gate is the reported ordinary mode transition.
 
@@ -80,3 +80,49 @@ The follow-up moves that existing FT8 cleanup ahead of the LoRa queue call.
 This follow-up requires native and round-trip hardware validation before the
 overall memory handoff is closed. No protocol decode success is inferred from
 these UI/memory checks.
+
+## Final handoff candidate: PASS on COM17
+
+Source `6f625f66` includes `9344fce7` plus the cleanup-order correction.
+Native build and artifact inspection passed, followed by a COM17 app-only flash
+with previous-app verification, fresh non-app recovery backups and preservation
+verification. App SHA-256:
+`b314ac3e1ba8e70158e53a3d49f00a18162d2914f2d282723e4a05cafe09de31`.
+App size 5,300,944 bytes; factory headroom 990,512 bytes. The 40 KiB internal
+reserve and C6 firmware remain unchanged.
+
+After startup, three round trips used the named serial actions
+`RTL_UI OPEN LORA`, `RTL_LISTEN LORA`, `FT8 OPEN`, `FT8 BAND 20m`, and
+`FT8 TAB MAP`, with read-only status checks between phases. **All three pass:**
+
+- LoRa retained its complete 15,840,000-byte capture allocation on every entry.
+- Every FT8 Map return released the inactive LoRa allocation to zero and
+  produced a ready world frame with zero missing/failed tiles.
+- No `RTL_IQ_ERROR`, manual `RTL_MEM RECLAIM`, or reset between transitions.
+- All three final driver checks showed streaming, zero drops and zero overruns.
+- Final free PSRAM 14,491,428 bytes; largest free block 14,155,776 bytes.
+- The hash-verified final screenshot was inspected: world geography, receiver
+  marker, attribution and controls are present. Physical user feedback on the
+  first candidate confirmed a visible map but requested less detail for FT8's
+  stationary view. That visual simplification is a separate follow-up.
+
+Commands and raw logs, saved in the invocation directory outside Git:
+
+- `python .local/maps/build_release_ft8_handoff_20261025.py build` — PASS;
+  `release-ft8-handoff-native-build-20261025.log`.
+- `python .local/maps/inspect_release_ft8_handoff_20261025.py` — PASS;
+  `release-ft8-handoff-native-inspection-20261025.log`.
+- `python .local/maps/flash_release_ft8_handoff_20261025.py` — PASS;
+  `release-ft8-handoff-{verify-previous,preservation}-20261025.log`.
+- `python .local/maps/com17_label_bench.py .local/maps/ft8-handoff-transitions-plan-20261025.json ft8-handoff-transitions-device-20261025.log` — completed.
+- `python .local/maps/verify_ft8_handoff_20261025.py` — PASS; machine-readable
+  `ft8-handoff-results-20261025.json` verifies all six allocation states and
+  all three ready-frame/streaming checks.
+- `python .local/maps/snapshot_ft8_handoff_20261025.py` — PASS;
+  `ft8-handoff-snapshot-20261025.log`, `ft8-handoff-final-20261025.png`.
+
+The reported missing-map mode-transition blocker is closed for this tested
+COM17 V3c configuration. This is not a long soak, protocol decode acceptance,
+all-dongle validation, or approval to release the entire candidate. Retained
+map SD tests and other review/matrix gates remain separate. COM17 is left on
+FT8 Map at the 20 m preset; serial monitoring is closed. No COM39 access occurred.
