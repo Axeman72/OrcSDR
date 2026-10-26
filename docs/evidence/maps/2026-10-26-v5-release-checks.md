@@ -1,7 +1,8 @@
 # Nooelec V5 release checks - October 26, 2026
 
-Scope: controlled off-air LoRa, stationary maps, navigation, setup pause/restore
-and saved data. This is not full decoder, HF or five-cycle hotplug qualification.
+Scope: controlled off-air LoRa, stationary maps, navigation, setup pause/restore,
+saved data and owner-accepted three-cycle hotplug recovery. This is not full
+decoder or HF qualification; five recovery cycles were not performed.
 
 ## Bench
 
@@ -86,6 +87,49 @@ Raw logs, CSVs, scratch data and test manifests stay outside Git.
 - `.local/maps/release-v5-com17-lora-saved-20261026.csv`
 - `.local/maps/release-v5-sd-results-20261026.json`
 
-Next physical checkpoint: five unplug/replug cycles with the V5 still installed.
-Reception is stopped pending operator readiness; begin observation before the
-first cycle. Other decoder rows and the overall release remain unqualified.
+## Owner-accepted three-cycle recovery
+
+On October 26 the owner performed three V5 unplug/replug cycles and explicitly
+accepted that scope instead of the original five: "i did it 3 times .thats good
+enough. there have been no driver changes." No additional two cycles are required
+for this accepted V5 checkpoint. No driver or firmware changes were made.
+
+The monitor was running before the first unplug. For each cycle it captured
+disconnection, then two STREAMING readbacks with increasing received-byte counts.
+All three retained profile 3, 906.875 MHz, automatic gain, bias off and RTL AGC off.
+Each recovered readback reported zero driver overruns and drops.
+
+| Verified cycle | Disconnect to confirmed growing stream |
+|---|---:|
+| 1 | 9.637 s |
+| 2 | 8.440 s |
+| 3 | 16.878 s |
+
+These observation intervals include the operator's unplug duration and polling;
+they are not isolated driver enumeration or reconnect latency measurements.
+
+The originally five-cycle monitor was stopped after the owner's instruction,
+with three verified cycles and no disconnect pending. Its process was stopped
+by the test controller; do not describe its original five-cycle program as
+having completed successfully. The separate accepted-scope manifest records
+the decision and the three observed cycles without inventing two more passes.
+
+A subsequent Heltec packet (`OrcSDR V5 three-cycle recovery 20261026 G1`) matched
+the exact sender, packet ID and text on both COM17 and the unchanged COM39
+reference. Final COM17 hotplug state is ready/running with no resume pending;
+LoRa logging is ready with no error and its prior dropped count remains 9.
+Uptime increased from 3,270,119 to 3,599,032 ms, with no new reset observed.
+COM17 remains receiving; no more unplugging is requested for this checkpoint.
+
+Additional evidence beside invocation:
+
+- `release-v5-com17-recovery-start-20261026.log`
+- `release-v5-com17-five-cycle-recovery-20261026.log` (original filename retained)
+- `.local/maps/release-v5-recovery-progress-20261026.json` (`STOPPED_BY_OWNER_AFTER_THREE`)
+- `.local/maps/release-v5-recovery-accepted-three-20261026.json`
+- `release-v5-post-recovery-heltec-send-20261026.log`
+- `release-v5-com17-post-recovery-20261026.log`
+- `release-v5-reference-com39-post-recovery-20261026.log`
+
+The earlier watchdog reset and logging failure remain open. This accepted
+recovery check does not complete other decoder rows or approve the release.
