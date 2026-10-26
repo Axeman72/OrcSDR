@@ -22,6 +22,8 @@ struct rgb565_t {uint16_t raw;};
 struct Paint { std::string text; int x, y; uint16_t color; int text_size=1; };
 inline std::vector<Paint> paints;
 inline bool sprite_fail=false;
+inline int sprite_fail_width=0;
+inline size_t live_sprite_bytes=0;
 inline int sampled_pixels=0, drawn_pixels=0;
 inline int screen_clears=0;
 class LovyanGFX {
@@ -59,15 +61,20 @@ public:
 }
 }
 class M5Canvas : public lgfx::LovyanGFX {
+  size_t allocated_bytes_=0;
 public:
   explicit M5Canvas(lgfx::LovyanGFX*) {}
   template<class... T> void setPsram(T...) {}
   template<class... T> void setColorDepth(T...) {}
   template<class... T> void fillSprite(T...) {}
   template<class... T> void pushSprite(T...) {}
-  void deleteSprite() {}
+  void deleteSprite() {lgfx::live_sprite_bytes-=allocated_bytes_;allocated_bytes_=0;}
   uint32_t readPixel(int,int) {++lgfx::sampled_pixels;return 0x1234;}
-  void* createSprite(int, int) { return lgfx::sprite_fail ? nullptr : this; }
+  void* createSprite(int w, int h) {
+    deleteSprite();
+    if(lgfx::sprite_fail||w==lgfx::sprite_fail_width)return nullptr;
+    allocated_bytes_=static_cast<size_t>(w)*h*2;lgfx::live_sprite_bytes+=allocated_bytes_;return this;
+  }
 };
 inline struct M5Stub {
   lgfx::LovyanGFX Display;

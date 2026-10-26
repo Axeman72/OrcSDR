@@ -4737,10 +4737,21 @@ bool p25_iq_rec_start() {
 }
 
 bool queue_lora_auto_decode() {
+  if (!g_iq_rec_ready.load(std::memory_order_acquire) ||
+      !g_iq_rec_auto_triggered.load(std::memory_order_acquire)) return false;
   if (!lora_native_decoder_ready.load(std::memory_order_acquire) ||
-      !g_iq_rec_ready.load(std::memory_order_acquire) ||
-      !g_iq_rec_auto_triggered.load(std::memory_order_acquire) ||
-      g_lora_decode_buf == nullptr || lora_native_decode_queue == nullptr) return false;
+      g_lora_decode_buf == nullptr || lora_native_decode_queue == nullptr) {
+    // A failed decoder startup must not pin the automatic capture forever.
+    if(g_iq_rec_ready.exchange(false,std::memory_order_acq_rel)) {
+      g_iq_rec_auto_triggered.store(false,std::memory_order_release);
+      g_iq_rec_write.store(0,std::memory_order_release);
+      lora_capture_drops.fetch_add(1,std::memory_order_relaxed);
+      Serial.printf("RTL_LORA_CAPTURE_DROP sequence=%lu reason=decoder_unavailable drops=%lu\n",
+          static_cast<unsigned long>(g_iq_rec_sequence),
+          static_cast<unsigned long>(lora_capture_drops.load(std::memory_order_relaxed)));
+    }
+    return false;
+  }
   bool expected = false;
   if (!lora_native_decode_busy.compare_exchange_strong(
           expected, true, std::memory_order_acq_rel)) return false;

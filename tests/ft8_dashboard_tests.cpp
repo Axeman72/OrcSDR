@@ -242,5 +242,13 @@ int main() {
   ++test_map_revision;lgfx::paints.clear();update(s);
   assert(painted("ORCMAPS WORLD") && lgfx::screen_clears==no_clock_clears);
   leave();
+  // World-sprite failure must not retain the other half of an unusable pair.
+  enter(s);const auto before_partial=lgfx::live_sprite_bytes;
+  lgfx::sprite_fail_width=512;lgfx::paints.clear();select_tab(Tab::map);
+  assert(painted("LOW MEMORY - GRID ONLY"));
+  assert(lgfx::live_sprite_bytes==before_partial);
+  lgfx::sprite_fail_width=0;test_millis+=2000;
+  lgfx::paints.clear();update(s);assert(painted("ORCMAPS WORLD"));
+  leave();
   std::puts("ft8_dashboard_tests: PASS");
 }

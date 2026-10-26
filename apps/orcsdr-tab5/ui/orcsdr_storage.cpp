@@ -231,6 +231,10 @@ FileSystem& filesystem() { return g_filesystem; }
 uint64_t total_bytes() { uint64_t total, free; return sd_space(&total, &free) ? total : 0; }
 uint64_t used_bytes() { uint64_t total, free; return sd_space(&total, &free) ? total - free : 0; }
 uint64_t free_bytes() { uint64_t total, free; return sd_space(&total, &free) ? free : 0; }
+bool query_free_bytes(uint64_t* available) {
+  if(!available)return false;
+  uint64_t total=0;return sd_space(&total,available);
+}
 
 bool run_file_semantics_check() {
   if (!mount_tab5_sd() || !g_filesystem.mkdir("/orcsdr")) return false;

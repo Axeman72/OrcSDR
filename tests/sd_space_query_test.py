@@ -32,10 +32,13 @@ int esp_vfs_fat_info(const char* path,uint64_t* total,uint64_t* free){
 }
 '''
 harness += function("sd_space", "bool")
+harness += function("query_free_bytes", "bool")
 for name in ("total_bytes", "used_bytes", "free_bytes"):
     harness += function(name, "uint64_t")
 harness += r'''
 int main(){
+ uint64_t queried=0;assert(query_free_bytes(&queried)&&queried==actual_free);
+ assert(!query_free_bytes(nullptr));
  assert(total_bytes()==actual_total);
  assert(used_bytes()==actual_total-actual_free);
  assert(free_bytes()==actual_free && free_bytes()<543380195);
@@ -43,6 +46,7 @@ int main(){
  actual_free=actual_total;assert(used_bytes()==0 && free_bytes()==actual_total);
  actual_free=actual_total+1;assert(total_bytes()==0 && used_bytes()==0 && free_bytes()==0);
  query_result=-1;actual_free=actual_total/2;
+ assert(!query_free_bytes(&queried)&&queried==0);
  assert(total_bytes()==0 && used_bytes()==0 && free_bytes()==0);
  const int previous=calls;g_mounted=false;
  assert(total_bytes()==0 && used_bytes()==0 && free_bytes()==0 && calls==previous);

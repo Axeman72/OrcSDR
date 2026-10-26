@@ -65,6 +65,7 @@ FileSystem& filesystem();
 uint64_t total_bytes();
 uint64_t used_bytes();
 uint64_t free_bytes();
+bool query_free_bytes(uint64_t* available); // False distinguishes unknown capacity from a full card.
 bool run_file_semantics_check();
 bool run_write_benchmark(uint32_t file_mib = 32);
 

@@ -791,6 +791,11 @@ void draw_map() {
       g_world_canvas.setColorDepth(16);
       g_world_canvas_ready=g_world_canvas.createSprite(world_map::kMercatorSide,world_map::kMercatorSide)!=nullptr;
     }
+    if(!g_map_canvas_ready||!g_world_canvas_ready) {
+      // A partial pair cannot display geography; return it before retrying.
+      g_map_canvas.deleteSprite();g_world_canvas.deleteSprite();
+      g_map_canvas_ready=false;g_world_canvas_ready=false;
+    }
   }
   // Observe the worker generation BEFORE draw: a publication racing draw()
   // must remain visible to the next tick, not be marked as already painted.
