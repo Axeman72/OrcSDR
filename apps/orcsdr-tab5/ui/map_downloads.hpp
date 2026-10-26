@@ -41,6 +41,8 @@ bool retry_recovery();
 void cancel();
 // Consumed on the UI loop: SNTP state and RTC writes retain their existing owner.
 bool take_time_sync_request();
+bool work_pending();
+void worker_unavailable(); // UI: preserve retry identity when the internal stack cannot be allocated.
 // Called only by the dedicated download worker, without the rendering mutex.
 // Discovery/recovery and activation share ownership; immutable archive reads
 // continue independently through the filesystem's per-volume locking.

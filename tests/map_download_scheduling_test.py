@@ -16,10 +16,10 @@ h='''#include <atomic>
 using TickType_t=int;constexpr int pdTRUE=1,portMAX_DELAY=-1;int pdMS_TO_TICKS(int n){return n;}
 std::mutex mutex;void* g_discovery_lock=&mutex;int xSemaphoreTake(void*,int timeout){if(timeout==0)return mutex.try_lock()?1:0;mutex.lock();return 1;}
 void xSemaphoreGive(void*){mutex.unlock();}
-std::atomic_bool g_scan{true};std::atomic<int> g_serial{1};int g_storage=0,g_queue=0,scans=0,renders=0;
+std::atomic_bool g_scan{true},g_download_finished{false};std::atomic<int> g_serial{1};int g_storage=0,g_queue=0,scans=0,renders=0;
 struct Request{int serial=1;};int xQueueReceive(int,Request* r,int){r->serial=1;return 1;}
 void discover(){++scans;}
-struct Stop{};void vTaskDelay(int){throw Stop{};}void ulTaskNotifyTake(int,int){}
+struct Stop{};void vTaskDelay(int){throw Stop{};}void vTaskSuspend(void*){throw Stop{};}void ulTaskNotifyTake(int,int){}
 std::promise<void> entered,release_job;auto done=release_job.get_future();
 namespace downloads {bool service(int){entered.set_value();done.wait();return true;}}
 '''+lock+download+render+'''

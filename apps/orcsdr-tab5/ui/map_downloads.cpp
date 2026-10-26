@@ -229,6 +229,13 @@ bool retry_recovery() {
 }
 void cancel(){g_cancel.store(true);}
 bool take_time_sync_request(){return g_time_sync_requested.exchange(false);}
+bool work_pending(){return g_command.load(std::memory_order_acquire)!=0;}
+void worker_unavailable() {
+  const auto command=g_command.exchange(0);if(!command)return;
+  g_last_command.store(command);
+  Snapshot current;snapshot(&current);
+  finish(Phase::failed,current.pending,"Not enough internal memory. Stop reception or free memory, then Retry.");
+}
 bool service(storage::FileSystem* fs) {
   const auto command=g_command.exchange(0);if(!command)return false;
   g_last_command.store(command);g_busy.store(true);

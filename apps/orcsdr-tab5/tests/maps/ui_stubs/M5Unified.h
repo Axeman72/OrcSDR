@@ -35,7 +35,7 @@ class LovyanGFX {
       }
     }
   }
-  void fillRect(int x,int y,int w,int h,int) {erase_region(x,y,w,h);++region_clears;if(x==16&&y==72&&w==1248&&h==568)++map_clears;}
+  template<class C> void fillRect(int x,int y,int w,int h,C) {erase_region(x,y,w,h);++region_clears;if(x==16&&y==72&&w==1248&&h==568)++map_clears;}
   template<class... T> void fillRect(T...) {++region_clears;}
   void fillRoundRect(int x,int y,int w,int h,int,int) {erase_region(x,y,w,h);}
   template<class... T> void drawRoundRect(T...) {}

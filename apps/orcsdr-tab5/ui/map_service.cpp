@@ -41,6 +41,7 @@ QueueHandle_t g_queue = nullptr;
 SemaphoreHandle_t g_lock = nullptr;
 SemaphoreHandle_t g_preview_lock = nullptr;
 TaskHandle_t g_task = nullptr, g_download_task = nullptr;
+std::atomic<bool> g_download_finished{false};
 SemaphoreHandle_t g_discovery_lock = nullptr;
 EXT_RAM_BSS_ATTR MapSnapshot g_snapshot;
 EXT_RAM_BSS_ATTR FrameInfo g_frame;
@@ -374,15 +375,12 @@ bool choose(const Request& request,orcmap::Viewport* view,char* path,size_t size
 }
 
 void download_worker(void*) {
-  // Startup cannot touch storage until both permanent workers exist.
-  ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
-  for(;;) {
-    {
-      DiscoveryLock lock(portMAX_DELAY);
-      if(downloads::service(g_storage))g_scan.store(true);
-    }
-    vTaskDelay(pdMS_TO_TICKS(20));
+  {
+    DiscoveryLock lock(portMAX_DELAY);
+    if(downloads::service(g_storage))g_scan.store(true);
   }
+  g_download_finished.store(true,std::memory_order_release);
+  vTaskSuspend(nullptr); // UI reaps the WithCaps stack without another allocation.
 }
 void worker(void*) {
   for(;;) {
@@ -509,7 +507,6 @@ bool begin(storage::FileSystem* sd) {
   g_discovery_lock=xSemaphoreCreateMutex();
   g_queue=xQueueCreateWithCaps(1,sizeof(Request),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
   const auto failed=[]() {
-    if(g_download_task){vTaskDeleteWithCaps(g_download_task);g_download_task=nullptr;}
     if(g_lock)vSemaphoreDelete(g_lock);
     if(g_queue)vQueueDeleteWithCaps(g_queue);
     if(g_preview_lock)vSemaphoreDelete(g_preview_lock);
@@ -518,12 +515,27 @@ bool begin(storage::FileSystem* sd) {
     g_lock=nullptr;g_queue=nullptr;g_task=nullptr;return false;
   };
   if(!g_lock || !g_preview_lock || !g_discovery_lock || !g_queue)return failed();
-  if(xTaskCreatePinnedToCoreWithCaps(download_worker,"orcsdr_map_dl",8192,nullptr,1,
-      &g_download_task,1,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)!=pdPASS)return failed();
   if(xTaskCreatePinnedToCore(worker,"orcsdr_maps",8192,nullptr,1,&g_task,1)!=pdPASS)return failed();
-  xTaskNotifyGive(g_download_task);
   (void)memory_reclaim::register_holder({"Map frame",held,release});
   return true;
+}
+void service_downloads() {
+  if(!g_task)return;
+  if(g_download_task&&g_download_finished.load(std::memory_order_acquire)&&
+     eTaskGetState(g_download_task)==eSuspended) {
+    std::printf("ORCMAPS_DOWNLOAD_WORKER done=1 stack_hwm_bytes=%u\n",
+        static_cast<unsigned>(uxTaskGetStackHighWaterMark(g_download_task)));
+    vTaskDeleteWithCaps(g_download_task);g_download_task=nullptr;
+    g_download_finished.store(false,std::memory_order_relaxed);
+  }
+  if(!g_download_task&&downloads::work_pending()) {
+    // NVS commits disable caches: the complete job must have an internal stack.
+    // Reclaim it after each job so idle maps do not reduce pairing headroom.
+    if(xTaskCreatePinnedToCoreWithCaps(download_worker,"orcsdr_map_dl",8192,nullptr,1,
+        &g_download_task,1,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)!=pdPASS) {
+      g_download_task=nullptr;downloads::worker_unavailable();
+    }
+  }
 }
 bool running() {return g_task!=nullptr;}
 bool snapshot(MapSnapshot* out) {

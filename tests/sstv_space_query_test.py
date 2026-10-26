@@ -23,7 +23,7 @@ int main(){
  std::puts("PASS: SSTV unknown capacity uses advisory sentinel; known zero and known free remain distinct");
 }
 '''
-folder=root/'.local/maps/sstv-space-query';folder.mkdir(exist_ok=True)
+folder=root/'.local/maps/sstv-space-query';folder.mkdir(parents=True,exist_ok=True)
 cpp,exe=folder/'test.cpp',folder/'test';cpp.write_text(h,encoding='utf-8')
 def linux(p):return '/mnt/'+str(p)[0].lower()+str(p)[2:].replace('\\','/')
 if shutil.which('g++'):

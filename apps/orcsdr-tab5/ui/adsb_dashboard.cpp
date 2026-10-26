@@ -424,6 +424,13 @@ void draw_selected_summary(int x, int y, int w, int h) {
   text("ADS-B 1090", x + 82, y + 491, TFT_LIGHTGREY, 1, middle_left);
 }
 
+void draw_radar_range() {
+  // The sidebar range changes even without a live aircraft snapshot.
+  char value[28];snprintf(value,sizeof(value),"%u NM",g_settings.radar_range_nm);
+  M5.Display.fillRect(122,520,78,22,kPanel);
+  text(value,198,533,kBlue,1,middle_right);
+}
+
 void draw_radar_map() {
   constexpr int cx = kRadarPanelX + kMapX + kMapW / 2;
   constexpr int cy = kRadarPanelY + kMapY + kMapH / 2;
@@ -1042,6 +1049,7 @@ Action handle_touch(int32_t x, int32_t y) {
       if(range==g_settings.radar_range_nm)return Action::none;
       set_map_range(range);
       draw_radar_map();
+      draw_radar_range();
       return Action::settings_changed;
     }
     for (size_t i = 0; i < g_aircraft_count; ++i) {

@@ -1,10 +1,10 @@
 # Offline maps
 
-**Current status: development integration and TEST-ONLY download pilot.** These
-instructions describe the maps integration candidate, including the current
-COM17 test firmware. They do not imply that every published OrcSDR release has
-the download controls or test catalog enabled. Production catalog/signing and
-final integration acceptance remain open.
+**Current status: production map catalog; firmware release candidate under validation.**
+Current configured builds use the signed, non-expiring production catalog and
+GitHub-hosted global map pack. Older OrcSDR releases may not include these
+controls. Final firmware acceptance and release packaging are tracked separately
+from the already activated map catalog.
 
 One installed map pack serves the location picker, LoRa, ADS-B and FT8 maps.
 Each view chooses its own area and overlays; you do not download a separate
@@ -84,7 +84,7 @@ useful for verification on the computer. Manually copied packs currently get
 metadata/size checks during discovery; that scan does not perform a full archive
 hash check. For manual copying, verify the checksum on the computer.
 
-For this exact pilot archive, the expected SHA-256 is:
+For this exact global regional archive, the expected SHA-256 is:
 
 ```text
 16adde0b4f67734535db6871b89949e68c7e1dabf1c34d2bd7bd23842a9e5991

@@ -53,7 +53,7 @@ int main(){
 }
 '''
 folder = root / ".local/maps/map-catalog-clock-test"
-folder.mkdir(exist_ok=True)
+folder.mkdir(parents=True,exist_ok=True)
 cpp, exe = folder / "test.cpp", folder / "test"
 cpp.write_text(harness, encoding="utf-8")
 def linux(path):

@@ -132,6 +132,12 @@ void draw_mute_button(bool) {} void draw_visualizer_button(bool) {} void draw_se
 
 }
 void screen_tests() {
+  // Real screen backgrounds are uint16_t, not the stub's int TFT constants.
+  const int initial_map_clears=M5.Display.map_clears;
+  M5.Display.drawString("stale",32,80);
+  M5.Display.fillRect(16,72,1248,568,uint16_t{0x0841});
+  assert(M5.Display.map_clears==initial_map_clears+1);
+  assert(std::find(M5.Display.strings.begin(),M5.Display.strings.end(),"stale")==M5.Display.strings.end());
   using namespace orcsdr;
   receiver_location::set(true,440000000,-1230000000);
   navigation::open_settings(settings::Section::location_adsb);

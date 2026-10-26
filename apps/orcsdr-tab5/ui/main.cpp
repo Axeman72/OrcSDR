@@ -15838,7 +15838,6 @@ bool point_in_button(int32_t x, int32_t y) {
 
 bool queue_local_rtl_listen(RtlBand band, uint32_t frequency_hz,
                             bool persist_navigation) {
-  orcsdr::map_screen::service_navigation();
   if (band == RtlBand::adsb) frequency_hz = kAdsbDefaultHz;
   if (band == RtlBand::lora) {
     load_lora_config();
@@ -18471,6 +18470,7 @@ void ui_doc_enter() {
   ui_documentation_mode = true;
   orcsdr::screens::begin_transition(orcsdr::screens::Id::documentation, millis());
   orcsdr::screens::finish_transition();
+  orcsdr::map_screen::service_navigation(); // UI owner; release before a live queued start
 }
 
 bool ui_doc_pause_reception() {
@@ -23281,6 +23281,7 @@ void loop() {
   }
   service_clock();
   orcsdr::location_estimate::service();
+  orcsdr::maps::service_downloads();
   // Keep connection success/failure/timeout and radio resume progressing even
   // when a full-screen mode returns early from the rest of the UI loop.
   if (boot_auto_start_allowed) {

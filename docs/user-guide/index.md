@@ -20,4 +20,4 @@ For digital reception, see [FT8 reception](dashboards/ft8.md).
 
 For the maps integration development builds, see [Offline maps](offline-maps.md)
 for in-app downloading and manual SD-card installation. The currently published
-global-map catalog is a TEST-ONLY pilot.
+global-map catalog is signed for production and has no scheduled expiry.

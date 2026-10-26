@@ -122,7 +122,10 @@ removes allocations during failed-tile cleanup. OrcSDR's prepared adapter catche
 allocation failure and invalidates/reclaims the failed frame; host recovery tests pass.
 The exception-enabled ESP32-P4 rebuild and all physical acceptance remain separate gates.
 
-## Latest acceptance status — 2026-10-17
+## Historical acceptance checkpoint — 2026-10-17
+
+Current acceptance and unresolved release gates are tracked in the
+[release continuation ledger](../superpowers/plans/2026-10-25-release-review-iq-continuation.md).
 
 COM39 candidates `4971ee5b` and `e87c6d3c` failed before OrcSDR startup; none of the integrated
 dashboard map consumers received a hardware acceptance pass. The original firmware

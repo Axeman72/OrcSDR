@@ -150,3 +150,38 @@ focused sanitized test reproduced the missing peaks and passes after adding
 peak/reset coverage. No demodulation or decoder algorithm changes are made.
 A temporary ENERGY-versus-PREAMBLE run is diagnostic isolation only and restores
 the original PREAMBLE mode in a finally block; it cannot qualify LoRa reception.
+
+## Review follow-up and isolation results
+
+The 89-file CodeRabbit review completed as review 5648912293 on `7886eef2`.
+Its ten findings plus the HTTP-stub nit and Grok's stack-safety finding are
+classified in `docs/evidence/maps/2026-10-26-review-7886eef2-disposition.md`.
+All still-valid source/test/doc findings have focused corrections prepared;
+native/device validation of those corrections remains open. Working evidence
+links were verified in the reviewed Git commit rather than changed blindly.
+
+The download worker is now on-demand with an internal 8 KiB stack, reaped by the
+UI after each job. This supersedes the earlier permanent-PSRAM-stack design.
+Startup, blocked-transfer/render scheduling and allocation/reaping tests pass.
+Four P4 syntax checks and all 16 configured map CTests pass after the corrections.
+
+Additional IQ isolation does not close the gate:
+
+- ENERGY detector mode reduced but did not eliminate map-associated losses:
+  +6 driver drops and +75 pipeline drops. PREAMBLE was restored and verified in
+  a finally-path capture. This is diagnosis, not decoder acceptance.
+- Eight idle retained-map memory queries added zero drops; repeated heap status
+  queries alone do not explain the stalls.
+- A single authenticated session with PING keepalives still produced drops while
+  panning, so repeated AUTH/journal writes are not required to reproduce it.
+- Eight copies of the same completed map (generation unchanged, cached pushes
+  1 to 9) added zero driver or pipeline drops. This narrows the investigation
+  toward background detail generation/storage rather than the cached copy alone.
+
+Logs beside invocation: `pr211-energy-isolation{-restore,}-com17-20261026.log`,
+`pr211-heap-query-isolation-com17-20261026.log`,
+`pr211-single-auth-map-isolation-com17-20261026.log`,
+`pr211-cached-push-isolation-com17-20261026.log`.
+The native `ba770de5` diagnostic reports long peaks across signal level,
+spectrum-copy and decoder stages during detail generation; no change to decoder
+algorithms or loss counters was made.

@@ -40,7 +40,7 @@ int main(){
  std::puts("PASS: failed-start automatic slots released; manual captures and busy-decoder retry preserved; queue failure counted once");
 }
 '''
-folder=root/'.local/maps/lora-auto-handoff';folder.mkdir(exist_ok=True)
+folder=root/'.local/maps/lora-auto-handoff';folder.mkdir(parents=True,exist_ok=True)
 cpp,exe=folder/'test.cpp',folder/'test';cpp.write_text(harness,encoding='utf-8')
 def linux(p):return '/mnt/'+str(p)[0].lower()+str(p)[2:].replace('\\','/')
 if shutil.which('g++'):

@@ -40,6 +40,8 @@ struct FrameInfo {
 // Starts one low-priority worker. It renders only into its private PSRAM
 // sprite; drawing/pushing that sprite remains on the owning UI task.
 bool begin(storage::FileSystem* sd);
+// UI-task only, before full-screen early returns: start/reap queued download jobs.
+void service_downloads();
 bool running();
 bool snapshot(MapSnapshot*);
 void rescan();

@@ -23,7 +23,9 @@ harness='#include <initializer_list>\n'+harness
 queue=main[main.index('bool queue_local_rtl_listen(RtlBand band, uint32_t frequency_hz,',main.index('bool queue_local_rtl_listen(RtlBand band, uint32_t frequency_hz,')+1):]
 queue=queue[:queue.index('\nvoid adjust_rtl_volume')]
 assert 'if(setup_receiver_inhibit.load(std::memory_order_acquire))return false;' not in queue
-assert 'orcsdr::map_screen::service_navigation();' in queue
+assert 'orcsdr::map_screen::service_navigation();' not in queue
+doc=main[main.index('void ui_doc_enter() {'):main.index('bool ui_doc_pause_reception()')]
+assert doc.index('screens::finish_transition();')<doc.index('map_screen::service_navigation();')
 assert 'if (setup_radio_paused || catalog_radio_paused' in queue
 loop=main[main.index('void loop()'):]
 assert loop.index('orcsdr::map_screen::service_navigation();')<loop.index('if (orcsdr::visualizer::active())')

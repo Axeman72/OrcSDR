@@ -3,7 +3,7 @@
 using esp_err_t=int;
 inline constexpr esp_err_t ESP_OK=0,ESP_FAIL=-1,ESP_ERR_NO_MEM=0x101;
 enum esp_http_client_event_id_t {HTTP_EVENT_ON_HEADER};
-enum esp_http_client_transport_t {HTTP_TRANSPORT_OVER_SSL};
+enum esp_http_client_transport_t {HTTP_TRANSPORT_UNKNOWN,HTTP_TRANSPORT_OVER_TCP,HTTP_TRANSPORT_OVER_SSL};
 struct esp_http_client;
 using esp_http_client_handle_t=esp_http_client*;
 struct esp_http_client_event_t {

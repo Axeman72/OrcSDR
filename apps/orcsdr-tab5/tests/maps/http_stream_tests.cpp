@@ -75,6 +75,7 @@ esp_err_t esp_http_client_cleanup(esp_http_client_handle_t client) {
 }
 }
 int main() {
+  esp_http_client_config_t unset{};assert(unset.transport_type!=HTTP_TRANSPORT_OVER_SSL);
   using namespace orcsdr::maps;
   using transfer::HttpStream;using transfer::Headers;
   const char* url="https://maps.example.test/world.pmtiles";
