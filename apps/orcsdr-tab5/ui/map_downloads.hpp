@@ -39,6 +39,8 @@ bool request_install(size_t index);
 bool retry();
 bool retry_recovery();
 void cancel();
+// Consumed on the UI loop: SNTP state and RTC writes retain their existing owner.
+bool take_time_sync_request();
 // Called only by the existing map worker, without its rendering mutex held.
 // Returns true after a recovery attempt so its caller can refresh inventory.
 bool service(storage::FileSystem*);

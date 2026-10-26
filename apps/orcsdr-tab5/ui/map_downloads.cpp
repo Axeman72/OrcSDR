@@ -28,6 +28,7 @@ EXT_RAM_BSS_ATTR catalog::Catalog g_catalog;
 portMUX_TYPE g_lock=portMUX_INITIALIZER_UNLOCKED;
 std::atomic<uint32_t> g_command{0},g_last_command{kRecover};
 std::atomic<bool> g_busy{false},g_cancel{false};
+std::atomic<bool> g_time_sync_requested{false};
 uint64_t g_last_yield=0,g_last_progress=0;
 void publish(Phase phase,bool pending,const char* message) {
   portENTER_CRITICAL(&g_lock);
@@ -37,6 +38,7 @@ void publish(Phase phase,bool pending,const char* message) {
   portEXIT_CRITICAL(&g_lock);
 }
 void finish(Phase phase,bool pending,const char* message) {
+  g_time_sync_requested.store(false);
   g_busy.store(false);publish(phase,pending,message);
 }
 bool cancelled(void*) {
@@ -117,15 +119,34 @@ bool catalog_entries(storage::FileSystem* fs,delivery::Store& store) {
   g_snapshot.pending=!state.pending.product.empty();++g_snapshot.revision;
   portEXIT_CRITICAL(&g_lock);return true;
 }
+bool ensure_catalog_clock() {
+  if(time_service::now().wallclock_valid)return true;
+  publish(Phase::checking,false,"Getting network time automatically...");
+  g_time_sync_requested.store(true);
+  const auto started=static_cast<uint64_t>(esp_timer_get_time());
+  while(!time_service::now().wallclock_valid) {
+    if(cancelled(nullptr)) {
+      finish(Phase::cancelled,false,"Catalog check cancelled.");return false;
+    }
+    if(!wifi::connected()) {
+      finish(Phase::failed,false,"Wi-Fi disconnected. Reconnect and Retry to check maps.");return false;
+    }
+    if(static_cast<uint64_t>(esp_timer_get_time())-started>=25000000) {
+      finish(Phase::failed,false,"Network time unavailable. Check internet access and Retry.");return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+  g_time_sync_requested.store(false);
+  publish(Phase::checking,false,"Checking signed map catalog...");
+  return true;
+}
 void check(storage::FileSystem* fs,delivery::Store& store,uint8_t* buffer) {
   invalidate_catalog();
   if(!catalog_source::base_url[0]||!catalog_source::public_key[0]) {
     finish(Phase::unconfigured,false,"Downloads not configured. Installed maps remain available.");return;
   }
   if(!wifi::connected()){finish(Phase::failed,false,"Connect Wi-Fi to check available maps.");return;}
-  if(!time_service::now().wallclock_valid) {
-    finish(Phase::failed,false,"Wait for network time or set the clock, then retry.");return;
-  }
+  if(!ensure_catalog_clock())return;
   std::string base=catalog_source::base_url;
   while(!base.empty()&&base.back()=='/')base.pop_back();
   transfer::HttpStream stream;std::string payload,signature;
@@ -207,6 +228,7 @@ bool retry_recovery() {
   Snapshot s;snapshot(&s);return s.pending&&queue(kRecover,Phase::verifying,"Recovering saved map installation...");
 }
 void cancel(){g_cancel.store(true);}
+bool take_time_sync_request(){return g_time_sync_requested.exchange(false);}
 bool service(storage::FileSystem* fs) {
   const auto command=g_command.exchange(0);if(!command)return false;
   g_last_command.store(command);g_busy.store(true);

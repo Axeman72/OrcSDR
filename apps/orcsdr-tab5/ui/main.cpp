@@ -15290,6 +15290,9 @@ void ft8_wwv_service() {
 void service_clock() {
   ft8_install_clock_hooks();
   ft8_wwv_service();
+  if(orcsdr::maps::downloads::take_time_sync_request() &&
+     !orcsdr::time_service::now().wallclock_valid)
+    (void)orcsdr::ntp_sync::start(orcsdr::wifi::connected());
   orcsdr::ntp_sync::poll();
   ft8_auto_clock_sync();
   bool ok = false;
