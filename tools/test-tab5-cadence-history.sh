@@ -23,3 +23,4 @@ python3 tests/adsb_zoom_redraw_test.py
 python3 tests/map_download_scheduling_test.py
 run display_writeback -Itests/display_writeback_stubs tests/display_writeback_tests.cpp "$ui/display_writeback.cpp"
 python3 tests/map_worker_startup_test.py
+run dsp_stage_stats -Iapps/orcsdr-tab5/dsp tests/dsp_stage_stats_tests.cpp apps/orcsdr-tab5/dsp/dsp_stats.cpp

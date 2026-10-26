@@ -21297,7 +21297,7 @@ void process_command(char* command) {
     // Window since the previous RTL_DSP STATS (read-only, resets on read).
     static uint32_t last_ms = 0;  // first window runs from boot, like the counters
     const uint32_t now = millis();
-    char line[512];
+    char line[768];
     (void)orcsdr::dsp::stats::format_and_reset(line, sizeof(line), now - last_ms);
     last_ms = now;
     // Loss counters are cumulative since stream start (not windowed).

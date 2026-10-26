@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'apps/orcsdr-tab5/ui/**'
+      - 'apps/orcsdr-tab5/dsp/dsp_stats.*'
+      - 'tests/dsp_stage_stats_tests.cpp'
       - 'tests/home_cadence_tests.cpp'
       - 'tests/waterfall_style_tests.cpp'
       - 'tests/lora_history_tests.cpp'

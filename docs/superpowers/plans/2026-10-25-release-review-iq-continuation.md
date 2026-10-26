@@ -124,3 +124,29 @@ the new lifecycle APIs; its FreeRTOS stub now models task handles, suspension
 and WithCaps deletion. Its sanitized CTest passes 1/1, including twenty repeated
 actual worker completions with creation/deletion counts matched. Logs:
 `pr211-location-lookup-{regression-red,build,test}-20261026.log`.
+
+## Failed cache-flush hypothesis and stage-level investigation
+
+Candidate `4ca5e23d` app SHA-256
+`08992af768c2595fcd254d31de3c8b908d97f7cfb6e90f20c38f28c456b47b77`
+passed native linking/strong-hook inspection, COM17 app-only preservation and
+boot. It does **not** pass IQ continuity: the same V3c/960 ksps picker/pan test
+added 38 driver drops and 688 application IQ queue drops. The writeback hook
+reported no errors, max chunk 4,096 bytes, max chunk time 2,404 us and max call
+5,941 us; DSP block maximum still reached 360,749 us. Therefore framebuffer
+cache flush duration alone does not explain or resolve these losses. Do not
+present this experiment as a release fix or retain it without a measured reason.
+Logs: `pr211-map-iq-writeback-4ca5e23d-com17-20261026.log`,
+`pr211-writeback-worker-artifact-inspection-20261026.log`,
+`writeback-worker-com17-boot-native-monitor-20261026.log`.
+
+All 16 configured map/UI host CTests pass after rebuilding their targets;
+`pr211-map-host-{build,tests}-20261026.log`. This is the bounded map suite,
+not whole-repository decoder qualification.
+
+The next diagnostic adds peak time per existing DSP stage to `RTL_DSP STATS`
+(28 bytes of counters), retaining averages, rates and loss accounting. Its
+focused sanitized test reproduced the missing peaks and passes after adding
+peak/reset coverage. No demodulation or decoder algorithm changes are made.
+A temporary ENERGY-versus-PREAMBLE run is diagnostic isolation only and restores
+the original PREAMBLE mode in a finally block; it cannot qualify LoRa reception.
