@@ -200,7 +200,8 @@ void draw_download_progress();
 void draw_downloads() {
   (void)maps::downloads::snapshot(&g_downloads);
   text("Get offline maps",32,92,3);
-  const char* hint=!g_downloads.configured?"Map source is not configured. Installed maps remain available.":
+  const char* hint=g_downloads.busy?"Back to the device: downloads continue. Stop Transfer pauses the download.":
+      !g_downloads.configured?"Map source is not configured. Installed maps remain available.":
       !g_downloads.connected?"Offline. Return to Network to connect; saved transfers can still be resumed.":
       !g_downloads.sd_available?"Insert an SD card for downloads. The firmware world map remains available.":
       !g_downloads.catalog_ready?"Check the catalog to see maps available from your configured source.":
@@ -419,7 +420,7 @@ void draw() {
   if(location_step()&&!(g_mode==Mode::setup&&g_location_menu))text(g_mode==Mode::setup?"SETUP: LOCATION":"LOCATION",16,24,2,kAccent);
   else if(g_mode!=Mode::setup||!g_hooks.brand)text(g_mode==Mode::setup?"ORCSDR SETUP":"LOCAL MAPS",32,28,3,kAccent);
   if(g_mode==Mode::setup){const char* labels[]={"1 / 5 WELCOME","2 / 5 WI-FI","3 / 5 LOCATION","4 / 5 MAPS","5 / 5 READY"};text(labels[static_cast<int>(g_flow.step)],430,24,3,kAccent);}
-  button("CANCEL",1050,20,195);
+  button(maps_step()&&g_download_view?"BACK":"CANCEL",1050,20,195);
   if(location_step()&&g_mode==Mode::setup&&g_location_menu)setup_ui::draw(setup_ui::Page::location);
   else if(location_step())draw_picker();
   else if(maps_step()) {if(g_download_view)draw_downloads();else draw_inventory();}

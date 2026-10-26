@@ -255,6 +255,8 @@ void screen_tests() {
   download_status.total_bytes=100000000;++download_status.revision;
   test_millis+=300;map_screen::tick();map_screen::tick();
   const int transfer_clears=M5.Display.screen_clears;
+  assert(visible("BACK")&&!visible("CANCEL"));
+  assert(visible("Back to the device: downloads continue. Stop Transfer pauses the download."));
   for(int i=0;i<8;++i) {
     download_status.completed_bytes+=1000000;++download_status.revision;
     test_millis+=300;map_screen::tick();map_screen::tick();
@@ -437,6 +439,10 @@ void screen_tests() {
   download_installed=true;serial_command("RTL_MAP DOWNLOAD INSTALL 0");assert(!serial_ok());download_installed=false;
   serial_command("RTL_MAP DOWNLOAD INSTALL 0");assert(serial_ok()&&download_installs==1);
   download_status.busy=true;serial_command("RTL_MAP DOWNLOAD CANCEL");assert(serial_ok()&&download_cancels==1);
+  serial_command("RTL_MAP OPEN DOWNLOADS");assert(serial_ok());
+  const int stops_before_back=download_cancels;
+  click(1140,40);
+  assert(!map_screen::state().active&&download_cancels==stops_before_back&&download_status.busy);
   download_status={};
   std::puts("MAP_SERIAL_PASS authentication, parser, shared save/pan/zoom, setup pause/finish and installer gates");
   std::puts("MAP_SCREEN_TEST_PASS (changed-point save/return, failure, cancel, pan, zoom, Settings redraw)");
