@@ -153,8 +153,10 @@ identity fields were blank under WSL; Windows Git confirmed no UI/main source
 diff from tested `fd8b6de6`, with branch head `44561fb3` at invocation.
 
 The V5's three conducted SSTV mode/image/storage checks are PASS for this exact
-configuration. Physical screen/audio acceptance was requested separately and
-remains pending. The next requested swap is Blog V4 on COM17 using the same
+configuration. The owner initially was not present, then reported: "I saw the
+test images now. looked good." This accepts observed displayed-image appearance;
+it does not establish control responsiveness during reception or audible quality.
+Those physical checks remain open. The next requested swap is Blog V4 on COM17 using the same
 attenuated cable, with TX muted. Other dongles are not qualified by these results.
 The full release gate remains blocked until all required combinations and
 remaining investigations are addressed.

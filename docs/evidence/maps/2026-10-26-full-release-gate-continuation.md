@@ -80,3 +80,11 @@ passed. Full settings, source hashes, image metrics, logs and remaining physical
 checks are in the [V5 conducted record](2026-10-26-v5-sstv-conducted.md).
 This closes these three V5 mode/image/storage checks, not the full matrix row
 across all dongles. COM17 was left IDLE and a Blog V4 swap requested with TX muted.
+
+The owner subsequently connected Blog V4 on COM17 through the same cable.
+All three conducted SSTV modes also completed, saved and passed reference-image
+comparison on V4; see the [V4 conducted record](2026-10-26-v4-sstv-conducted.md).
+COM17 was again left IDLE with TX muted, and its five recovery cycles were
+requested as the next manual checkpoint. V3c/V4L conducted SSTV and the remaining
+decoder rows remain open. The owner's later report that the test images looked
+good establishes observed image appearance, not unobserved audio/control checks.
