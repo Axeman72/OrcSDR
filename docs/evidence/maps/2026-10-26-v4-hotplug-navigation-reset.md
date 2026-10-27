@@ -70,8 +70,48 @@ off, profile 1 and STREAMING. The new monitor prints BASELINE_READY only after
 validating this state, records disconnect/reconnect plus increasing stream
 bytes, rejects gain/profile/frequency changes and unexpected restarts, and exits
 nonzero on incomplete recovery. Five cycles were then requested with the screen
-unchanged. Results remain pending at this checkpoint.
+unchanged. The five-minute recording ran from 18:14:51 through 18:19:51 PDT,
+captured no disconnects, and ended INCOMPLETE with zero verified cycles and a
+nonzero process exit. No cycle count can be inferred from that recording.
+
+The operator subsequently reported: "It worked as i intened. 3 cycles. reception
+returned". Record three **operator-reported** recoveries, not five passes and
+not three automatically verified cycles. Their exact timing relative to the
+recording window was not established. The original five-cycle gate remains
+incomplete; no hardware/software limitation is claimed as UNSUPPORTED.
+
+A read-only end-state query at 18:23:09 PDT showed uptime 772,348 ms, reset
+reason 11, profile 1 STREAMING at 145.500 MHz, manual 40.2 dB, bias/RTL AGC off,
+zero driver drops/overruns and a healthy logger with zero dropped records.
+SSTV was inactive and the observed stream was about 2.4 MSPS, rather than the
+240 kS/s SSTV baseline. This proves the end state, not each cycle's configuration
+or protocol decoding. Uptime remained continuous since the controlled restart.
+
+Evidence: `release-v4-sstv-com17-five-cycle-recovery-retry-20261026.log`,
+`release-v4-sstv-three-cycle-readback-20261026.log`, and local manifests
+`.local/maps/release-v4-sstv-recovery-progress-retry-20261026.json` and
+`.local/maps/release-v4-sstv-three-cycle-operator-record-20261026.json`.
 
 Passing those isolated cycles would not erase the mixed navigation/unplug
 failure above. That sequence still needs investigation before full release-gate
 approval.
+
+## Navigation-only isolation
+
+After the operator's three-cycle report, three authenticated SSTV → ADS-B
+navigation passes completed without a physical disconnect or active RF source.
+Each SSTV state was open/active at 145.500 MHz with its stream running; each
+ADS-B state streamed at 1090 MHz. Health uptime rose continuously and reset
+reason remained 11, the earlier controlled restart. No new driver drops or
+overruns were reported. This does not reproduce or clear the mixed incident.
+
+Final state was explicitly restored to Home/IDLE. At 18:25:42 PDT, uptime was
+924,559 ms; PSRAM free 2,767,260 bytes, DMA free 13,463, largest 12,800. The
+logger remained ready with zero queued/pending/dropped records. Log:
+`release-v4-sstv-adsb-navigation-isolation-20261026.log`. The command plan
+completed with exit zero. No firmware source, build or flash was changed.
+
+Next diagnostic milestone: record one controlled physical disconnect with
+navigation, retaining serial output through any restart. A longer/explicitly
+armed observation window is needed so waiting for the operator does not consume
+the recording window, as happened with the five-cycle attempt.

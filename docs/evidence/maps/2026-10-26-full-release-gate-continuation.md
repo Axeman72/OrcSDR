@@ -95,3 +95,11 @@ reset reason 7; no new crash dump was retained. The five-cycle attempt was not
 scored. This [new reset observation](2026-10-26-v4-hotplug-navigation-reset.md)
 remains a release blocker; an isolated recovery retry is not a substitute for
 investigating the mixed sequence.
+
+The operator reported three successful V4 recovery cycles. The timed automated
+monitor recorded none before it expired, so the results are distinguished:
+three operator-reported recoveries, zero automatically verified cycles, original
+five-cycle gate incomplete. A subsequent end-state readback was healthy, and
+three navigation-only SSTV/ADS-B passes completed without a restart. This does
+not close the mixed disconnect/navigation reset investigation. Details and logs
+are in the same incident record.
