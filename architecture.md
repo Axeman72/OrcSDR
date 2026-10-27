@@ -34,7 +34,7 @@ Wi-Fi pause/resume orchestration; catalog operations; serial and authenticated
 device commands; SD/IQ/audio transfers; LAN console command dispatch;
 documentation capture; screen transitions; and top-level touch routing.
 
-main.cpp measurement (Git-normalized): 1,056,371 bytes (~1031.6 KiB), 22,589 lines.
+main.cpp measurement (Git-normalized): 1,116,405 bytes (~1090.2 KiB), 23,643 lines.
 
 The measurement uses LF-normalized repository bytes so it is stable across
 Windows and Linux checkouts. The intended modular endpoint—roughly 500 lines of
@@ -48,7 +48,7 @@ screen permission to draw while radio/decoder work continues independently.
 `navigation_service` owns Home/Settings handoff mechanics; feature dashboards
 render snapshots rather than owning receiver state.
 
-ScreenController IDs: `none`, `home`, `fm`, `p25`, `adsb`, `lora`, `shortwave`, `radio`, `visualizer`, `rf_lab`, `wifi_analysis`, `pocsag`, `settings`, `am`, `documentation`, `cb`, `airband`, `ft8`, `sstv`, `acars`, `dead_air`.
+ScreenController IDs: `none`, `home`, `fm`, `p25`, `adsb`, `lora`, `shortwave`, `radio`, `visualizer`, `rf_lab`, `wifi_analysis`, `pocsag`, `settings`, `am`, `documentation`, `cb`, `airband`, `ft8`, `sstv`, `acars`, `dead_air`, `maps`.
 
 Dashboard IDs: `home`, `fm`, `p25`, `adsb`, `shortwave`, `weather`, `cb`, `lora`, `airband`, `marine`, `satellite`, `utilities`, `settings`, `rf_lab`, `wifi_analysis`, `pocsag`, `am`, `ft8`, `sstv`, `acars`, `dead_air`.
 

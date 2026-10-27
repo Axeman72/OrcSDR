@@ -920,6 +920,8 @@ Action tap_action(int32_t x, int32_t y) {
   if (mode_popup) return mode_popup_action(x, y);
   if (gain_popup) return gain_popup_action(x, y);
   if (filter_popup) return filter_popup_action(x, y);
+  if (inside(x,y,kHeaderStatusX+238,kHeaderStatusY,kHeaderStatusW-238,kHeaderStatusH))
+    return {ActionKind::open_clock};
   if (inside(x, y, kGainX, kGainY, kGainW, kGainH)) return {ActionKind::gain_open};
   if (inside(x, y, kFilterPanelX, kFilterPanelY, kFilterPanelW, kFilterPanelH))
     return {ActionKind::filter_open};
@@ -1378,6 +1380,7 @@ bool self_check() {
          tap_action(kStepperTune + kStepperW - 5, kControlY + 8).kind == ActionKind::step_up &&
          tap_action(kStepperSize + 5, kControlY + 8).kind == ActionKind::step_size_down &&
          tap_action(1223, 13).kind == ActionKind::open_device_settings &&
+         tap_action(kHeaderStatusX+kHeaderStatusW-20,kHeaderStatusY+20).kind == ActionKind::open_clock &&
          tap_action(1100, 13).kind == ActionKind::sound_toggle &&
          std::abs(home_spectrum_floor(levels, std::size(levels), 10.0f) - 62.0f) < 0.01f;
 }

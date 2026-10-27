@@ -151,6 +151,7 @@ The standalone [`esp-rtl-sdr`](https://github.com/hardcoreerik/esp-rtl-sdr) comp
 
 - [User Guide](docs/user-guide/index.md)
 - [Downloads and installation](docs/user-guide/downloads.md)
+- [Offline maps: download or copy to SD (development pilot)](docs/user-guide/offline-maps.md)
 - [Common controls and workflows](docs/user-guide/shared-controls.md)
 - [Settings and Wi-Fi](docs/user-guide/settings.md)
 - [Troubleshooting](docs/user-guide/troubleshooting.md)

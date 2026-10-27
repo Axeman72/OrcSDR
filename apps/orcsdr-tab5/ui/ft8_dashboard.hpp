@@ -28,7 +28,8 @@ enum class ActionKind : uint8_t {
   gain_manual,         // value = tuner gain in tenths of a dB (one of the receiver's steps)
   rtl_agc,             // value = 1 or 0: the RTL2832's own digital AGC (separate from the tuner's), for dongles that have it (V3/V4)
   free_memory,         // the NOT ENOUGH MEMORY state's FREE MEMORY button: release what other features hold, then retry
-  sync_clock           // the CLOCK chip: start a network time sync now (the application checks Wi-Fi)
+  sync_clock,
+  open_clock           // displayed time/CLOCK chip: open the existing time editor
 };
 
 struct Action {

@@ -344,7 +344,8 @@ void decode_slot(uint64_t slot_start_ms, uint32_t slot_ms, uint64_t now_ms, uint
     return;
   }
 
-  EXT_RAM_BSS_ATTR static int16_t chunk[4096];   // shared by the FT8/FT4 and JS8 paths: internal RAM is tight, so no second buffer
+  // Decoder-task scratch, never a DMA/ISR buffer; do not reserve 8 KiB of internal RAM at boot.
+  static EXT_RAM_BSS_ATTR int16_t chunk[4096];
   if (is_js8(g.mode)) {
     // JS8 (receive only): the backend returns a Decode only for a frame whose parity and CRC-12 both hold and that renders as a verified message.
     if (!js8_supported(g.mode) || g.js8 == nullptr) return;
