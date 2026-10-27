@@ -1,5 +1,16 @@
 # Full release gate continuation — October 26, 2026
 
+## Superseding owner release decision
+
+After the conducted SSTV checks, the owner instructed "merge our work" and
+"im happy enough with this to push for the release now. no further release gate."
+This explicitly supersedes the earlier requirement to finish every required row
+before merge/tag. Preserve all FAIL/BLOCKED/untested evidence and the unresolved
+watchdog observation; none is reclassified PASS. Proceed with PR #211 merge and
+v0.5.0-beta.1, with build/package integrity checks and honest beta limitations.
+Source merge/tag, firmware asset availability and M5Burner publication remain
+separate observable actions.
+
 The owner explicitly retained the full decoder-by-dongle gate after the logger
 repair. No merge, tag or publication is authorized by a partial test pass.
 The accepted transient map-interaction IQ loss and three V5 recovery cycles
