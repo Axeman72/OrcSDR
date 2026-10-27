@@ -111,3 +111,11 @@ manual gain retention, so its INCOMPLETE result is retained alongside a separate
 source-verified recovery analysis. Neither assessment closes the earlier reset
 or original five-cycle gate. COM17 was stopped and Blog V3c requested for the
 next conducted SSTV block.
+
+V3c subsequently completed Robot36, PD120 and Scottie S1 with saved-image
+comparisons passing. Two Pluto DMA-underflow attempts were invalidated and
+retained as source failures, not decoder failures; clean full retries supplied
+the scored images. The explicit memory-reclaim command released retained LoRa,
+map and SSTV buffers. See the [V3c conducted record](2026-10-26-v3c-sstv-conducted.md).
+V4L conducted SSTV is the remaining dongle block for these modes; the other
+protocol, physical and reset gates are still open.
