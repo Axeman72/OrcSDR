@@ -73,6 +73,13 @@ configuration. Required hotplug, other decoders, map-load, physical controls and
 audio checks are not closed by this result. Five V4 recovery cycles were offered
 as the next manual checkpoint; no unobserved cycle is counted.
 
+Subsequent recovery/reset observations are recorded in the
+[incident follow-up](2026-10-26-v4-hotplug-navigation-reset.md): three recoveries
+were operator-reported, one controlled disconnect/navigation recovered without
+a reset, and the original unintended reset remains unexplained. The five-cycle
+gate is not marked passed. Post-restart readback confirmed the old index prefix
+and this V4 Robot36 BMP were unchanged.
+
 ## Evidence
 
 Receiver logs beside invocation in the integration worktree:

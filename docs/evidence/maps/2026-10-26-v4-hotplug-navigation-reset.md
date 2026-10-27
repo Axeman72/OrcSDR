@@ -115,3 +115,68 @@ Next diagnostic milestone: record one controlled physical disconnect with
 navigation, retaining serial output through any restart. A longer/explicitly
 armed observation window is needed so waiting for the operator does not consume
 the recording window, as happened with the five-cycle attempt.
+
+## Controlled disconnect plus navigation
+
+The operator performed one explicitly recorded V4 unplug/replug while a serial
+recorder issued exactly one authenticated `RTL_UI OPEN ADSB` after detecting
+the disconnect. The recorder was armed at 18:44:26 PDT; unlike the earlier
+counter, its incident window starts on the disconnect. Pluto's TX mute was
+freshly confirmed before arming. No PAIR, reset, flash or RF transmission was
+performed by this diagnostic.
+
+- Disconnect recorded at **18:45:05.104**; ADS-B navigation accepted at
+  **18:45:05.208**, while the receiver was absent.
+- New V4/profile 1 streamed at **1090 MHz**, about **2.048 MSPS**, bias and RTL
+  AGC off. First observed stream was 13.777 seconds after disconnect, including
+  operator unplug time and polling; this is not isolated enumeration latency.
+- Health uptime remained monotonic, reset reason stayed 11, and the recorder
+  observed no new reset or serial transport error during the three-minute
+  incident window. The operator also reported the device stayed responsive.
+- The final observed stream segment had increasing byte counters for 127.202
+  seconds, with reported driver drops/overruns zero. Automatic Wi-Fi reconnect
+  attempts paused/restarted the radio earlier in the capture. Zero per-stream
+  drop counters must not be presented as uninterrupted reception across pauses.
+
+**Preserved harness limitation:** the raw recorder result is INCOMPLETE, exit 1,
+because it required manual gain 40.2 dB to survive reattachment. Inspection of
+the unchanged pinned driver (`31a159df4f006a837d5041029bc6d1bc63520234`) verifies
+that `clear_profile_runtime_state` clears bias and restores AUTO gain, then
+`apply_profile_to_handle` applies the profile default. `rtl_profile.hpp` defines
+AUTO for Blog V4, and the driver's existing profile test asserts that default.
+Thus the observed AUTO state matches the implementation; preserving manual
+gain was an incorrect expectation for this diagnostic, not an established new
+firmware defect. No driver source was edited to obtain a pass.
+
+The original recorder result was not rewritten. A separate raw-log analysis,
+`python .local/maps/analyze_v4_disconnect_navigation_20261026.py`, passed checks
+for the one disconnect, accepted navigation, monotonic uptime and sustained
+streaming using the verified attach policy. Its result is
+PASS_BOUNDED_RECOVERY_NO_RESET. One untimestamped serial fragment was skipped;
+all scored snapshots have their required fields. This supports a bounded
+successful recovery, **not a fix or clearance of the earlier watchdog**, a
+five-cycle pass, packet decoding or an RF acceptance row.
+
+Logs/artifacts beside invocation:
+
+- `release-v4-disconnect-navigation-prepare-20261026.log`
+- `release-v4-disconnect-navigation-20261026.log`
+- `.local/maps/release-v4-disconnect-navigation-20261026.json` (raw INCOMPLETE)
+- `.local/maps/release-v4-disconnect-navigation-assessment-20261026.json`
+
+## Saved-data persistence and final state
+
+After the incident and controlled crash-partition readback restart, serial
+readback confirmed the six-row SSTV index retained its complete previous prefix.
+Its SHA-256 remains
+`d9680b977faacb69a0cbe6a704f3bf3bbb61f383385090b2e7091a41410506d4`.
+The saved V4 Robot36 BMP is byte-identical to its pre-restart copy, SHA-256
+`8833b478783b9552feec56bfcf7e0b90a7cd96bf409c13b892a8656b6be0d5cd`.
+This is readable saved-data persistence, not an arbitrary power-cut test.
+
+Command plan `release-v4-sstv-postrestart-storage-20261026.log` completed with
+exit zero; the separate byte/prefix comparison passed. Final state is Home,
+receiver IDLE, logger ready with queued/pending/dropped zero; uptime 2,465,844 ms,
+reset reason 11. Pluto remains muted. No firmware, NVS or C6 change occurred;
+COM39 was untouched. Next requested hardware is Blog V3c on COM17 for the same
+conducted SSTV sequence. The earlier reset investigation remains open.

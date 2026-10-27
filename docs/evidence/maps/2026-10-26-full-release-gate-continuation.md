@@ -103,3 +103,11 @@ five-cycle gate incomplete. A subsequent end-state readback was healthy, and
 three navigation-only SSTV/ADS-B passes completed without a restart. This does
 not close the mixed disconnect/navigation reset investigation. Details and logs
 are in the same incident record.
+
+One subsequent controlled V4 disconnect with serial navigation to ADS-B also
+recovered without a reset; sustained stream, safe attach defaults and saved-data
+persistence were verified. A raw recorder expectation incorrectly required
+manual gain retention, so its INCOMPLETE result is retained alongside a separate
+source-verified recovery analysis. Neither assessment closes the earlier reset
+or original five-cycle gate. COM17 was stopped and Blog V3c requested for the
+next conducted SSTV block.
