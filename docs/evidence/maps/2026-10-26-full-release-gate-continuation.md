@@ -88,3 +88,10 @@ COM17 was again left IDLE with TX muted, and its five recovery cycles were
 requested as the next manual checkpoint. V3c/V4L conducted SSTV and the remaining
 decoder rows remain open. The owner's later report that the test images looked
 good establishes observed image appearance, not unobserved audio/control checks.
+
+An early V4 unplug/replug overlapped serial tuning preparation and operator
+navigation to ADS-B. A later query confirmed an unintended uptime restart with
+reset reason 7; no new crash dump was retained. The five-cycle attempt was not
+scored. This [new reset observation](2026-10-26-v4-hotplug-navigation-reset.md)
+remains a release blocker; an isolated recovery retry is not a substitute for
+investigating the mixed sequence.
