@@ -119,3 +119,12 @@ the scored images. The explicit memory-reclaim command released retained LoRa,
 map and SSTV buffers. See the [V3c conducted record](2026-10-26-v3c-sstv-conducted.md).
 V4L conducted SSTV is the remaining dongle block for these modes; the other
 protocol, physical and reset gates are still open.
+
+V4L subsequently completed the same three conducted SSTV modes on COM17, with
+successful SD readbacks and reference-image comparisons. Thus the mode/image/
+storage subset is now PASS for all four dongles (12 complete frames); invalid
+source attempts remain excluded and documented. See the
+[V4L record](2026-10-26-v4l-sstv-conducted.md). The complete SSTV/application-load/
+physical gate and other protocol rows are not automatically closed. COM17 was
+left Home/IDLE with the V4L attached through the attenuated cable, Pluto muted,
+and COM39 firmware unchanged.
