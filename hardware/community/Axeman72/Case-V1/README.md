@@ -9,6 +9,8 @@ Print Settings:
 
 The Tab 5 brackets are slightly different from one another (sorry ;) ). Refer to the numbered assembly image for proper placement.
 
+![Tab 5 bracket assembly](Tab5+RTLSDR%20case%20V1.png)
+
 Screws:
 * 3x12 mm self-tapping screws: 4 needed for the Tab 5 brackets
 * 2x12 mm self-tapping screws: 4 needed for the RTL-SDR
