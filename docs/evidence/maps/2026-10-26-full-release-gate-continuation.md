@@ -69,3 +69,14 @@ current qualification evidence.
 
 Next milestone: establish the measured conducted chain, then run the same
 validated protocol sequence on each dongle, preserving explicit manual checks.
+
+## Conducted SSTV follow-up
+
+The chain was subsequently corrected, measured and connected to COM17's V5.
+Robot36, PD120 and Scottie S1 each completed and saved images that passed the
+existing reference-image limits at 40.2 dB receiver gain. Earlier 20.7 dB
+acquisition failures remain recorded. The supported-mode host regression also
+passed. Full settings, source hashes, image metrics, logs and remaining physical
+checks are in the [V5 conducted record](2026-10-26-v5-sstv-conducted.md).
+This closes these three V5 mode/image/storage checks, not the full matrix row
+across all dongles. COM17 was left IDLE and a Blog V4 swap requested with TX muted.
