@@ -17,11 +17,13 @@
 
 #include "dead_air_audio.hpp"
 #include "dead_air_clip.hpp"
+#include "dead_air_control.hpp"
 #include "dead_air_dashboard.hpp"
 #include "dead_air_journal.hpp"
 #include "dead_air_mic.hpp"
 #include "dead_air_model.hpp"
 #include "dead_air_sd_journal.hpp"
+#include "dead_air_stats.hpp"
 #include "dead_air_sweep.hpp"
 #include "orcsdr_storage.hpp"
 #include "screen_controller.hpp"
@@ -34,6 +36,8 @@ constexpr uint32_t kObserveIntervalMs = 50;     // detector cadence: persistence
 constexpr uint32_t kSettleMs = 800;             // after a retune/gain/rate change or receiver (re)start
 constexpr uint32_t kSnapshotIntervalMs = 250;   // slowest visible refresh when nothing else changed
 constexpr uint32_t kSpectrumFreshMs = 1000;
+constexpr uint32_t kHistoryMs = 500;            // one RF strip sample per 500 ms: kRfHistory of them is the last minute
+static_assert(kClipInfoSeqs >= kClipMaxTriggers, "ClipInfo must hold every event a clip can cover");
 constexpr uint32_t kWorkerStopWaitMs = 1500;
 constexpr uint32_t kMaxClipsPerSession = 40;  // about 40 MB; keeps a busy session from filling the card
 constexpr uint64_t kRingMarginSamples = 8192;  // never trust PCM this close to being overwritten by the next DSP block
@@ -96,6 +100,7 @@ struct ClipResult {
   char name[32]{};
   char sha[65]{};
   uint32_t samples = 0;
+  uint32_t pre_samples = 0;              // from the clip's start to its first trigger
   char demod[8]{};
   uint32_t frequency_hz = 0;
   bool speaker_on = false;
@@ -122,6 +127,23 @@ struct ClipChannel {
   const char* tag = "";                  // file name suffix
   std::atomic<uint32_t> saved{0}, failed{0};
   uint32_t refused_no_audio = 0, refused_busy = 0, refused_limit = 0;
+};
+
+// One event's trace (see ScrubView): index kTracePre - 1 is the sample taken when the event was logged.
+struct EventTrace {
+  uint32_t seq = 0;                       // 0 = unused
+  uint8_t post = 0;                       // samples collected after the event
+  int16_t rf[kTraceSamples]{};
+  int16_t audio[kTraceSamples]{};
+};
+
+// Journal lines other than events and clips (control result, session summary), posted by the UI task and written by the
+// SD worker, which alone owns the file.
+struct NoteQueue {
+  static constexpr uint32_t kSlots = 4;
+  char line[kSlots][320];
+  uint16_t length[kSlots]{};
+  std::atomic<uint32_t> head{0}, tail{0};
 };
 
 struct State {
@@ -182,6 +204,26 @@ struct State {
   Sweep sweep;
   uint8_t sweep_preset = 0;
   uint16_t sweep_dwell_ms = 500;
+  int16_t hist[kRfHistory]{};             // the last minute of RF level for the Overview strip, oldest first
+  uint8_t hist_mark[kRfHistory]{};
+  uint8_t hist_count = 0;
+  uint32_t hist_ms = 0, hist_seq = 0, hist_total = 0;
+  // Context around each logged event for the scrub view: a level every kTraceStepMs, kept per event.
+  EventTrace traces[kEventCapacity];      // slot = event sequence % kEventCapacity, like the event ring
+  int16_t fine_rf[kTracePre]{}, fine_audio[kTracePre]{};  // the most recent samples, oldest first
+  uint8_t fine_count = 0;
+  uint32_t fine_ms = 0;
+  uint32_t scrub_seq = 0;                 // the event whose trace the open scrub view shows (0 = none)
+  ControlRun control;                     // false-alarm check: three detectors, one per sensitivity
+  bool control_was_running = false;
+  SessionStats stats;
+  BandMapView map;                        // the last sweep's measured level per channel
+  NoteQueue notes;                        // extra journal lines (control result, session summary) for the SD worker
+  bool chime_on = false;
+  bool chime_active = false;              // the tone is playing on the replay channel
+  uint32_t chime_start_ms = 0, chime_last_ms = 0;
+  int16_t* chime_pcm = nullptr;           // PSRAM, built the first time the chime is switched on
+  uint32_t chime_samples = 0;
 };
 
 Hooks g_hooks;
@@ -296,6 +338,7 @@ void write_clip(State& s, ClipChannel& ch) {
   r.ok = true;
   r.truncated = job.truncated;
   r.samples = samples;
+  r.pre_samples = job.trigger_sample >= job.start ? static_cast<uint32_t>(job.trigger_sample - job.start) : 0u;
   std::memcpy(r.demod, t.demod, sizeof(r.demod));
   r.frequency_hz = t.frequency_hz;
   r.speaker_on = t.speaker_on;
@@ -414,8 +457,21 @@ void run_ticket(State& s, ClipChannel& ch) {
   else write_clip(s, ch);
 }
 
+// Writes the journal lines the UI task queued (control result, session summary).
+void service_notes(State& s) {
+  NoteQueue& q = s.notes;
+  for (;;) {
+    const uint32_t tail = q.tail.load(std::memory_order_relaxed);
+    if (tail == q.head.load(std::memory_order_acquire)) return;
+    const uint32_t slot = tail % NoteQueue::kSlots;
+    (void)journal_line(s, q.line[slot], q.length[slot]);
+    q.tail.store(tail + 1, std::memory_order_release);
+  }
+}
+
 // Runs whatever the UI task has handed over, for each source.
 void service_tickets(State& s) {
+  service_notes(s);
   for (ClipChannel* ch : {&s.rx, &s.mic}) {
     if (ch->mail.state.load(std::memory_order_acquire) != 1) continue;
     ch->mail.state.store(2, std::memory_order_relaxed);
@@ -506,6 +562,17 @@ void log_sweep(State& s, Kind kind, uint32_t now) {
   s.model.mark_sweep(e);
 }
 
+// The band map keeps the strongest level measured on each channel while the receiver dwelt there.
+void record_map_level(State& s, uint32_t hz, float level_dbfs) {
+  BandMapView& m = s.map;
+  if (!m.count || !m.step_hz || hz < m.start_hz) return;
+  const uint32_t index = (hz - m.start_hz) / m.step_hz;
+  if (index >= m.count) return;
+  const int16_t tenths = static_cast<int16_t>(std::clamp<long>(std::lround(level_dbfs * 10.0f), -3000, 3000));
+  if (m.level[index] == kHistGap) { m.level[index] = tenths; ++m.visited; }
+  else m.level[index] = std::max(m.level[index], tenths);
+}
+
 void stop_sweep(State& s, uint32_t now) {
   if (!s.sweep.running()) return;
   s.sweep.stop();
@@ -518,10 +585,17 @@ void stop_sweep(State& s, uint32_t now) {
 }
 
 bool start_sweep(State& s, uint32_t now) {
-  if (s.sweep.running() || !g_hooks.receiver_ready()) return false;
+  if (s.sweep.running() || s.control.running() || !g_hooks.receiver_ready()) return false;
   SweepConfig c = sweep_preset(s.sweep_preset).config;
   c.dwell_ms = s.sweep_dwell_ms;
   if (!s.sweep.start(c, g_hooks.frequency_hz(), now)) return false;
+  // A fresh band map: every channel of this sweep starts as "not measured".
+  s.map = BandMapView{};
+  s.map.start_hz = c.start_hz;
+  s.map.step_hz = c.step_hz;
+  s.map.count = static_cast<uint16_t>(std::min<uint32_t>(kBandMapChannels, (c.end_hz - c.start_hz) / c.step_hz + 1u));
+  for (size_t i = 0; i < kBandMapChannels; ++i) s.map.level[i] = kHistGap;
+  s.stats.on_sweep_start();
   log_sweep(s, Kind::sweep_start, now);
   return true;
 }
@@ -609,6 +683,9 @@ void remember_clip(State& s, const ClipChannel& ch, const ClipResult& r) {
   c.frequency_hz = r.frequency_hz;
   c.speaker_on = r.speaker_on;
   c.mic = ch.mic;
+  c.seq_count = static_cast<uint8_t>(std::min<size_t>(r.seq_count, kClipInfoSeqs));
+  std::memcpy(c.event_seqs, r.seqs, c.seq_count * sizeof(uint32_t));
+  c.pre_ds = static_cast<uint16_t>(std::min<uint64_t>(65535, static_cast<uint64_t>(r.pre_samples) * 10u / kClipSampleRate));
   s.recent_count = static_cast<uint8_t>(std::min<size_t>(kClipInfoCount, s.recent_count + 1u));
   for (size_t i = kClipInfoCount - 1; i > 0; --i) s.verify_state[i] = s.verify_state[i - 1];
   s.verify_state[0] = 0;  // the newest clip has not been re-checked
@@ -831,6 +908,8 @@ bool start_worker() {
   g_state->journal = EventJournal();
   g_state->queue.~EventQueue();  // atomics are not assignable; no worker is alive, so rebuild in place
   new (&g_state->queue) EventQueue();
+  g_state->notes.head.store(0, std::memory_order_relaxed);  // no worker is alive: nothing is reading the notes
+  g_state->notes.tail.store(0, std::memory_order_relaxed);
   w.alive.store(true, std::memory_order_release);
   set_state(w, RecorderState::starting);
   if (xTaskCreatePinnedToCoreWithCaps(worker_main, "dead_air_sd", 12288, g_state, 1, &w.task, 0,
@@ -840,6 +919,169 @@ bool start_worker() {
     return false;
   }
   return true;
+}
+
+// ---- Journal notes, event traces, chime --------------------------------------------------------------------------------
+bool post_note(State& s, const char* line, int length) {
+  if (length <= 0 || length >= static_cast<int>(sizeof(s.notes.line[0]))) return false;
+  if (s.worker.state.load(std::memory_order_acquire) != static_cast<uint8_t>(RecorderState::active)) return false;
+  NoteQueue& q = s.notes;
+  const uint32_t head = q.head.load(std::memory_order_relaxed);
+  if (head - q.tail.load(std::memory_order_acquire) >= NoteQueue::kSlots) return false;  // the worker is behind: drop it
+  const uint32_t slot = head % NoteQueue::kSlots;
+  std::memcpy(q.line[slot], line, static_cast<size_t>(length));
+  q.length[slot] = static_cast<uint16_t>(length);
+  q.head.store(head + 1, std::memory_order_release);
+  return true;
+}
+
+void post_control_note(State& s) {
+  const ControlRun& c = s.control;
+  char rate[3][16];
+  for (int i = 0; i < 3; ++i) {
+    if (c.rate_available()) std::snprintf(rate[i], sizeof(rate[i]), "%.1f", static_cast<double>(c.per_hour(static_cast<Sensitivity>(i))));
+    else std::snprintf(rate[i], sizeof(rate[i]), "null");
+  }
+  char line[320];
+  const int n = std::snprintf(line, sizeof(line),
+      "{\"v\":1,\"type\":\"control_run\",\"complete\":%s,\"duration_s\":%lu,\"observed_s\":%lu,"
+      "\"false_alarms\":{\"quiet\":%lu,\"standard\":%lu,\"sensitive\":%lu},"
+      "\"per_hour\":{\"quiet\":%s,\"standard\":%s,\"sensitive\":%s},"
+      "\"note\":\"declared by the investigator as a setup with nothing to detect; RF only; live detection was paused\"}\n",
+      c.complete() ? "true" : "false", static_cast<unsigned long>(c.duration_ms() / 1000u),
+      static_cast<unsigned long>(c.observed_ms() / 1000u), static_cast<unsigned long>(c.count(Sensitivity::quiet)),
+      static_cast<unsigned long>(c.count(Sensitivity::standard)), static_cast<unsigned long>(c.count(Sensitivity::sensitive)),
+      rate[0], rate[1], rate[2]);
+  (void)post_note(s, line, n);
+}
+
+void post_session_note(State& s, uint32_t now) {
+  const SessionSummary m = s.stats.summary(now, s.rx.saved.load(std::memory_order_relaxed) + s.mic.saved.load(std::memory_order_relaxed));
+  char hi[16], lo[16];
+  if (m.have_level) {
+    std::snprintf(hi, sizeof(hi), "%.1f", static_cast<double>(m.level_max_dbfs));
+    std::snprintf(lo, sizeof(lo), "%.1f", static_cast<double>(m.level_min_dbfs));
+  } else {
+    std::snprintf(hi, sizeof(hi), "null");
+    std::snprintf(lo, sizeof(lo), "null");
+  }
+  char line[320];
+  const int n = std::snprintf(line, sizeof(line),
+      "{\"v\":1,\"type\":\"session_summary\",\"elapsed_s\":%lu,\"measured_s\":%lu,"
+      "\"events\":{\"rf\":%lu,\"audio\":%lu,\"marks\":%lu},\"level_max_dbfs\":%s,\"level_min_dbfs\":%s,"
+      "\"longest_quiet_s\":%lu,\"channels\":%u,\"sweeps\":%lu,\"clips\":%lu}\n",
+      static_cast<unsigned long>(m.elapsed_s), static_cast<unsigned long>(m.measured_s),
+      static_cast<unsigned long>(m.events_rf), static_cast<unsigned long>(m.events_audio), static_cast<unsigned long>(m.events_marks),
+      hi, lo, static_cast<unsigned long>(m.longest_quiet_s), static_cast<unsigned>(m.channels),
+      static_cast<unsigned long>(m.sweeps), static_cast<unsigned long>(m.clips));
+  (void)post_note(s, line, n);
+}
+
+// Every kTraceStepMs: one RF and one audio sample into the short ring, and into each trace still collecting its +10 s.
+void update_traces(State& s, uint32_t now) {
+  if (now - s.fine_ms < kTraceStepMs) return;
+  s.fine_ms = now;
+  const bool rf_ok = g_hooks.receiver_ready() && s.rx_settled && s.last_level_valid && std::isfinite(s.last_level);
+  const int16_t rf = rf_ok ? static_cast<int16_t>(std::clamp<long>(std::lround(s.last_level * 10.0f), -3000, 3000)) : kHistGap;
+  const bool au_ok = s.audio_flowing && std::isfinite(s.audio_rms);
+  const int16_t au = au_ok ? static_cast<int16_t>(std::clamp<long>(std::lround(s.audio_rms * 10.0f), -3000, 3000)) : kHistGap;
+  std::memmove(s.fine_rf, s.fine_rf + 1, (kTracePre - 1) * sizeof(s.fine_rf[0]));
+  std::memmove(s.fine_audio, s.fine_audio + 1, (kTracePre - 1) * sizeof(s.fine_audio[0]));
+  s.fine_rf[kTracePre - 1] = rf;
+  s.fine_audio[kTracePre - 1] = au;
+  for (EventTrace& t : s.traces) {
+    if (!t.seq || t.post >= kTraceSamples - kTracePre) continue;
+    t.rf[kTracePre + t.post] = rf;
+    t.audio[kTracePre + t.post] = au;
+    ++t.post;
+  }
+}
+
+// An event was logged: keep the 10 s of context before it (the +10 s after fills in as it happens).
+void capture_trace(State& s, const Event& e) {
+  EventTrace& t = s.traces[e.sequence % kEventCapacity];
+  t.seq = e.sequence;
+  t.post = 0;
+  for (size_t j = 0; j < kTraceSamples; ++j) t.rf[j] = t.audio[j] = kHistGap;
+  std::memcpy(t.rf, s.fine_rf, sizeof(s.fine_rf));
+  std::memcpy(t.audio, s.fine_audio, sizeof(s.fine_audio));
+}
+
+// A short two-note ping, built once in PSRAM.
+bool build_chime(State& s) {
+  if (s.chime_pcm) return true;
+  constexpr uint32_t kNote = 4800;  // 100 ms per note at 48 kHz
+  s.chime_pcm = static_cast<int16_t*>(heap_caps_malloc(2u * kNote * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!s.chime_pcm) return false;
+  s.chime_samples = 2u * kNote;
+  for (uint32_t i = 0; i < s.chime_samples; ++i) {
+    const float hz = i < kNote ? 880.0f : 1320.0f;
+    const float within = static_cast<float>(i % kNote) / static_cast<float>(kNote);
+    const float envelope = (1.0f - within) * std::min(1.0f, static_cast<float>(i % kNote) / 120.0f);  // quick attack, linear decay
+    s.chime_pcm[i] = static_cast<int16_t>(5500.0f * envelope * std::sin(6.2831853f * hz * static_cast<float>(i) / static_cast<float>(kClipSampleRate)));
+  }
+  return true;
+}
+
+void end_chime(State& s) {
+  if (!s.chime_active) return;
+  if (g_hooks.replay_stop) g_hooks.replay_stop();
+  g_replaying.store(false, std::memory_order_release);
+  s.chime_active = false;
+  if (s.mic.enabled) s.mic_restart_due_ms = (millis() + 300u) | 1u;  // playback leaves the shared I2S input stuck, as after a replay
+}
+
+// Plays the ping when the owner switched the chime on, the speaker is not muted, and nothing else is using the speaker.
+void play_chime(State& s, uint32_t now) {
+  if (!s.chime_on || s.chime_active || s.replay_state != 0 || !g_hooks.replay_begin || !s.chime_pcm) return;
+  if (!(g_hooks.sound_enabled && g_hooks.sound_enabled())) return;
+  if (s.chime_last_ms && now - s.chime_last_ms < 3000) return;  // one ping per few seconds, however busy the band is
+  s.chime_last_ms = now;
+  g_replaying.store(true, std::memory_order_release);  // the radio's audio and the mic stand down first
+  if (g_hooks.replay_begin(s.chime_pcm, s.chime_samples)) {
+    s.chime_active = true;
+    s.chime_start_ms = now;
+  } else {
+    g_replaying.store(false, std::memory_order_release);
+  }
+}
+
+// Overview RF strip: one sample every kHistoryMs, and a mark on the newest sample for each event logged since. A moment
+// with no settled, valid level is a gap, so the strip never draws a line across a retune, a sweep or a lost receiver.
+void update_history(State& s, uint32_t now) {
+  if (now - s.hist_ms >= kHistoryMs) {
+    s.hist_ms = now;
+    if (s.hist_count == kRfHistory) {
+      std::memmove(s.hist, s.hist + 1, (kRfHistory - 1) * sizeof(s.hist[0]));
+      std::memmove(s.hist_mark, s.hist_mark + 1, kRfHistory - 1);
+      --s.hist_count;
+    }
+    const bool valid = g_hooks.receiver_ready() && s.rx_settled && s.last_level_valid && std::isfinite(s.last_level);
+    const long tenths = valid ? std::lround(s.last_level * 10.0f) : 0;
+    s.hist[s.hist_count] = valid ? static_cast<int16_t>(std::clamp<long>(tenths, -3000, 3000)) : kHistGap;
+    s.hist_mark[s.hist_count] = static_cast<uint8_t>(HistMark::none);
+    ++s.hist_count;
+    ++s.hist_seq;
+  }
+  update_traces(s, now);
+  const uint32_t total = s.model.total();
+  if (total != s.hist_total) {
+    const size_t fresh = std::min<size_t>(total - s.hist_total, s.model.count());
+    for (size_t i = fresh; i-- > 0;) {  // oldest first, so the newest event's mark wins
+      const Event* e = s.model.newest(i);
+      if (!e) continue;
+      s.stats.on_event(*e);
+      if (e->source != Source::sweep) capture_trace(s, *e);
+      dead_air::fx_event(*e, now);  // the orb bursts for RF, audio and marks; sweep records are ignored there
+      if (e->kind == Kind::rf_rise || e->kind == Kind::audio_burst) play_chime(s, now);
+      HistMark mark = HistMark::none;
+      if (e->kind == Kind::rf_rise) mark = HistMark::rf_rise;
+      else if (e->kind == Kind::audio_burst) mark = HistMark::audio_burst;
+      else if (e->kind == Kind::manual_marker) mark = HistMark::manual;
+      if (mark != HistMark::none && s.hist_count) s.hist_mark[s.hist_count - 1] = static_cast<uint8_t>(mark);
+    }
+    s.hist_total = total;
+  }
 }
 
 void build_snapshot(uint32_t now) {
@@ -856,7 +1098,45 @@ void build_snapshot(uint32_t now) {
   n.unix_time = g_hooks.utc_epoch ? g_hooks.utc_epoch() : 0;
   n.session_elapsed_s = (now - s.opened_ms) / 1000u;
   n.recording = false;     // audio/IQ recording is not implemented
-  n.scanning = false;      // no sweep exists; one tuned channel
+  n.scanning = false;      // unused; sweep state is in `sweeping` below
+  std::memcpy(n.rf_history, s.hist, sizeof(n.rf_history));
+  std::memcpy(n.rf_history_event, s.hist_mark, sizeof(n.rf_history_event));
+  n.rf_history_count = s.hist_count;
+  n.rf_history_seq = s.hist_seq;
+  n.summary = s.stats.summary(now, s.rx.saved.load(std::memory_order_relaxed) + s.mic.saved.load(std::memory_order_relaxed));
+  n.chime_on = s.chime_on;
+  n.map = s.map;
+  ControlView& cv = n.control;
+  cv = ControlView{};
+  cv.state = s.control.running() ? 1 : s.control.has_result() ? (s.control.complete() ? 2 : 3) : 0;
+  cv.duration_s = s.control.duration_ms() / 1000u;
+  cv.elapsed_s = s.control.elapsed_ms(now) / 1000u;
+  cv.observed_s = s.control.observed_ms() / 1000u;
+  cv.rate_ok = s.control.rate_available();
+  for (int i = 0; i < 3; ++i) {
+    cv.count[i] = s.control.count(static_cast<Sensitivity>(i));
+    cv.per_hour[i] = s.control.per_hour(static_cast<Sensitivity>(i));
+  }
+  ScrubView& sv = n.scrub;
+  sv = ScrubView{};
+  if (s.scrub_seq && dead_air::overlay() == Overlay::scrub) {
+    sv.seq = s.scrub_seq;
+    const EventTrace& t = s.traces[s.scrub_seq % kEventCapacity];
+    if (t.seq == s.scrub_seq) {
+      sv.found = true;
+      sv.post_filled = t.post;
+      std::memcpy(sv.rf, t.rf, sizeof(sv.rf));
+      std::memcpy(sv.audio, t.audio, sizeof(sv.audio));
+      // While this event's clip plays, say where in the event it is. The clip is anchored to its first event only.
+      if (s.replay_state == 2) {
+        const int i = find_recent(s, s.op_name);
+        if (i >= 0 && s.recent[i].seq_count > 0 && s.recent[i].event_seqs[0] == s.scrub_seq) {
+          sv.cursor_valid = true;
+          sv.cursor_ms = static_cast<int32_t>(now - s.replay_started_ms) - static_cast<int32_t>(s.recent[i].pre_ds) * 100;
+        }
+      }
+    }
+  }
   // Audio is only available while demodulated audio is actually flowing (speaker on, or the Audio tab open).
   n.audio_available = s.audio_flowing;
   n.audio_level_dbfs = {};
@@ -920,10 +1200,29 @@ void build_snapshot(uint32_t now) {
 
 // Structural changes that need the page recomposed.
 bool visibly_changed(const Snapshot& a, const Snapshot& b) {
-  return a.receiver_ready != b.receiver_ready || a.receiver_settled != b.receiver_settled ||
+  switch (dead_air::overlay()) {  // what an open overlay shows moves on its own clock
+    case Overlay::control:
+      if (a.control.elapsed_s != b.control.elapsed_s || a.control.observed_s != b.control.observed_s) return true;
+      break;
+    case Overlay::session:
+      if (a.summary.elapsed_s != b.summary.elapsed_s || a.summary.events_rf != b.summary.events_rf ||
+          a.summary.events_audio != b.summary.events_audio || a.summary.events_marks != b.summary.events_marks ||
+          a.summary.clips != b.summary.clips || a.summary.channels != b.summary.channels) return true;
+      break;
+    case Overlay::scrub:
+      if (a.scrub.found != b.scrub.found || a.scrub.post_filled != b.scrub.post_filled ||
+          a.scrub.cursor_valid != b.scrub.cursor_valid || a.scrub.cursor_ms / 100 != b.scrub.cursor_ms / 100) return true;
+      break;
+    default: break;
+  }
+  return a.chime_on != b.chime_on || a.map.visited != b.map.visited || a.map.count != b.map.count ||
+         a.control.state != b.control.state || a.control.count[0] != b.control.count[0] ||
+         a.control.count[1] != b.control.count[1] || a.control.count[2] != b.control.count[2] ||
+         a.receiver_ready != b.receiver_ready || a.receiver_settled != b.receiver_settled ||
          a.frequency_hz != b.frequency_hz || a.sound_enabled != b.sound_enabled ||
          a.battery_percent != b.battery_percent ||
          (a.session_elapsed_s != b.session_elapsed_s && dead_air::page() == Page::overview) ||
+         (a.rf_history_seq != b.rf_history_seq && dead_air::page() == Page::overview) ||
          a.recorder_state != b.recorder_state || a.recorder_saved != b.recorder_saved ||
          a.recorder_missing != b.recorder_missing || a.recorder_dropped != b.recorder_dropped ||
          a.recorder_session != b.recorder_session || a.rf_level_dbfs.valid != b.rf_level_dbfs.valid ||
@@ -1000,6 +1299,21 @@ void open() {
   s.audio_flowing = false;
   s.last_audio_ms = 0;
   s.last_level_refresh_ms = 0;
+  std::memset(s.hist, 0, sizeof(s.hist));
+  std::memset(s.hist_mark, 0, sizeof(s.hist_mark));
+  s.hist_count = 0;
+  s.hist_ms = s.hist_seq = s.hist_total = 0;
+  for (EventTrace& t : s.traces) t.seq = 0;
+  for (size_t i = 0; i < kTracePre; ++i) s.fine_rf[i] = s.fine_audio[i] = kHistGap;
+  s.fine_ms = 0;
+  s.scrub_seq = 0;
+  s.control.reset();
+  s.control_was_running = false;
+  s.stats.reset(now);
+  s.map = BandMapView{};
+  s.chime_on = false;  // the chime is off at every session start; only a tap turns it on
+  s.chime_active = false;
+  s.chime_last_ms = 0;
   (void)start_worker();
   if (g_hooks.set_demod) g_hooks.set_demod(0);  // NFM, the browse band's own demodulator
   build_snapshot(now);
@@ -1027,6 +1341,13 @@ void close() {
   mic_stop(*g_state, "session_closed");            // the microphone never outlives the screen
   g_audio_wanted.store(false, std::memory_order_relaxed);
   stop_sweep(*g_state, millis());  // logs the stop and puts the receiver back before the journal closes
+  end_chime(*g_state);
+  if (g_state->control.running()) {  // a run cut short by leaving still records what it measured
+    g_state->control.stop(millis());
+    g_state->control_was_running = false;
+    post_control_note(*g_state);
+  }
+  post_session_note(*g_state, millis());  // the worker writes it before it closes the file
   dead_air::leave();
   g_state->model.set_listener(nullptr, nullptr);
   if (g_hooks.release_demod) g_hooks.release_demod();
@@ -1081,8 +1402,28 @@ void tick() {
     if (obs.valid) { s.last_level = level; s.last_level_valid = obs.settled; }
     else if (!fresh && ready) { /* between blocks: keep the last settled level */ }
     else s.last_level_valid = false;
-    s.model.observe_rf(obs);
+    if (s.control.running()) {
+      // A control run feeds the same sample to three detectors and pauses the live one, so its counts never mix with findings.
+      s.control.observe(obs);
+      RfObservation paused = obs;
+      paused.valid = false;
+      s.model.observe_rf(paused);
+    } else {
+      s.model.observe_rf(obs);
+    }
+    s.stats.on_level(now, obs.valid && obs.settled, level);
+    if (ready) s.stats.on_frequency(g_hooks.frequency_hz());
+    if (s.sweep.running() && obs.valid && ready && g_hooks.frequency_hz() == s.sweep.current_hz() &&
+        static_cast<int32_t>(now - s.settle_until_ms) >= 0 && std::isfinite(level)) {
+      record_map_level(s, s.sweep.current_hz(), level);  // the level while the receiver dwells on this channel
+    }
   }
+  s.control.tick(now);
+  if (s.control_was_running && !s.control.running()) {  // the run just ended (time up or stopped): record the result
+    s.control_was_running = false;
+    post_control_note(s);
+  }
+  update_history(s, now);
   // Audio level buckets from the DSP thread: update the envelope and run the activity detector.
   bool audio_changed = false;
   float fresh_bars[8];
@@ -1114,7 +1455,7 @@ void tick() {
       audio_changed = true;
       AudioFinding f;
       // Not while a sweep is hopping: every hop is a different channel.
-      if (s.rx_settled && !s.sweep.running() &&
+      if (s.rx_settled && !s.sweep.running() && !s.control.running() &&
           s.audio_detector.observe(b, now, s.config_revision, s.model.sensitivity(), &f)) {
         Event e{};
         e.monotonic_ms = now;
@@ -1126,7 +1467,7 @@ void tick() {
         e.reference = f.baseline_dbfs;
         e.threshold = f.threshold_db;
         (void)s.model.append_measured(e);
-      } else if (!s.rx_settled || s.sweep.running()) {
+      } else if (!s.rx_settled || s.sweep.running() || s.control.running()) {
         s.audio_detector.reset();
       }
     }
@@ -1162,6 +1503,19 @@ void tick() {
     }
   }
   if (s.replay_state == 2 && g_hooks.replay_playing && now - s.replay_started_ms > 300 && !g_hooks.replay_playing()) end_replay(s, true);
+  if (s.chime_active && now - s.chime_start_ms > 300 && g_hooks.replay_playing && !g_hooks.replay_playing()) end_chime(s);
+  {
+    // The orb: its idle glow follows how close the live level is to the event limit; events burst it (see update_history).
+    const bool live = ready && s.rx_settled && s.last_level_valid;
+    float proximity = 0.0f;
+    if (live && s.model.baseline_ready()) {
+      proximity = std::clamp((s.last_level - s.model.rf_baseline_dbfs()) / rf_rise_threshold_db(s.model.sensitivity()), 0.0f, 1.0f);
+    } else if (live) {
+      proximity = 0.1f;  // still learning the baseline
+    }
+    dead_air::fx_idle(live, proximity);
+    (void)dead_air::draw_fx(now);
+  }
   if (s.log_pending && s.rx.mail.state.load(std::memory_order_acquire) == 0) {
     ClipTicket t{};
     t.log_play = true;
@@ -1260,6 +1614,43 @@ void touch(int32_t x, int32_t y) {
         if (g_hooks.tune) g_hooks.tune(g_hooks.frequency_hz());  // restart the stream cleanly in the new mode
       }
       break;
+    case ActionKind::tune_to:
+      if (g_state->sweep.running()) break;
+      if (g_hooks.tune && g_hooks.receiver_ready() && action.value > 0) g_hooks.tune(static_cast<uint32_t>(action.value));
+      break;
+    case ActionKind::scrub_open: g_state->scrub_seq = static_cast<uint32_t>(action.value); break;
+    case ActionKind::scrub_close: g_state->scrub_seq = 0; break;
+    case ActionKind::play_event_clip: {
+      // The clip that covers the event (a radio clip is preferred to a microphone one): choose it, then play it as usual,
+      // which re-checks its hash first.
+      State& s = *g_state;
+      int pick = -1;
+      for (uint8_t i = 0; i < s.recent_count && pick < 0; ++i) {
+        for (uint8_t k = 0; k < s.recent[i].seq_count; ++k)
+          if (s.recent[i].event_seqs[k] == static_cast<uint32_t>(action.value) && !s.recent[i].mic) { pick = i; break; }
+      }
+      for (uint8_t i = 0; i < s.recent_count && pick < 0; ++i) {
+        for (uint8_t k = 0; k < s.recent[i].seq_count; ++k)
+          if (s.recent[i].event_seqs[k] == static_cast<uint32_t>(action.value)) { pick = i; break; }
+      }
+      if (pick >= 0) {
+        s.selected = static_cast<uint8_t>(pick);
+        s.pinned = pick != 0;
+        request_play(s);
+      }
+      break;
+    }
+    case ActionKind::control_start:
+      if (!g_state->control.running() && !g_state->sweep.running() && g_hooks.receiver_ready()) {
+        g_state->control.start(millis());
+        g_state->control_was_running = true;
+      }
+      break;
+    case ActionKind::control_stop: g_state->control.stop(millis()); break;  // tick() records the result
+    case ActionKind::toggle_chime:
+      if (g_state->chime_on) { g_state->chime_on = false; end_chime(*g_state); }
+      else g_state->chime_on = build_chime(*g_state);
+      break;
     case ActionKind::tune_up:
     case ActionKind::tune_down:
       if (g_state->sweep.running()) break;
@@ -1267,7 +1658,7 @@ void touch(int32_t x, int32_t y) {
         g_hooks.tune(g_hooks.step_frequency(g_hooks.frequency_hz(), action.value > 0 ? 1 : -1));
       }
       break;
-    default: break;  // recording and clip actions are not implemented and have no buttons
+    default: break;  // start/stop recording, save clip and export have no buttons yet
   }
 }
 

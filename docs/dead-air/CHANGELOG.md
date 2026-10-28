@@ -2,6 +2,43 @@
 
 Changes to the Dead Air dashboard. Newest first. The design contract and the development handoff are in `DEVELOPMENT_HANDOFF.md`.
 
+## Unreleased - Overview RF strip, tappable Events, scrub, control run, band map, orb, session card
+
+Branch `claude/dead-air-dashboard-review-8c2b12`. Host tests and the native ESP-IDF build only so far; not flashed, so none of it has been seen on the panel.
+
+### Added (second batch: making it worth watching)
+
+- **The orb:** a small animated cue on the Overview (120 px) and in the header of every tab (52 px). Idle, it breathes and brightens with how close the live RF level is to the event limit (dim and still when nothing is measured). When an event is logged it bursts: rings and sparks whose number scales with the measured rise in dB, in red (RF), orange (audio) or violet (a mark you made). It is a cue that a logged measurement happened, never a claim about its cause. Drawn from PSRAM sprites at about 15 frames a second during a burst.
+- **Scrub:** SCRUB in the Events detail shows 10 s before to 10 s after the event, RF and audio, sampled every 0.25 s, with the baseline and limit lines, a movable cursor with a readout, and PLAY CLIP: the clip is hash-checked, played, and a cursor follows it (only for the event the clip is anchored to, its first). Traces are kept for the 48 events in memory (about 16 KB of PSRAM).
+- **Control run:** CONTROL RUN on the Events tab runs the same RF detector on all three sensitivities for five minutes on a setup you declare to be empty (antenna removed, dummy load), and reports false alarms and false alarms per hour for each. Automatic detection pauses during the run; gaps do not count as measured time; a rate is shown only after a minute of measurement. The result is written to the journal as a `control_run` record.
+- **Band map:** a sweep records the peak level on every channel it dwells on and shows it as bars where the waterfall would be (LIVE / MAP chip to switch). Unmeasured channels are dashes; tapping a bar tunes to that channel.
+- **Spectrum:** a peak marker and readout (the tuner's centre spike is skipped), and tap-to-tune on the trace or waterfall (nearest kHz).
+- **Band plan:** the Events detail and the scrub view name the typical allocation at the event frequency ("FM broadcast (typical)"). Allocations differ by country; a frequency with no listed allocation says so.
+- **Session card:** SESSION on the Overview lists elapsed and measured time, events by kind, findings per hour (after 10 minutes), loudest and quietest RF level, longest quiet stretch, channels tuned, sweeps and clips. A `session_summary` record is written to the journal when the screen is left.
+- **Chime:** off at every session start; when switched on (Events tab) a short two-note ping plays for a logged RF or audio event, at most one every 3 seconds, only with the speaker unmuted and nothing else using it. It uses the replay speaker channel, so the microphone is paused and restarted as after a replay.
+- New journal record types `control_run` and `session_summary`; existing records are unchanged.
+- New pure modules with host tests: `dead_air_bandplan`, `dead_air_control`, `dead_air_fx`, `dead_air_stats`.
+
+### Added (first batch)
+
+- **Overview RF strip:** the last minute of the measured RF level (one sample per 500 ms), with the baseline (green dashes) and the event limit (yellow dashes) drawn once a baseline exists, and a coloured tick for each RF, audio or mark event.
+  A moment with no settled, valid level (retune, sweep, lost receiver) is a gap and the line breaks there; nothing is interpolated. With no data it says "NO LIVE RF LEVEL" or "WAITING FOR A SETTLED LEVEL", and "BASELINE WARMING" before the lines can be drawn.
+- **Events tab:** tap a row for that event's time, level, baseline, rise and limit (or the sweep or mark details), and its clip. VIEW CLIP opens the covering clip on Review. NEWER / OLDER page through all 48 events kept in memory; a page you scrolled back to keeps its place as new events arrive.
+  The list shows 5 rows per page (was 7) to make room for the detail box.
+- Clips now record which events they cover (`ClipInfo::event_seqs`), which is what lets an event find its clip.
+
+### Fixed
+
+- Sensitivity names agree everywhere: QUIET / STANDARD / SENSITIVE (the Events buttons said QUIET / NORMAL / HIGH).
+- Removed stale text: "Clip replay: not implemented" on the Audio tab, and "Single channel, not a sweep" beside the sweep controls.
+
+### Tests
+
+- Host suites for the new features: `dead_air_bandplan_tests`, `dead_air_control_tests` (counts per sensitivity, gaps, early stop), `dead_air_fx_tests`, `dead_air_stats_tests`; the renderer suite covers the orb (bounds, throttling, header-only on other tabs), the session, control and scrub overlays (including that nothing under an overlay answers a tap), the peak readout, tap-to-tune and the band map.
+- Not covered by any test: the SD worker writing the new journal records, the chime reaching the speaker, trace collection on a live receiver, and how the orb and header beacon look and perform on the panel. These need the Tab5.
+- `dead_air_render_tests`: strip with gaps, ticks, dashes, warming and empty states, repeated samples without a whole-screen clear; Events selection, paging, page stability under new events, and VIEW CLIP. `dead_air_format_tests`: strip scale and row mapping.
+- The host display stand-in has no pixel buffer, so every refresh takes the whole-body path there. Partial-push behaviour of the new content is not covered by a host test and needs the panel.
+
 ## 2026-10-22 - Dead Air dashboard merged into main (PR #203, merge commit `75353cec`)
 
 Dead Air is a logbook of what the receiver measured. It does not detect ghosts, spirits or entities, and it shows no data it did not measure; interpretation is labelled separately from measurement.

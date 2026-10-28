@@ -116,7 +116,15 @@ Connected to real data:
   stack in PSRAM) -> `SdJournalSink`/`EventJournal`. Health (state, session, saved, lost, dropped) is shown
   on Overview and Review. The worker closes and syncs the file when the screen is left.
 
-Still NOT connected: demodulated-audio level/envelope (Audio tab shows unavailable), ENV III sensor
-(Environment tab shows unavailable), audio/IQ clip recording and replay, device-motion reading, waterfall.
+Since this section was written (see `CHANGELOG.md` for the details): the Spectrum waterfall, the Audio tab's
+level meter and detector, receiver and microphone clips with hash check and replay, and the sweep controls are
+connected. The Overview shows a one-minute RF strip, the orb and a session card; the Events tab is tappable (detail with
+band-plan context, paging, VIEW CLIP, SCRUB, CONTROL RUN, CHIME); sweeps fill a band map; the Spectrum tab has a peak
+readout and tap-to-tune. Per-event traces, the control run and the session counters live in the app glue
+(`dead_air_app.cpp`) and are handed to the dashboard through `Snapshot`.
+
+Still NOT connected: ENV III sensor (Environment tab shows unavailable), device-motion reading (`motion_g` is never
+filled), continuous audio/IQ recording, session export. `ActionKind::start_recording`, `stop_recording`,
+`save_clip` and `export_session` exist but have no buttons.
 
 Serial: `RTL_UI_OPEN DEAD_AIR`, `RTL_DEAD_AIR STATUS`.

@@ -14,6 +14,10 @@ on:
       - 'tests/dead_air_clip_tests.cpp'
       - 'tests/dead_air_format_tests.cpp'
       - 'tests/dead_air_info_tests.cpp'
+      - 'tests/dead_air_bandplan_tests.cpp'
+      - 'tests/dead_air_control_tests.cpp'
+      - 'tests/dead_air_fx_tests.cpp'
+      - 'tests/dead_air_stats_tests.cpp'
       - 'tests/dead_air_journal_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
   pull_request:
@@ -28,6 +32,10 @@ on:
       - 'tests/dead_air_clip_tests.cpp'
       - 'tests/dead_air_format_tests.cpp'
       - 'tests/dead_air_info_tests.cpp'
+      - 'tests/dead_air_bandplan_tests.cpp'
+      - 'tests/dead_air_control_tests.cpp'
+      - 'tests/dead_air_fx_tests.cpp'
+      - 'tests/dead_air_stats_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
 permissions:
   contents: read
@@ -69,6 +77,8 @@ jobs:
             apps/orcsdr-tab5/ui/dead_air_info.cpp \
             apps/orcsdr-tab5/ui/acars_dirty_rects.cpp \
             apps/orcsdr-tab5/ui/dead_air_model.cpp \
+            apps/orcsdr-tab5/ui/dead_air_bandplan.cpp \
+            apps/orcsdr-tab5/ui/dead_air_fx.cpp \
             apps/orcsdr-tab5/ui/screen_controller.cpp \
             -o /tmp/dead-air-render-tests
       - name: Execute M5GFX render bounds and touch tests
@@ -138,3 +148,41 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -Werror             -Iapps/orcsdr-tab5/ui             tests/dead_air_info_tests.cpp             apps/orcsdr-tab5/ui/dead_air_info.cpp             -o /tmp/dead-air-info-tests
       - name: Execute popup text tests
         run: /tmp/dead-air-info-tests
+      - name: Compile band plan with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_bandplan_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_bandplan.cpp \
+            -o /tmp/dead-air-bandplan-tests
+      - name: Execute band plan tests
+        run: /tmp/dead-air-bandplan-tests
+      - name: Compile control run with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_control_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_control.cpp \
+            apps/orcsdr-tab5/ui/dead_air_model.cpp \
+            -o /tmp/dead-air-control-tests
+      - name: Execute control run tests
+        run: /tmp/dead-air-control-tests
+      - name: Compile orb animation with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_fx_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_fx.cpp \
+            -o /tmp/dead-air-fx-tests
+      - name: Execute orb animation tests
+        run: /tmp/dead-air-fx-tests
+      - name: Compile session stats with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_stats_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_stats.cpp \
+            apps/orcsdr-tab5/ui/dead_air_model.cpp \
+            -o /tmp/dead-air-stats-tests
+      - name: Execute session stats tests
+        run: /tmp/dead-air-stats-tests
