@@ -3,6 +3,11 @@
 This file tracks ACARS dashboard and decoder changes. The repository has no repository-wide CHANGELOG.md.
 
 ## 2026-10-29 (later) - Live VDL2 captures and two new formats
+
+## 2026-10-29 (evening) - Review of the overnight run, `#DFB` sample blocks and label 33
+- Overnight run: unit up 6.75 h, 712 messages counted, 1063 verified frames, no gaps or drops, decoder 28.2 ms average and 143 ms worst per 65 ms block. Only the last 300 blocks (13:31-14:21Z) survive: the SD archive is a 300-block ring and the screen holds 48, so the earlier part of the night is lost (counters only).
+- Interpreter: Southwest `#DFB` header block (type, date, flight, route) and sample blocks (time, altitude, speed, Mach), and label 33 position reports. Host tests pass under ASan/UBSan.
+- Cross-check with OpenSky (authenticated, credentials kept outside the repository): WN0436 N926WN left KEUG (OpenSky firstSeen 13:28:28Z); the `M1BPRG` report at 13:35:06Z, N44 06.0 W122 36.2, is 0.2 nm from OpenSky's 13:35:06Z position (44.1011, -122.5991). Our `#DFB` altitudes run ahead of OpenSky's coarsely sampled track by about 15 s of climb (about 800 ft). QX2452 (label 33) could not be matched: OpenSky had not yet listed that flight.
 - First live VDL2 traffic on the Tab5 (SkyWest N244SY on OO137C, Delta N338DU on DL0661): 18 CRC-valid AVLC frames, 10 ACARS, no drops.
 - Interpreter: label 32 position reports (date, time, position; altitude marked probable; other values as received) and `H1 #CFB FDE`
   flight-deck-effect lists (report time and date, entries as received). Captures, screenshots and the cross-check against FAA,

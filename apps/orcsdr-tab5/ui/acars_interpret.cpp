@@ -542,6 +542,73 @@ const char* phase_name(const char* ph) {
   return nullptr;
 }
 
+// Southwest-style #DFB reports (B737, 2026-10-29, one departure from KEUG): the first block of a report carries
+//   "05201,0926,B737-700,261029,WN0436,KEUG,KDEN,2341,..."  (aircraft type, yymmdd, flight, origin, destination)
+// and the later blocks (one every two seconds in the climb) carry zero padding and then
+//   "13.30.19,04172,217.2,.354,-3.37,..."  (time, altitude, speed, Mach)
+// The altitude, speed and Mach were checked against each other with the standard atmosphere: 289.0 kt calibrated at 11886 ft gives
+// Mach 0.540, the value printed; six samples agree to 0.001. The other numbers are not named.
+bool dfdau_sw_header(const Text& t, size_t at, Interpretation& r) {
+  struct F { const char* s; size_t n; } f[24];
+  size_t nf = 0, start = at;
+  for (size_t i = at; i <= t.n && nf < 24; ++i) {
+    if (i == t.n || t.at(i) == ',') {
+      f[nf++] = {t.p + start, i - start};
+      start = i + 1;
+    }
+  }
+  for (size_t k = 1; k + 3 < nf; ++k) {
+    if (f[k].n != 6 || !all_digits(f[k].s, 6)) continue;
+    const unsigned yy = dec(f[k].s, 2), mo = dec(f[k].s + 2, 2), dd = dec(f[k].s + 4, 2);
+    if (mo < 1 || mo > 12 || dd < 1 || dd > 31) continue;
+    if (f[k + 1].n < 3 || f[k + 1].n > 7 || !is_upper(f[k + 1].s[0])) continue;
+    if (f[k + 2].n != 4 || f[k + 3].n != 4) continue;
+    bool icao = true;
+    for (int q = 0; q < 4; ++q) icao = icao && is_upper(f[k + 2].s[q]) && is_upper(f[k + 3].s[q]);
+    if (!icao || f[k - 1].n < 3 || f[k - 1].n > 9 || !is_upper(f[k - 1].s[0])) continue;
+    add_line(r, "Report header: %.*s  flight %.*s  %.4s to %.4s  20%02u-%02u-%02u", static_cast<int>(f[k - 1].n), f[k - 1].s,
+             static_cast<int>(f[k + 1].n), f[k + 1].s, f[k + 2].s, f[k + 3].s, yy, mo, dd);
+    set_summary(r, "%.4s to %.4s %.*s", f[k + 2].s, f[k + 3].s, static_cast<int>(f[k - 1].n), f[k - 1].s);
+    return true;
+  }
+  return false;
+}
+
+bool dfdau_sw_samples(const Text& t, size_t at, Interpretation& r) {
+  unsigned count = 0;
+  char hms[7] = "";
+  unsigned alt = 0;
+  char cas[8] = "", mach[8] = "";
+  for (size_t i = at; i + 24 < t.n; ++i) {
+    if (!(all_digits(t.p + i, 2) && t.at(i + 2) == '.' && all_digits(t.p + i + 3, 2) && t.at(i + 5) == '.' && all_digits(t.p + i + 6, 2) &&
+          t.at(i + 8) == ',' && all_digits(t.p + i + 9, 5) && t.at(i + 14) == ','))
+      continue;
+    char h[7] = {t.at(i), t.at(i + 1), t.at(i + 3), t.at(i + 4), t.at(i + 6), t.at(i + 7), '\0'};
+    if (!valid_hms(h)) continue;
+    size_t p = i + 15;
+    const size_t cs = p;
+    while (is_digit(t.at(p))) ++p;
+    if (p - cs < 2 || p - cs > 3 || t.at(p) != '.' || !is_digit(t.at(p + 1)) || t.at(p + 2) != ',') continue;
+    const size_t cl = p + 2 - cs;
+    const size_t ms = p + 3;
+    if (!(t.at(ms) == '.' && all_digits(t.p + ms + 1, 3))) continue;
+    std::memcpy(hms, h, 7);
+    alt = dec(t.p + i + 9, 5);
+    std::snprintf(cas, sizeof(cas), "%.*s", static_cast<int>(cl), t.p + cs);
+    std::snprintf(mach, sizeof(mach), "%.4s", t.p + ms);
+    ++count;
+    i = ms + 3;
+  }
+  if (count == 0) return false;
+  char when[12], alt_s[16];
+  fmt_hms(when, sizeof(when), hms);
+  fmt_alt_ft(alt_s, sizeof(alt_s), alt);
+  set_headline(r, "FLIGHT DATA UNIT SAMPLES");
+  add_line(r, "%u sample%s; latest %s  altitude %s  speed %s kt  Mach 0%s", count, count == 1 ? "" : "s", when, alt_s, cas, mach);
+  set_summary(r, "%s %s kt M0%s %s", alt_s, cas, mach, when);
+  return true;
+}
+
 bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
   // `at` is the first character of the free text after "#DFB".
   size_t b = at;
@@ -640,6 +707,8 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
     set_summary(r, "%u fix%s %s %s %s %dC", count, count == 1 ? "" : "es", lat, lon, alt, last.temp);
     any = true;
   }
+  if (dfdau_sw_header(t, at, r)) any = true;
+  if (dfdau_sw_samples(t, at, r)) any = true;
   if (!any) {
     add_line(r, "Data block from the flight data recorder unit. Layout not decoded yet; raw text is shown above.");
     set_summary(r, "Flight data unit block");
@@ -700,6 +769,58 @@ bool interpret_label32(const Text& t, Interpretation& r) {
     if (used + f[k].n + 2 >= sizeof(rest) - 29) break;
     used += static_cast<size_t>(std::snprintf(rest + used, sizeof(rest) - used, " %.*s", static_cast<int>(f[k].n), f[k].s));
   }
+  add_line(r, "Other values, not published: %s", rest);
+  set_summary(r, "Position %s %s %s", lat_s, lon_s, when);
+  return true;
+}
+
+// Label 33 position report seen from one regional carrier (two samples a minute apart, climbing out of cruise, 2026-10-29):
+//   "M30AQX245227,B,29OCT26,133601,+44.219,-122.470,30006,7808,KMFR,KSEA,..."
+// Date, time and position describe themselves; the second fix is 7.9 nm north of the first after 59 s (about 484 kt), which fits an
+// E175 at FL300 flying from KMFR to KSEA. The altitude field is shown as probable, as for label 32. The two numbers before the
+// airports ("27" and "B" at the start, 7808 after the altitude) are not documented and are shown as received.
+bool interpret_label33(const Text& t, Interpretation& r) {
+  struct F { const char* s; size_t n; } f[16];
+  size_t nf = 0, start = 10;
+  for (size_t i = 10; i <= t.n && nf < 16; ++i) {
+    if (i == t.n || t.at(i) == ',') {
+      f[nf++] = {t.p + start, i - start};
+      start = i + 1;
+    }
+  }
+  if (nf < 8 || f[2].n != 7 || f[3].n != 6 || !all_digits(f[2].s, 2) || !all_digits(f[2].s + 5, 2) || !all_digits(f[3].s, 6)) return false;
+  static const char* kMonths[12] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+  unsigned month = 0;
+  for (unsigned m = 0; m < 12; ++m)
+    if (std::memcmp(f[2].s + 2, kMonths[m], 3) == 0) month = m + 1;
+  const unsigned day = dec(f[2].s, 2), yy = dec(f[2].s + 5, 2);
+  if (month == 0 || day < 1 || day > 31 || !valid_hms(f[3].s)) return false;
+  unsigned lat = 0, lon = 0;
+  bool lat_neg = false, lon_neg = false;
+  if (f[4].n < 5 || (f[4].s[0] != '+' && f[4].s[0] != '-') || f[5].n < 5 || (f[5].s[0] != '+' && f[5].s[0] != '-')) return false;
+  if (!parse_decimal(f[4].s + 1, f[4].n - 1, &lat, &lat_neg) || lat_neg || lat > 90000u) return false;
+  if (!parse_decimal(f[5].s + 1, f[5].n - 1, &lon, &lon_neg) || lon_neg || lon > 180000u) return false;
+  char lat_s[16], lon_s[16], when[12], hms[7];
+  std::memcpy(hms, f[3].s, 6);
+  hms[6] = '\0';
+  fmt_coord(lat_s, sizeof(lat_s), f[4].s[0] == '-' ? 'S' : 'N', lat);
+  fmt_coord(lon_s, sizeof(lon_s), f[5].s[0] == '-' ? 'W' : 'E', lon);
+  fmt_hms(when, sizeof(when), hms);
+  set_headline(r, "POSITION REPORT");
+  add_line(r, "Position %s %s   Reported 20%02u-%02u-%02u %s", lat_s, lon_s, yy, month, day, when);
+  const bool have_alt = f[6].n >= 1 && f[6].n <= 5 && all_digits(f[6].s, f[6].n);
+  const bool have_route = nf >= 10 && f[8].n == 4 && f[9].n >= 4 && is_upper(f[8].s[0]) && is_upper(f[9].s[0]);
+  if (have_alt || have_route) {
+    char line[kInterpLineChars];
+    int k = 0;
+    if (have_alt) k += std::snprintf(line, sizeof(line), "Altitude %.*s ft (probable)", static_cast<int>(f[6].n), f[6].s);
+    if (have_route) std::snprintf(line + k, sizeof(line) - static_cast<size_t>(k), "%sRoute %.4s to %.4s", k ? "   " : "", f[8].s, f[9].s);
+    add_line(r, "%s", line);
+  }
+  char rest[kInterpLineChars];
+  int used = std::snprintf(rest, sizeof(rest), "%.*s %.*s", static_cast<int>(f[0].n), f[0].s, static_cast<int>(f[1].n), f[1].s);
+  if (nf > 7 && f[7].n > 0 && used > 0 && static_cast<size_t>(used) + f[7].n + 2 < sizeof(rest))
+    std::snprintf(rest + used, sizeof(rest) - static_cast<size_t>(used), " %.*s", static_cast<int>(f[7].n), f[7].s);
   add_line(r, "Other values, not published: %s", rest);
   set_summary(r, "Position %s %s %s", lat_s, lon_s, when);
   return true;
@@ -856,6 +977,15 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
   else if (l[0] == '2' && l[1] == '1') {
     const Header h = parse_header(m, t);
     if (h.ok && interpret_label21(t, 10, r)) {
+      Interpretation tmp = r;
+      r.line_count = 0;
+      add_header_line(r, h);
+      for (size_t i = 0; i < tmp.line_count && r.line_count < kInterpLines; ++i) add_line(r, "%s", tmp.lines[i]);
+      ok = true;
+    }
+  } else if (l[0] == '3' && l[1] == '3') {
+    const Header h = parse_header(m, t);
+    if (h.ok && interpret_label33(t, r)) {
       Interpretation tmp = r;
       r.line_count = 0;
       add_header_line(r, h);

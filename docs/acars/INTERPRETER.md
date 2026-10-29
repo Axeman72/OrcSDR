@@ -30,6 +30,9 @@ documents are the publisher's and are not stored in this repository.
 | label `21` `POS...` (Frontier style) | position, altitude, report time, temperature, ETA and destination | one aircraft type observed |
 | `H1` `#DF` (flight data unit) | cruise fixes (decimal degrees, day/time, altitude, temperature, wind, phase), `TRP#` position blocks, route and report header | observed (Alaska, and a `KPDX`-`KLAX` report); not in any public documentation found |
 | label `32` (one regional carrier) | date, time and position; ten other numbers shown as received | observed live on VDL2 (five samples); see `captures/2026-10-29-vdl2-136975/README.md` |
+| label `33` (one regional carrier) | date, time, position, altitude (probable) and the two airports; three other values shown as received | two live samples 2026-10-29; fix track fits KMFR to KSEA; not yet matched to a web track |
+| `H1 #DFB` header block (Southwest style) | aircraft type, date, flight, origin and destination | live, WN0436; origin and destination match OpenSky (KEUG departure) |
+| `H1 #DFB` sample blocks (Southwest style) | time, altitude, calibrated speed, Mach; other columns not named | live; speed and Mach agree with the standard atmosphere at the printed altitude (six samples within 0.001) |
 | `H1` `#CFB` `FDE...` (central fault display) | report time, tag, and the event entries (time + code, as received) | observed live on VDL2 (three messages); code meanings not published |
 | `AV` (VDL2 data frame, not ACARS) | source address; raw hex only | produced by the VDL2 receiver for non-ACARS information frames |
 | message header | message number (originator, sequence, block letter), flight id, airline name for AS F9 WN DL AA UA B6 NK HA G4 QX OO AC FX 5X YX MQ OH SY | ARINC 620 message layout; airline codes are conventional IATA |

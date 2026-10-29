@@ -213,6 +213,15 @@ void unknown_and_names() {
     if (round % 3 == 0 && m.text_length > 20) std::memcpy(m.text, "D59AAS0536#DFB", 14);
     if (round % 5 == 0 && m.text_length > 20) std::memcpy(m.text, "F63AAS0536#M1BPOSN44397W122192", 30 > m.text_length ? m.text_length : 30);
     if (round % 7 == 0 && m.text_length > 30) std::memcpy(m.text, "C87AOO137C#CFBFDE0633591029ABZ 0631570730", m.text_length < 41 ? m.text_length : 41);
+    if (round % 13 == 0 && m.text_length > 40) {
+      std::memcpy(m.text, round % 2 ? "D15AWN0436#DFB05201,0926,B737-700,261029,WN0436,KEUG,KDEN," : "D15EWN0436#DFB00,0000  13.30.19,04172,217.2,.354,-3",
+                  m.text_length < 40 ? m.text_length : 40);
+    }
+    if (round % 17 == 0 && m.text_length > 40) {
+      std::memcpy(m.text, "M30AQX245227,B,29OCT26,133601,+44.219,-122.470,30006,", m.text_length < 50 ? m.text_length : 50);
+      m.label[0] = '3';
+      m.label[1] = '3';
+    }
     if (round % 11 == 0 && m.text_length > 30) {
       std::memcpy(m.text, "M10AOO137CP,E,2026-10-29 06:23:43,4140,65924,N 44.0", m.text_length < 51 ? m.text_length : 51);
       m.label[0] = '3';
@@ -267,6 +276,36 @@ void live_vdl2_formats() {
   // A damaged entry makes the event list undecoded; the unit is still named.
   const MessageRecord bad = make("H1", '1', '?', "C87AOO137C#CFBFDE0633591029ABZ 0631570730    0    0");
   CHECK(interpret(bad, r) && std::strncmp(r.headline, "MESSAGE FOR/FROM", 16) == 0);   // only the unit is named
+
+  // Southwest #DFB report, captured on 136.975 MHz 2026-10-29 (WN0436, KEUG to KDEN): header block and two sample blocks.
+  const MessageRecord sw_head = make("H1", '9', '?', "D15AWN0436#DFB05201,0926,B737-700,261029,WN0436,KEUG,KDEN,2341,");
+  CHECK(interpret(sw_head, r) && r.decoded);
+  dump(r);
+  CHECK(any_line_contains(r, "B737-700  flight WN0436  KEUG to KDEN  2026-10-29"));
+  CHECK(std::strstr(r.summary, "KEUG to KDEN") != nullptr);
+  const MessageRecord sw_a = make("H1", '9', '?', "D15EWN0436#DFB00,00000000,00000000  13.30.19,04172,217.2,.354,-3.37,");
+  CHECK(interpret(sw_a, r) && r.decoded);
+  CHECK(std::strcmp(r.headline, "FLIGHT DATA UNIT SAMPLES") == 0);
+  CHECK(any_line_contains(r, "latest 13:30:19Z  altitude 4172 ft  speed 217.2 kt  Mach 0.354"));
+  const MessageRecord sw_b = make("H1", '9', '?', "D21JWN0436#DFB0000000,00000000,00000000  13.33.14,11886,289.0,.540,-3.37,");
+  CHECK(interpret(sw_b, r) && any_line_contains(r, "altitude 11886 ft  speed 289.0 kt  Mach 0.540"));
+  // Bad time or a damaged field: not a sample, and nothing is invented.
+  CHECK(interpret(make("H1", '9', '?', "D15EWN0436#DFB00,00000000,00000000  13.61.19,04172,217.2,.354,-3.37,"), r) && std::strcmp(r.headline, "FLIGHT DATA UNIT SAMPLES") != 0);
+  CHECK(interpret(make("H1", '9', '?', "D15EWN0436#DFB00,00000000,00000000  13.30.19,04172,217.2,354,-3.37,"), r) && std::strcmp(r.headline, "FLIGHT DATA UNIT SAMPLES") != 0);
+
+  // Label 33 position report (Horizon, KMFR to KSEA); the last letter of the destination was cut by the screen and is completed here.
+  const MessageRecord l33 = make("33", '9', '?', "M30AQX245227,B,29OCT26,133601,+44.219,-122.470,30006,7808,KMFR,KSEA,");
+  CHECK(interpret(l33, r) && r.decoded);
+  dump(r);
+  CHECK(std::strcmp(r.headline, "POSITION REPORT") == 0);
+  CHECK(any_line_contains(r, "44.219N 122.470W"));
+  CHECK(any_line_contains(r, "2026-10-29 13:36:01Z"));
+  CHECK(any_line_contains(r, "Altitude 30006 ft (probable)"));
+  CHECK(any_line_contains(r, "Route KMFR to KSEA"));
+  CHECK(any_line_contains(r, "27 B 7808"));
+  CHECK(!interpret(make("33", '9', '?', "M30AQX245227,B,29XXX26,133601,+44.219,-122.470,30006,7808,KMFR,KSEA,"), r) || !r.decoded);
+  CHECK(!interpret(make("33", '9', '?', "M30AQX245227,B,29OCT26,253601,+44.219,-122.470,30006,7808,KMFR,KSEA,"), r) || !r.decoded);
+  CHECK(!interpret(make("33", '9', '?', "M30AQX245227,B,29OCT26,133601,+94.219,-122.470,30006,7808,KMFR,KSEA,"), r) || !r.decoded);
 
   // A VDL2 data frame that is not ACARS, kept as raw hex by the receiver.
   MessageRecord av = make("AV", '?', '\0', "2143658711234567008280AA550102");
