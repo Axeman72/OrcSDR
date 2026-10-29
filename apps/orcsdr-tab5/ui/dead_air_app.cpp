@@ -247,6 +247,7 @@ struct State {
   veil26::Stream veil;
   bool veil_on = false;
   bool veil_cfg_pending = false;          // the config record could not be queued yet
+  runes::Alphabet veil_alphabet = runes::Alphabet::latin;
   uint8_t veil_intent = 0;                // index into kVeilIntentions, or kVeilCustom
   uint32_t veil_inspect_seq = 0;          // event the VEIL-26 overlay shows (0 = the live stream)
   VeilFrameView veil_live;
@@ -1152,7 +1153,7 @@ void veil_fill(VeilFrameView& v, const veil26::Frame& f, uint32_t hz, double lev
 
 bool veil_post_config(State& s, uint32_t now) {
   char line[veil26::kLineBytes];
-  const size_t n = veil26::format_config(s.veil.intention(), s.veil.seed(), g_hooks.utc_epoch ? g_hooks.utc_epoch() : 0, now, line, sizeof(line));
+  const size_t n = veil26::format_config(s.veil.intention(), s.veil.seed(), g_hooks.utc_epoch ? g_hooks.utc_epoch() : 0, now, line, sizeof(line), s.veil_alphabet);
   return n != 0 && s.veil_queue.post(line, n);
 }
 
@@ -1164,6 +1165,7 @@ void veil_post_record(State& s, const veil26::Frame& f, veil26::Trigger trigger,
   }
   veil26::RecordInput in;
   in.frame = f;
+  in.alphabet = s.veil_alphabet;
   in.intention = s.veil.intention();
   in.seed = s.veil.seed();
   in.trigger = trigger;
@@ -1368,6 +1370,7 @@ void build_snapshot(uint32_t now) {
   n.chime_on = s.chime_on;
   {
     VeilView& v = n.veil;
+    v.alphabet = s.veil_alphabet;
     v.enabled = s.veil_on;
     v.logging = s.veil_logging.load(std::memory_order_relaxed);
     std::snprintf(v.intention, sizeof(v.intention), "%s", s.veil.intention());
@@ -1526,7 +1529,8 @@ bool visibly_changed(const Snapshot& a, const Snapshot& b) {
           a.scrub.cursor_valid != b.scrub.cursor_valid || a.scrub.cursor_ms / 100 != b.scrub.cursor_ms / 100) return true;
       break;
     case Overlay::veil:
-      if (a.veil.enabled != b.veil.enabled || a.veil.logging != b.veil.logging || a.veil.live.valid != b.veil.live.valid ||
+      if (a.veil.alphabet != b.veil.alphabet || a.veil.live.state != b.veil.live.state ||
+          a.veil.event.state != b.veil.event.state || a.veil.enabled != b.veil.enabled || a.veil.logging != b.veil.logging || a.veil.live.valid != b.veil.live.valid ||
           a.veil.live.frame != b.veil.live.frame || a.veil.live.event_sequence != b.veil.live.event_sequence ||
           a.veil.frames != b.veil.frames || a.veil.gaps != b.veil.gaps || a.veil.dropped != b.veil.dropped ||
           a.veil.written != b.veil.written || a.veil.write_failures != b.veil.write_failures ||
@@ -1651,6 +1655,7 @@ void open() {
   s.chime_active = false;
   s.chime_last_ms = 0;
   s.veil_on = false;   // VEIL-26 is opt-in and off at every session start, like the chime and the microphone
+  s.veil_alphabet = runes::Alphabet::latin;
   s.veil_intent = 0;
   s.veil_inspect_seq = 0;
   s.veil_cfg_pending = false;
@@ -2041,6 +2046,10 @@ void touch(int32_t x, int32_t y) {
       }
       break;
     }
+    case ActionKind::veil_alphabet:
+      runes::set_alphabet(g_state->veil_alphabet == runes::Alphabet::latin ? runes::Alphabet::elder : runes::Alphabet::latin,
+                          g_state->veil_alphabet, g_state->veil_on, g_state->veil_cfg_pending);
+      break;
     case ActionKind::veil_intention: {
       State& s = *g_state;
       s.veil_intent = s.veil_intent == kVeilCustom ? 0 : static_cast<uint8_t>((s.veil_intent + 1) % kVeilIntentionCount);
@@ -2184,10 +2193,10 @@ void describe_veil(char* out, size_t size) {
   const State& s = *g_state;
   const veil26::Counters c = veil_counters(s);
   std::snprintf(out, size,
-                "DEAD_AIR_VEIL open=1 on=%d logging=%d dict=%s intention=\"%s\" seed=%08lx frames=%lu gaps=%lu skipped=%lu "
+                "DEAD_AIR_VEIL open=1 on=%d logging=%d dict=%s alphabet=%s intention=\"%s\" seed=%08lx frames=%lu gaps=%lu skipped=%lu "
                 "posted=%lu dropped=%lu written=%lu write_failures=%lu pending=%lu state=%08lx letters=\"%s\" "
                 "live_hz=%lu live_dbfs=%.1f live_word=%s",
-                s.veil_on ? 1 : 0, s.veil_logging.load(std::memory_order_relaxed) ? 1 : 0, veil26::kDictionaryId, s.veil.intention(),
+                s.veil_on ? 1 : 0, s.veil_logging.load(std::memory_order_relaxed) ? 1 : 0, veil26::kDictionaryId, runes::alphabet(s.veil_alphabet).id, s.veil.intention(),
                 static_cast<unsigned long>(s.veil.seed()), static_cast<unsigned long>(c.frames), static_cast<unsigned long>(c.gaps),
                 static_cast<unsigned long>(c.skipped_invalid), static_cast<unsigned long>(c.records_posted),
                 static_cast<unsigned long>(c.records_dropped), static_cast<unsigned long>(c.records_written),
@@ -2206,6 +2215,13 @@ bool veil_command(const char* args, char* reply, size_t size) {
     if (!s.veil_on) { s.veil_on = true; veil_restart(s, s.veil.intention()); }
   } else if (std::strcmp(args, "OFF") == 0) {
     if (s.veil_on) { veil_post_summary(s); s.veil_on = false; }
+  } else if (std::strncmp(args, "ALPHABET ", 9) == 0) {
+    runes::Alphabet alphabet;
+    if (!runes::parse(args + 9, &alphabet)) {
+      std::snprintf(reply, size, "RTL_DEAD_AIR_VEIL_ERROR use ALPHABET LATIN|ELDER");
+      return false;
+    }
+    runes::set_alphabet(alphabet, s.veil_alphabet, s.veil_on, s.veil_cfg_pending);
   } else if (std::strncmp(args, "INTENT ", 7) == 0) {
     char text[veil26::kMaxIntention + 1] = {};
     size_t n = 0;
@@ -2215,10 +2231,10 @@ bool veil_command(const char* args, char* reply, size_t size) {
     s.veil_intent = kVeilCustom;
     veil_restart(s, text);
   } else {
-    std::snprintf(reply, size, "RTL_DEAD_AIR_VEIL_ERROR use ON, OFF or INTENT <text>");
+    std::snprintf(reply, size, "RTL_DEAD_AIR_VEIL_ERROR use ON, OFF, INTENT <text> or ALPHABET LATIN|ELDER");
     return false;
   }
-  std::snprintf(reply, size, "RTL_DEAD_AIR_VEIL_OK on=%d intention=\"%s\"", s.veil_on ? 1 : 0, s.veil.intention());
+  std::snprintf(reply, size, "RTL_DEAD_AIR_VEIL_OK on=%d alphabet=%s intention=\"%s\"", s.veil_on ? 1 : 0, runes::alphabet(s.veil_alphabet).id, s.veil.intention());
   return true;
 }
 

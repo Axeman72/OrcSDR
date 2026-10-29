@@ -6,6 +6,21 @@ Changes to the Dead Air dashboard. Newest first. The design contract and the dev
 
 Branch `claude/dead-air-dashboard-review-8c2b12`. Host tests and the native ESP-IDF build only so far; not flashed, so none of it has been seen on the panel.
 
+### Added (VEIL-26 optional Elder Futhark display)
+
+- ALPHABET cycles LATIN / ELDER FUTHARK beside INTENTION. The symbolic panel
+  shows a line-drawn rune and its conventional name beside the unchanged Latin
+  letter, word and gematria. Event inspection uses the saved state with the
+  currently selected alphabet. Every session starts in LATIN.
+- Authenticated `RTL_DEAD_AIR VEIL ALPHABET LATIN|ELDER` shares the UI setter;
+  status and replies report the alphabet id. Selection never restarts analysis.
+- Interpretation records add alphabet id, rune index and ASCII name. The rule,
+  modulo bias, historical caveats and omissions are in `VEIL26_RUNES.md`.
+- Host tests cover independent integer vectors, recomputation from records,
+  glyph validity, bounds at several sizes, canonical stream independence,
+  runic event inspection and repeated partial redraws. Device rendering, touch
+  and serial operation are unverified; no hardware was flashed or accessed.
+
 ### Added (VEIL-26 / ESOTERICA: an optional symbolic analysis engine)
 
 Branch `claude/dead-air-veil26`. Full design, algorithm, provenance gaps and limits: `VEIL26.md`.

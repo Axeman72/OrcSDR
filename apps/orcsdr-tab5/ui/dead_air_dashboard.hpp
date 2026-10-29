@@ -18,6 +18,7 @@ enum class ActionKind : uint8_t {
   veil_open,        // value = event sequence to inspect (0 = the live stream)
   veil_close,
   veil_toggle,      // analysis on / off
+  veil_alphabet,    // next display alphabet (never restarts analysis)
   veil_intention    // next preset intention (restarts the stream)
 };
 

@@ -86,17 +86,26 @@ formatting and the bounded queue), `dead_air_app.cpp` (feeding, the worker's fil
 - Serial: `RTL_DEAD_AIR VEIL` prints state and counters (read-only). Authenticated: `RTL_DEAD_AIR VEIL ON`, `OFF`,
   `INTENT <text>`.
 
+## Optional runic display
+
+[VEIL26_RUNES.md](VEIL26_RUNES.md) specifies the optional Elder Futhark display,
+its exact state mapping, bias, names, record fields and limits. LATIN is the
+default at every session start. The ALPHABET selector and authenticated
+`RTL_DEAD_AIR VEIL ALPHABET LATIN|ELDER` change only display selection; they
+never restart the canonical stream. Status reports the alphabet id.
+
 ## Records and reproducibility
 
 Interpretations are written to their own file, `/orcsdr/dead_air/veil26_<session>.jsonl`, never to the measured-event
 journal, and every line carries `"interpreted":true`.
 
-- `veil26_config` on enabling or changing the intention: algorithm, dictionary id and `dict_canonical:false`, quantization
-  id, frame base, intention, seed, time.
+- `veil26_config` on enabling or changing the intention/alphabet: algorithm, dictionary id and `dict_canonical:false`, quantization
+  id, frame base, intention, seed, time, `rune_alphabet`.
 - `veil26`: one per event frame and one periodic frame every 30 s. Fields include the algorithm and dictionary, trigger
   (`sample`/`event`), `event_seq`, `event_kind`, intention, seed, frame index, `t_ms`, `utc` (or `null` if the clock is not
   verified), the tuned frequency, the measured level and its source (`rf`/`audio`), the receiver configuration revision,
-  `freq_code`, `level_code`, `state_in`, `state`, letter, word, and both gematria sums.
+  `freq_code`, `level_code`, `state_in`, `state`, letter, word, both gematria sums,
+  `rune_alphabet`, `rune_index`, and `rune_name` (the last two are null in Latin mode).
 - `veil26_summary` when analysis stops or Dead Air closes: frames, breaks, skipped observations, records posted, dropped,
   written, and write failures.
 
@@ -130,7 +139,7 @@ statements come from reading the code and from host timing; the USB IQ continuit
 
 ```bash
 g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iapps/orcsdr-tab5/ui tests/dead_air_veil26_tests.cpp apps/orcsdr-tab5/ui/dead_air_veil26.cpp -o /tmp/veil26 && /tmp/veil26
-g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iapps/orcsdr-tab5/ui tests/dead_air_veil26_log_tests.cpp apps/orcsdr-tab5/ui/dead_air_veil26_log.cpp apps/orcsdr-tab5/ui/dead_air_veil26.cpp -o /tmp/veil26log && /tmp/veil26log
+g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iapps/orcsdr-tab5/ui tests/dead_air_veil26_log_tests.cpp apps/orcsdr-tab5/ui/dead_air_veil26_log.cpp apps/orcsdr-tab5/ui/dead_air_runes.cpp apps/orcsdr-tab5/ui/dead_air_veil26.cpp -o /tmp/veil26log && /tmp/veil26log
 ```
 
 `dead_air_veil26_tests`: SHA-256 and the seed (including padding boundaries), Python rounding, both quantization conventions

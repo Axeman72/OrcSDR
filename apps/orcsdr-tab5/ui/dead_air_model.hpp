@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include "dead_air_runes.hpp"
 
 namespace orcsdr::dead_air {
 
@@ -125,6 +126,7 @@ struct VeilFrameView {
   char source[6] = "rf";                // where the level came from: rf (receiver) or audio
 };
 struct VeilView {
+  runes::Alphabet alphabet = runes::Alphabet::latin;
   bool enabled = false;
   bool logging = false;          // the interpretation file is open on the SD card
   char intention[25] = "";

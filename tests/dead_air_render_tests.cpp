@@ -3,6 +3,7 @@
 #include <M5Unified.h>
 #include "dead_air_dashboard.hpp"
 #include "dead_air_fx.hpp"
+#include "dead_air_runes.hpp"
 #include "screen_controller.hpp"
 #include <cassert>
 #include <cmath>
@@ -25,6 +26,19 @@ static void validate_bounds() {
   }
 }
 int main() {
+  // Exercise the same integer renderer at several actual display sizes.
+  for (unsigned i = 0; i < 24; ++i) for (int height : {16, 37, 64}) {
+    host_display::reset();
+    const auto* glyph = da::runes::glyph(da::runes::Alphabet::elder, i);
+    da::runes::draw(*glyph, height, 3, [](int x0, int y0, int x1, int y1) {
+      M5.Display.drawLine(100 + x0, 200 + y0, 100 + x1, 200 + y1, TFT_WHITE);
+    });
+    assert(!host_display::prims.empty());
+    for (const Prim& p : host_display::prims) {
+      assert(p.x >= 100 && p.y >= 200 && p.x + p.w <= 100 + (height + 1) / 2 && p.y + p.h <= 200 + height);
+    }
+  }
+  host_display::reset();
   da::EventModel model;
   model.reset();
   da::attach_events(&model);
@@ -225,7 +239,7 @@ int main() {
     validate_bounds();
     assert(da::handle_touch(40 + 20, 180 + 20, 6001).kind == da::ActionKind::veil_toggle);
     assert(da::handle_touch(306 + 20, 180 + 20, 6002).kind == da::ActionKind::veil_intention);
-    assert(da::handle_touch(842 + 20, 180 + 20, 6003).kind == da::ActionKind::none);  // LIVE STREAM exists only while inspecting
+    assert(da::handle_touch(1048 + 20, 180 + 20, 6003).kind == da::ActionKind::none);  // LIVE STREAM exists only while inspecting
     // Analysis on with a live frame (the golden first frame of the intention "hello" is not needed here: only display).
     vs.veil.enabled = true;
     vs.veil.logging = true;
@@ -254,6 +268,12 @@ int main() {
     assert(displayed("71c7425d > abeb47ee") && displayed("freq_code 162400") && displayed("level_code 1283"));
     assert(displayed("LOG ON") && displayed("written 0  dropped 0  failed 0"));
     validate_bounds();
+    assert(da::handle_touch(690, 200, 6003).kind == da::ActionKind::veil_alphabet);
+    vs.veil.alphabet = da::runes::Alphabet::elder;
+    host_display::reset(); ++vs.revision;
+    da::update(vs);
+    assert(displayed("ALPHABET: ELDER FUTHARK") && displayed("dagaz") && displayed("XENON"));
+    validate_bounds(); no_full_clear();
     for (int step = 0; step < 5; ++step) {  // a frame a second: values move, the whole screen is never cleared
       vs.veil.live.frame = 4 + step;
       vs.veil.frames = 5 + step;
@@ -261,12 +281,13 @@ int main() {
       vs.veil.live.state = 0x1000u + static_cast<uint32_t>(step);
       vs.veil.written = static_cast<uint32_t>(step);
       std::snprintf(vs.veil.letters, sizeof(vs.veil.letters), "ABY%c", 'C' + step);
-      vs.revision = 102 + step;
+      vs.revision = 103 + step;
       host_display::reset();
       da::update(vs);
       char want[16];
       std::snprintf(want, sizeof(want), "%c  (25)", 'C' + step);
       assert(displayed(want) && displayed("00001000") == (step == 0) && displayed("FRAMES"));
+      assert(displayed(da::runes::glyph(da::runes::Alphabet::elder, vs.veil.live.state % 24)->name));
       validate_bounds();
       no_full_clear();
     }
@@ -284,9 +305,10 @@ int main() {
     da::update(vs);
     assert(displayed("EVENT #9") && displayed("This event was not analysed.") && displayed("LIVE STREAM"));
     assert(!displayed("receiver RF level"));
-    assert(da::handle_touch(842 + 20, 180 + 20, 6004).kind == da::ActionKind::veil_open);  // back to the live stream
+    assert(da::handle_touch(1048 + 20, 180 + 20, 6004).kind == da::ActionKind::veil_open);  // back to the live stream
     vs.veil.event = vs.veil.live;
     vs.veil.event.event_sequence = 9;
+    vs.veil.event.state = 7;
     vs.veil.event.frequency_hz = 146520000;
     vs.veil.event.level_dbfs = -12.5f;
     std::snprintf(vs.veil.event.source, sizeof(vs.veil.event.source), "audio");
@@ -295,6 +317,7 @@ int main() {
     host_display::reset();
     da::update(vs);
     assert(displayed("146.520000 MHz") && displayed("-12.5 dBFS (relative)") && displayed("receiver audio level") && displayed("BEACON"));
+    assert(displayed("wunjo"));
     validate_bounds();
     no_full_clear();
     assert(da::handle_touch(1070 + 20, 128 + 20, 6005).kind == da::ActionKind::veil_close);  // CLOSE tells the app

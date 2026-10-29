@@ -1083,9 +1083,10 @@ void session() {
 // Two panels that never mix: MEASURED (the tuned frequency, the level, where it came from and when: numbers the receiver
 // produced) and SYMBOLIC / INTERPRETED (the letter, word and gematria a fixed recipe derived from them). The analysis is
 // opt-in, and every symbol is labelled as the output of an algorithm, not a message or a detection.
-constexpr int kVeilToggleX = 40, kVeilToggleY = 180, kVeilToggleW = 250;
-constexpr int kVeilIntentX = 306, kVeilIntentW = 520;
-constexpr int kVeilLiveX = 842, kVeilLiveW = 200;
+constexpr int kVeilToggleX = 40, kVeilToggleY = 180, kVeilToggleW = 200;
+constexpr int kVeilIntentX = 256, kVeilIntentW = 400;
+constexpr int kVeilAlphabetX = 672, kVeilAlphabetW = 360;
+constexpr int kVeilLiveX = 1048, kVeilLiveW = 192;
 constexpr int kVeilBtnH = 52;
 const Event* veil_event(uint32_t sequence) {
   if (!g_events) return nullptr;
@@ -1095,13 +1096,22 @@ const Event* veil_event(uint32_t sequence) {
   }
   return nullptr;
 }
+void draw_veil_rune(runes::Alphabet alphabet, uint32_t state, int x, int y, int height, int stroke) {
+  const auto* glyph = runes::glyph(alphabet, static_cast<unsigned>(runes::index(alphabet, state)));
+  if (!glyph) return;
+  runes::draw(*glyph, height, stroke, [=](int x0, int y0, int x1, int y1) {
+    g.drawLine(x + x0, y + y0, x + x1, y + y1, kViolet);
+  });
+}
 void veil() {
   const VeilView& v = g_snapshot->veil;
   overlay_frame("VEIL-26 / ESOTERICA  (EXPERIMENTAL)");
   button(v.enabled ? "ANALYSIS: ON" : "ANALYSIS: OFF", kVeilToggleX, kVeilToggleY, kVeilToggleW, v.enabled ? kGreen : kEdge, true);
   char text[192];
-  std::snprintf(text, sizeof(text), "INTENTION: %s", v.intention[0] ? v.intention : "(none)");
+  std::snprintf(text, sizeof(text), "INTENTION: %.17s%s", v.intention[0] ? v.intention : "(none)", std::strlen(v.intention) > 17 ? "..." : "");
   button(text, kVeilIntentX, kVeilToggleY, kVeilIntentW, kViolet, true);
+  std::snprintf(text, sizeof(text), "ALPHABET: %s", runes::alphabet(v.alphabet).label);
+  button(text, kVeilAlphabetX, kVeilToggleY, kVeilAlphabetW, kViolet, true);
   const bool inspecting = v.inspect_seq != 0;
   if (inspecting) button("LIVE STREAM", kVeilLiveX, kVeilToggleY, kVeilLiveW, kCyan, true);
   const VeilFrameView& f = inspecting ? v.event : v.live;
@@ -1155,6 +1165,11 @@ void veil() {
     std::snprintf(text, sizeof(text), "%08lx > %08lx", static_cast<unsigned long>(f.state_in), static_cast<unsigned long>(f.state));
     label("SIGIL STATE", 670, 426, kMuted, 2);
     label(text, 850, 426, TFT_WHITE, 2);
+    if (v.alphabet != runes::Alphabet::latin) {
+      draw_veil_rune(v.alphabet, f.state, 1160, 328, 64, 3);
+      const auto* rune = runes::glyph(v.alphabet, static_cast<unsigned>(runes::index(v.alphabet, f.state)));
+      if (rune) label(rune->name, 1110, 410, kViolet, 2);
+    }
   } else {
     label("Nothing derived.", 670, 346, kMuted, 2);
   }
@@ -1667,6 +1682,7 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
       const VeilView& v = g_snapshot->veil;
       if (hit(x, y, kVeilToggleX, kVeilToggleY, kVeilToggleW, kVeilBtnH)) return {ActionKind::veil_toggle, 0};
       if (hit(x, y, kVeilIntentX, kVeilToggleY, kVeilIntentW, kVeilBtnH)) return {ActionKind::veil_intention, 0};
+      if (hit(x, y, kVeilAlphabetX, kVeilToggleY, kVeilAlphabetW, kVeilBtnH)) return {ActionKind::veil_alphabet, 0};
       if (v.inspect_seq != 0 && hit(x, y, kVeilLiveX, kVeilToggleY, kVeilLiveW, kVeilBtnH)) return {ActionKind::veil_open, 0};
       return {};
     }
