@@ -7,6 +7,7 @@ UI="$ROOT/apps/orcsdr-tab5/ui"
 OUT="$ROOT/build/acars"
 mkdir -p "$OUT"
 FLAGS=(-std=c++17 -O1 -g -Wall -Wextra -Werror -pedantic -pthread)
+VDL2=("$UI/vdl2_channel.cpp" "$UI/vdl2_receiver.cpp" "$UI/vdl2_rs.cpp" "$UI/vdl2_burst.cpp" "$UI/vdl2_frames.cpp")
 MODEL=("$UI/acars_dashboard_model.cpp" "$UI/acars_demo_data.cpp" "$UI/acars_dashboard_layout.cpp" "$UI/acars_dashboard_ui.cpp" "$UI/acars_dirty_rects.cpp" "$UI/acars_interpret.cpp")
 
 run() {
@@ -22,7 +23,7 @@ if [[ "${SANITIZE:-1}" == "1" ]]; then
   run acars_dashboard_model_tests_asan -fsanitize=address,undefined -fno-sanitize-recover=all -I"$UI" \
     "$ROOT/tests/acars_dashboard_model_tests.cpp" "${MODEL[@]}"
 fi
-RENDER=("$ROOT/tests/acars_dashboard_render_tests.cpp" "${MODEL[@]}" "$UI/acars_dashboard.cpp" "$UI/acars_app.cpp" "$UI/acars_archive.cpp" "$UI/acars_receiver.cpp" "$UI/acars_core.cpp"
+RENDER=("$ROOT/tests/acars_dashboard_render_tests.cpp" "${MODEL[@]}" "$UI/acars_dashboard.cpp" "$UI/acars_app.cpp" "$UI/acars_archive.cpp" "$UI/acars_receiver.cpp" "$UI/acars_core.cpp" "${VDL2[@]}"
   "$UI/focus_nav.cpp" "$UI/screen_controller.cpp" "$ROOT/tests/acars_ui_stubs/audio_header_stub.cpp")
 run acars_dashboard_render_tests -I"$ROOT/tests/acars_ui_stubs" -I"$UI" "${RENDER[@]}"
 if [[ "${SANITIZE:-1}" == "1" ]]; then
@@ -43,9 +44,9 @@ DIRTY=("$ROOT/tests/acars_dirty_rects_tests.cpp" "$UI/acars_dirty_rects.cpp")
 run acars_dirty_rects_tests -I"$UI" "${DIRTY[@]}"
 SELFTEST=("$ROOT/tests/acars_selftest_tests.cpp" "$UI/acars_core.cpp" "$UI/acars_selftest.cpp")
 run acars_selftest_tests -I"$UI" "${SELFTEST[@]}"
-RECEIVER=("$ROOT/tests/acars_receiver_tests.cpp" "$UI/acars_core.cpp" "$UI/acars_receiver.cpp" "${MODEL[@]}")
-run acars_receiver_tests -I"$UI" "${RECEIVER[@]}"
+RECEIVER=("$ROOT/tests/acars_receiver_tests.cpp" "$UI/acars_core.cpp" "$UI/acars_receiver.cpp" "${VDL2[@]}" "${MODEL[@]}")
+run acars_receiver_tests -I"$UI" -I"$ROOT/tests" "${RECEIVER[@]}"
 if [[ "${SANITIZE:-1}" == "1" ]]; then
-  run acars_receiver_tests_asan -fsanitize=address,undefined -fno-sanitize-recover=all -I"$UI" "${RECEIVER[@]}"
+  run acars_receiver_tests_asan -fsanitize=address,undefined -fno-sanitize-recover=all -I"$UI" -I"$ROOT/tests" "${RECEIVER[@]}"
 fi
 echo "ACARS UI host tests passed (log: build/acars/ui-tests.log)"

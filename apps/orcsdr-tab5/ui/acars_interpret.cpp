@@ -700,6 +700,15 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
   const Text t{m.text, m.has_text ? m.text_length : 0u};
   const char* l = m.label;
   bool ok = false;
+  if (l[0] == 'A' && l[1] == 'V' && m.mode == '2') {
+    // A VDL2 data frame that is not ACARS, kept as received (acars_receiver). The label is ours, not an ACARS label.
+    set_headline(r, "VDL2 DATA FRAME");
+    add_line(r, "Verified link-layer frame from address %.7s.", m.tail);
+    add_line(r, "ATN, CPDLC and ADS-C content is not decoded; the raw bytes are shown as hex.");
+    set_summary(r, "VDL2 data frame %.7s", m.tail);
+    r.recognised = true;
+    return true;
+  }
   if (l[0] == '_' && l[1] == '?') ok = interpret_response(m, t, r);
   else if (l[0] == ':' && l[1] == ';') ok = interpret_autotune(t, r);
   else if (l[0] == 'S' && l[1] == 'Q') ok = interpret_squitter(t, r);

@@ -685,12 +685,12 @@ void draw_channels(const Snapshot& s) {
     Clip clip(row);
     G.fillRoundRect(row.x, row.y + 2, row.w, row.h - 4, 6, sel ? kSelected : kPanel);
     G.drawRoundRect(row.x, row.y + 2, row.w, row.h - 4, 6, sel ? kGreen : kBorder);
-    fit(c.label, row.x + 14, row.y + 20, 360, sel ? kGreen : TFT_WHITE, f24);
-    fit(preset(s.prefs.region, i).source, row.x + 14, row.y + 42, 560, kMuted);
-    if (sel) text("REQUESTED", row.x + row.w - 14, row.y + 20, kGreen, f18, middle_right);
+    fit(c.label, row.x + 14, row.y + 16, 360, sel ? kGreen : TFT_WHITE, f24);
+    fit(preset(s.prefs.region, i).source, row.x + 14, row.y + 36, 560, kMuted);
+    if (sel) text("REQUESTED", row.x + row.w - 14, row.y + 16, kGreen, f18, middle_right);
     if (c.decoded_messages) {
       std::snprintf(b, sizeof(b), "%u DECODED", static_cast<unsigned>(c.decoded_messages));
-      text(b, row.x + row.w - 14, row.y + 42, kCyan, f18, middle_right);
+      text(b, row.x + row.w - 14, row.y + 36, kCyan, f18, middle_right);
     }
   }
   button(layout::kChCustomLabel, "CUSTOM", s.custom_active, false);
