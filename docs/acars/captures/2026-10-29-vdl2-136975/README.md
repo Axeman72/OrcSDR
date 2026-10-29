@@ -79,3 +79,17 @@ Cross-reference, run at 08:15:25 UTC, about 40 seconds after the last block:
 
 The H1 text has an ARINC 622 shape (a seven character ground address `USADCXA`, the identifier `AT1`, then the registration and a hex-like
 payload). It is not decoded and no meaning is claimed here.
+
+## Analog ACARS window on 131.550 MHz, 10:22:39 to 11:07 UTC (45 minutes, one continuous run)
+
+Because 136.975 MHz stayed silent through two earlier 45-minute windows, the unit was moved to the analog primary channel for a third
+one. Result: 44 CRC-verified blocks (6 with a verified 1-2 bit repair), **all ground-station squitters from EUG**; no aircraft block was
+heard. Screenshots: `analog-131550-list-1.png`, `analog-131550-list-2.png` (11:10 UTC; the counters at the end of the window read 40
+messages, and 44 held by the time of the screenshot).
+
+| Decoded on the device | Web source | Result |
+|---|---|---|
+| Squitter text `02XAEUGKEUG14407N12313WV136975/ARINC` read as station EUG (KEUG), ARINC, 44 deg 07 min N, 123 deg 13 min W | OurAirports `airports.csv`: KEUG, Eugene Airport, 44.124599, -123.211998 | the squitter position is 0.5 nm from the airport reference point (the squitter gives whole minutes): consistent |
+| Station codes EUG / KEUG | OurAirports IATA `EUG`, ICAO `KEUG` | match |
+| The squitter offers VDL2 on 136.975 MHz | live VDL2 traffic on 136.975 (SkyWest, Delta, N395CM on the same night) | consistent |
+| Squitter rate | the 44 rows span 10:22 to 11:10 UTC, about one every 1 to 2 minutes | one station, steady |

@@ -19,6 +19,8 @@ This file tracks ACARS dashboard and decoder changes. The repository has no repo
 - Further capture attempts: a 30 minute channel hunt (136.975 down to 136.750 MHz, 3 minutes each, 09:03-09:33Z) heard nothing; a second continuous 
   45 minute run on 136.975 MHz (09:34:48 to 10:19:37Z, 135 samples) saw valid headers go from 14 to 19 and verified frames from 11 to 12 (one more
   frame with no data), no ACARS message. Nothing from those windows could be matched to a web source.
+- Third continuous 45 minute window on the analog channel 131.550 MHz (10:22:39 to about 11:07Z): 44 CRC-verified blocks, all squitters from EUG,
+  matched to OurAirports (KEUG at 44.1246N 123.2120W; squitter 0.5 nm away). No aircraft block was heard on that channel that night.
 
 ## 2026-10-29 - VDL Mode 2 on the ACARS dashboard (flashed to COM17, live RF not yet heard)
 
