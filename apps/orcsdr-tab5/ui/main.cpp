@@ -20139,6 +20139,12 @@ void process_command(char* command) {
     Serial.println(line);
     return;
   }
+  if (strcmp(command, "RTL_DEAD_AIR ENV") == 0) {
+    char line[420];
+    orcsdr::dead_air_app::describe_env(line, sizeof(line));
+    Serial.println(line);
+    return;
+  }
   if (strcmp(command, "RTL_ACARS STATUS") == 0) {
     char line[900];
     orcsdr::acars_app::describe(line, sizeof(line));

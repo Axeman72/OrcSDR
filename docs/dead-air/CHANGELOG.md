@@ -6,6 +6,16 @@ Changes to the Dead Air dashboard. Newest first. The design contract and the dev
 
 Branch `claude/dead-air-dashboard-review-8c2b12`. Host tests and the native ESP-IDF build only so far; not flashed, so none of it has been seen on the panel.
 
+### Added (ENV III sensor: the Environment tab now has a data path)
+
+- **ENV III driver:** until now the Environment tab and the Overview card had their fields but nothing filled them, so a module plugged into Port A showed "MODULE NOT CONNECTED" however it was wired. Dead Air now reads the Unit ENV III on the Tab5's Port A (SDA GPIO53, SCL GPIO54): temperature and humidity from the SHT30 (0x44, CRC-8 checked) and pressure from the QMP6988 (0x70, chip id checked, compensation as in the manufacturer's reference code).
+- **Port A power:** the Tab5 switches the Port A 5 V rail through an IO-expander pin that nothing in the app turned on. Opening Dead Air now enables that rail (Port A only; the USB-A rail is untouched) and leaves it on.
+- **What counts as a reading:** a channel shows a value only after a checked reading (CRC / chip id / a plausible range: -40..85 C, 300..1100 hPa). A module that is present but has not produced one yet shows as warming up; a reading older than 10 s shows STALE; a channel that fails five times in a row is dropped, its value cleared, and re-probed every 2 s. Unplugging the module therefore returns the tab to "UNAVAILABLE", and plugging it back in recovers without leaving the screen. Nothing is simulated.
+- **Polling:** the sensors are read once a second from the UI tick, only while Dead Air is open, with a non-blocking state machine (the SHT30 conversion is started, then read 20 ms later). The Environment and Overview screens repaint when a displayed value changes at the printed decimal, and when a reading goes stale.
+- **Serial:** `RTL_DEAD_AIR ENV` prints bus/sensor presence, the latest values and their age, and counters (reads, CRC errors, bus errors, attaches). It is only meaningful while Dead Air is open.
+- **Not done:** environment events (`temperature_change`, `humidity_change`, `pressure_change`) are still not generated; the readings are context only, as the Environment tab says. Device motion (`motion_g`) is still not filled.
+- Tests: `dead_air_env_tests` (SHT30 CRC and decoding against the datasheet check value; QMP6988 compensation against three results from the manufacturer's reference code, also checked bit-for-bit against it over two million random inputs during development; attach, cadence, CRC and bus failures, drop and recovery, wrong chip id, implausible pressure, forget). Not tested on hardware: the Port A rail, the bus itself and the module's real readings.
+
 ### Added (second batch: making it worth watching)
 
 - **The orb:** a small animated cue on the Overview (120 px) and in the header of every tab (52 px). Idle, it breathes and brightens with how close the live RF level is to the event limit (dim and still when nothing is measured). When an event is logged it bursts: rings and sparks whose number scales with the measured rise in dB, in red (RF), orange (audio) or violet (a mark you made). It is a cue that a logged measurement happened, never a claim about its cause. Drawn from PSRAM sprites at about 15 frames a second during a burst.

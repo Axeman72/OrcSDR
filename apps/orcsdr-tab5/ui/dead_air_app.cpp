@@ -19,6 +19,8 @@
 #include "dead_air_clip.hpp"
 #include "dead_air_control.hpp"
 #include "dead_air_dashboard.hpp"
+#include "dead_air_env.hpp"
+#include "dead_air_env_m5.hpp"
 #include "dead_air_journal.hpp"
 #include "dead_air_mic.hpp"
 #include "dead_air_model.hpp"
@@ -217,6 +219,8 @@ struct State {
   ControlRun control;                     // false-alarm check: three detectors, one per sensitivity
   bool control_was_running = false;
   SessionStats stats;
+  env::EnvSensor env_sensor;              // ENV III on Port A (SHT30 + QMP6988); polled from tick() while the screen is open
+  bool env_bus = false;                   // the Port A bus could be started (not the same as a module being present)
   BandMapView map;                        // the last sweep's measured level per channel
   NoteQueue notes;                        // extra journal lines (control result, session summary) for the SD worker
   bool chime_on = false;
@@ -1171,9 +1175,19 @@ void build_snapshot(uint32_t now) {
   n.audio_baseline_ready = s.audio_detector.baseline_ready();
   n.audio_baseline_dbfs = s.audio_detector.baseline();
   std::memcpy(n.audio_envelope, s.audio_env, sizeof(n.audio_envelope));
-  // ENV III is not connected: leave the optional sensor absent. Nothing is simulated.
-  n.environment_sensor_attached = false;
+  // ENV III: a channel has a value only after a checked reading (CRC / chip id / plausible range); nothing is simulated.
+  // Present without a reading yet shows as warming up, and a reading older than the dashboard's limit shows as stale.
+  n.environment_sensor_attached = s.env_sensor.sht_present() || s.env_sensor.qmp_present();
   n.temperature_c = n.humidity_rh = n.pressure_hpa = n.motion_g = {};
+  {
+    float value = 0;
+    uint32_t at = 0;
+    n.temperature_c.present = n.humidity_rh.present = s.env_sensor.sht_present();
+    n.pressure_hpa.present = s.env_sensor.qmp_present();
+    if (s.env_sensor.temperature(&value, &at)) { n.temperature_c.valid = true; n.temperature_c.value = value; n.temperature_c.age_ms = now - at; }
+    if (s.env_sensor.humidity(&value, &at)) { n.humidity_rh.valid = true; n.humidity_rh.value = value; n.humidity_rh.age_ms = now - at; }
+    if (s.env_sensor.pressure(&value, &at)) { n.pressure_hpa.valid = true; n.pressure_hpa.value = value; n.pressure_hpa.age_ms = now - at; }
+  }
   Reading rf{};
   rf.present = ready;
   rf.valid = ready && n.receiver_settled && s.last_level_valid;
@@ -1199,6 +1213,21 @@ void build_snapshot(uint32_t now) {
 }
 
 // Structural changes that need the page recomposed.
+// A sensor reading counts as changed when what is drawn changes: its state, going stale (reading_status's 10 s), or the
+// value at the one decimal the dashboard prints.
+bool reading_shown_differently(const Reading& a, const Reading& b) {
+  if (a.present != b.present || a.valid != b.valid || (a.age_ms > 10000) != (b.age_ms > 10000)) return true;
+  return a.valid && std::lround(a.value * 10.0f) != std::lround(b.value * 10.0f);
+}
+bool environment_moved(const Snapshot& a, const Snapshot& b) {
+  const Page page = dead_air::page();
+  if (page != Page::overview && page != Page::environment) return false;
+  return a.environment_sensor_attached != b.environment_sensor_attached ||
+         reading_shown_differently(a.temperature_c, b.temperature_c) ||
+         reading_shown_differently(a.humidity_rh, b.humidity_rh) ||
+         reading_shown_differently(a.pressure_hpa, b.pressure_hpa);
+}
+
 bool visibly_changed(const Snapshot& a, const Snapshot& b) {
   switch (dead_air::overlay()) {  // what an open overlay shows moves on its own clock
     case Overlay::control:
@@ -1215,7 +1244,7 @@ bool visibly_changed(const Snapshot& a, const Snapshot& b) {
       break;
     default: break;
   }
-  return a.chime_on != b.chime_on || a.map.visited != b.map.visited || a.map.count != b.map.count ||
+  return environment_moved(a, b) || a.chime_on != b.chime_on || a.map.visited != b.map.visited || a.map.count != b.map.count ||
          a.control.state != b.control.state || a.control.count[0] != b.control.count[0] ||
          a.control.count[1] != b.control.count[1] || a.control.count[2] != b.control.count[2] ||
          a.receiver_ready != b.receiver_ready || a.receiver_settled != b.receiver_settled ||
@@ -1310,6 +1339,9 @@ void open() {
   s.control.reset();
   s.control_was_running = false;
   s.stats.reset(now);
+  env::Bus* port_a = env::port_a_bus();
+  s.env_bus = port_a != nullptr;
+  s.env_sensor.begin(port_a);  // forgets any earlier readings; the module is probed again every time the screen opens
   s.map = BandMapView{};
   s.chime_on = false;  // the chime is off at every session start; only a tap turns it on
   s.chime_active = false;
@@ -1358,6 +1390,7 @@ void tick() {
   if (!g_open || !g_state || !dead_air::active()) return;
   State& s = *g_state;
   const uint32_t now = millis();
+  s.env_sensor.service(now);  // a few short I2C transfers once a second; nothing in between
   const bool ready = g_hooks.receiver_ready();
   const uint32_t signature = g_hooks.config_signature();
   s.rx_settled = ready && static_cast<int32_t>(now - s.settle_until_ms) >= 0;
@@ -1753,6 +1786,27 @@ void describe(char* out, size_t size) {
                 static_cast<unsigned long>(g_state->mic.refused_no_audio + g_state->mic.refused_busy + g_state->mic.refused_limit),
                 static_cast<unsigned long>(dead_air_mic::stats().blocks), static_cast<unsigned>(g_state->replay_state),
                 static_cast<unsigned>(g_state->selected), g_state->replay_note);
+}
+
+void describe_env(char* out, size_t size) {
+  if (!out || !size) return;
+  if (!g_state || !g_open) { std::snprintf(out, size, "DEAD_AIR_ENV open=0 (the sensor is only polled while Dead Air is open)"); return; }
+  const env::EnvSensor& e = g_state->env_sensor;
+  const uint32_t now = millis();
+  float t = 0, rh = 0, p = 0;
+  uint32_t t_at = 0, rh_at = 0, p_at = 0;
+  const bool have_t = e.temperature(&t, &t_at), have_rh = e.humidity(&rh, &rh_at), have_p = e.pressure(&p, &p_at);
+  const env::Counters& c = e.counters();
+  std::snprintf(out, size,
+                "DEAD_AIR_ENV open=1 bus=%d sht=%d qmp=%d temp_c=%.2f temp_age_ms=%ld rh=%.2f rh_age_ms=%ld hpa=%.2f hpa_age_ms=%ld "
+                "sht_ok=%lu sht_crc=%lu sht_bus=%lu qmp_ok=%lu qmp_bad=%lu qmp_bus=%lu attaches=%lu",
+                g_state->env_bus ? 1 : 0, e.sht_present() ? 1 : 0, e.qmp_present() ? 1 : 0,
+                have_t ? static_cast<double>(t) : -999.0, have_t ? static_cast<long>(now - t_at) : -1L,
+                have_rh ? static_cast<double>(rh) : -999.0, have_rh ? static_cast<long>(now - rh_at) : -1L,
+                have_p ? static_cast<double>(p) : -999.0, have_p ? static_cast<long>(now - p_at) : -1L,
+                static_cast<unsigned long>(c.sht_ok), static_cast<unsigned long>(c.sht_crc), static_cast<unsigned long>(c.sht_bus),
+                static_cast<unsigned long>(c.qmp_ok), static_cast<unsigned long>(c.qmp_bad), static_cast<unsigned long>(c.qmp_bus),
+                static_cast<unsigned long>(c.attaches));
 }
 
 }  // namespace orcsdr::dead_air_app

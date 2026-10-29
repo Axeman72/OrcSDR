@@ -123,7 +123,11 @@ band-plan context, paging, VIEW CLIP, SCRUB, CONTROL RUN, CHIME); sweeps fill a 
 readout and tap-to-tune. Per-event traces, the control run and the session counters live in the app glue
 (`dead_air_app.cpp`) and are handed to the dashboard through `Snapshot`.
 
-Still NOT connected: ENV III sensor (Environment tab shows unavailable), device-motion reading (`motion_g` is never
+ENV III (SHT30 + QMP6988 on Port A) is read by `dead_air_env` (pure logic, host-tested) through `dead_air_env_m5`
+(M5Unified `Ex_I2C`, which also switches the Port A 5 V rail on). Temperature, humidity and pressure appear on the
+Environment tab and the Overview card; `RTL_DEAD_AIR ENV` reports it. Not verified on a Tab5 yet.
+
+Still NOT connected: environment events (the readings are context only), device-motion reading (`motion_g` is never
 filled), continuous audio/IQ recording, session export. `ActionKind::start_recording`, `stop_recording`,
 `save_clip` and `export_session` exist but have no buttons.
 
