@@ -441,6 +441,48 @@ void test_vdl2_adapter() {
   std::puts("  vdl2 adapter: 250 kS/s tune, ACARS + raw hex + counted frames, switch back to analog");
 }
 
+// Seen live 2026-10-29: the radio's stream moved to another sample rate behind the receiver's back and it counted wrong-rate blocks
+// for hours while reporting "running". With no good block for a few seconds it must ask for its own tune again.
+void test_stuck_stream_retunes() {
+  acars_receiver::stop();
+  g_radio = FakeRadio{};
+  acars_receiver::Hooks hooks;
+  hooks.device_ready = [] { return g_radio.ready; };
+  hooks.tune = [](uint32_t c, uint32_t rate) {
+    ++g_radio.tune_calls;
+    g_radio.center = c;
+    g_radio.rate = rate;
+    return true;
+  };
+  hooks.release = [] { ++g_radio.releases; };
+  hooks.sample_rate = [] { return g_radio.rate; };
+  hooks.tuned_center = [] { return g_radio.center; };
+  hooks.now_ms = [] { return g_radio.now; };
+  hooks.utc_epoch = [] { return g_radio.utc; };
+  acars_receiver::install(hooks);
+  static acars_ui::Model model;
+  assert(acars_receiver::start(&model));
+  assert(model.set_custom_frequency(136975000u));
+  assert(acars_receiver::request_channel(136975000u));
+  assert(g_radio.tune_calls == 1);
+  g_radio.now += 1000;
+  std::vector<uint8_t> quiet(8192, 128);
+  for (int i = 0; i < 4; ++i) {                    // a healthy stream: no extra tune
+    acars_receiver::offer_iq(quiet.data(), quiet.size(), 250000);
+    g_radio.now += 500;
+    acars_receiver::service();
+  }
+  assert(g_radio.tune_calls == 1);
+  for (int i = 0; i < 12; ++i) {                   // the stream moves to 2.4 MS/s: 6 s of wrong-rate blocks
+    acars_receiver::offer_iq(quiet.data(), quiet.size(), 2400000);
+    g_radio.now += 500;
+    acars_receiver::service();
+  }
+  assert(g_radio.tune_calls >= 2 && g_radio.tune_calls <= 4);
+  acars_receiver::stop();
+  std::puts("  stuck stream: wrong-rate blocks without a good block ask for the tune again");
+}
+
 }  // namespace
 
 int main() {
@@ -452,6 +494,7 @@ int main() {
   test_two_blocks_not_merged();
   test_adapter();
   test_vdl2_adapter();
+  test_stuck_stream_retunes();
   std::puts("acars_receiver_tests: all passed");
   return 0;
 }

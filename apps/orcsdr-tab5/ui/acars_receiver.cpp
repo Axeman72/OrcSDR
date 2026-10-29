@@ -22,6 +22,7 @@ constexpr uint32_t kGapResetMs = 250;        // longer without a block = an IQ d
 constexpr uint32_t kFlowTimeoutMs = 1500;    // no block for this long = the stream is not running
 constexpr uint32_t kStatsPeriodMs = 500;
 constexpr uint32_t kRetuneRetryMs = 1000;
+constexpr uint32_t kStuckRetuneMs = 3000;    // wrong-rate blocks and no good block for this long: ask for our tune again
 
 struct Rx {
   acars::Frontend240k front;
@@ -67,6 +68,8 @@ bool g_reported = false;         // the model has been told the outcome of the c
 uint32_t g_tune_calls = 0;
 uint32_t g_tune_refused = 0;
 uint32_t g_last_tune_try_ms = 0;
+uint32_t g_wrong_seen = 0;
+uint32_t g_stuck_since_ms = 0;
 
 uint32_t now_ms() { return g_hooks.now_ms ? g_hooks.now_ms() : 0u; }
 
@@ -247,6 +250,7 @@ bool start(acars_ui::Model* model) {
   g_owns_rate = false;
   g_reported = false;
   g_tune_calls = g_tune_refused = 0;
+  g_wrong_seen = g_stuck_since_ms = 0;
   acars_ui::Capabilities caps;
   caps.live_reception = true;       // this receiver decodes live signals; the other capabilities stay off
   g_model->post_capabilities(caps);
@@ -299,6 +303,19 @@ void service() {
   if (!ready) state = acars_ui::ReceiverState::unavailable;
   else if (flowing) state = acars_ui::ReceiverState::running;
   g_model->post_receiver_state(state);
+
+  // Self-heal: if the radio's stream was moved to another rate behind our back (seen live on 2026-10-29: wrong-rate blocks counted
+  // by the million while "running"), no good block arrives and nothing asks for the tune again. Blocks keep arriving at the wrong
+  // rate for kStuckRetuneMs without a good one: ask for our tune again, then keep asking at that interval.
+  const uint32_t wrong = g_wrong_rate.load(std::memory_order_relaxed);
+  if (flowing) g_stuck_since_ms = 0;
+  else if (wrong != g_wrong_seen && g_stuck_since_ms == 0) g_stuck_since_ms = now;
+  g_wrong_seen = wrong;
+  if (g_stuck_since_ms != 0 && ready && g_wanted_hz != 0 && now - g_stuck_since_ms >= kStuckRetuneMs &&
+      now - g_last_tune_try_ms >= kRetuneRetryMs) {
+    try_tune(now);
+    g_stuck_since_ms = now;
+  }
 
   if (flowing && !g_reported && g_hooks.tuned_center && g_hooks.tuned_center() == g_center_hz.load(std::memory_order_relaxed)) {
     g_model->report_tuned(g_channel_hz.load(std::memory_order_relaxed), true);
