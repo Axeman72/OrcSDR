@@ -45,7 +45,7 @@ def main():
     old_mode = re.search(r"mode=(\w+)", old[-1]).group(1)
     print("previous verbosity", old_mode, flush=True)
     seen = {}          # icao -> last frame dict
-    pending = set()    # heard and not yet looked up
+    pending = {}       # icao -> time first queued; heard and not yet looked up (oldest is looked up first)
     rows = []
     f = None
 
@@ -56,7 +56,8 @@ def main():
         row = dict(utc=time.strftime("%H:%M:%S", time.gmtime()), icao=icao, ours=ours, age_s=round(age, 1),
                    web=None if not web else {k: web.get(k) for k in ("r", "flight", "t", "alt_baro", "gs", "track", "lat", "lon", "seen")})
         if web:
-            fresh = age <= MAX_FRAME_AGE_S
+            feed_seen = web.get("seen")        # seconds since the feed last heard the aircraft
+            fresh = age <= MAX_FRAME_AGE_S and isinstance(feed_seen, (int, float)) and feed_seen <= MAX_FRAME_AGE_S
             wa = web.get("alt_baro")
             row["d_alt"] = (wa - ours["alt"]) if fresh and isinstance(wa, (int, float)) and ours["alt"] is not None else None
             row["d_gs"] = (web.get("gs") - ours["gs"]) if fresh and web.get("gs") is not None and ours["gs"] is not None else None
@@ -67,8 +68,8 @@ def main():
               "| d_alt", row.get("d_alt"), "d_gs", row.get("d_gs"), flush=True)
 
     def drain(limit):
-        for icao in sorted(pending)[:limit]:
-            pending.discard(icao)
+        for icao in sorted(pending, key=pending.get)[:limit]:   # oldest queued first, so no aircraft is starved
+            del pending[icao]                                   # removed before the lookup: a new frame queues it again
             check(icao)
 
     try:
@@ -91,7 +92,7 @@ def main():
                     seen[icao] = dict(t=time.time(), cs=m.group(4), alt=int(m.group(5)) if m.group(6) == "1" else None,
                                       gs=int(m.group(7)) if m.group(8) == "1" else None,
                                       hdg=int(m.group(9)) if m.group(10) == "1" else None, tc=int(m.group(3)))
-                    pending.add(icao)
+                    pending.setdefault(icao, time.time())
             if time.time() >= next_check:
                 next_check = time.time() + 60
                 drain(MAX_LOOKUPS_PER_PASS)

@@ -11,7 +11,7 @@ ACARS). Only blocks whose error check passes are shown ("CRC VERIFIED"). Nothing
 ## Is 136.975 MHz the only digital channel?
 No. 136.975 MHz is the common signalling channel, used almost everywhere, so it is the busiest and the one with a preset. Airlines and
 service providers also use other 25 kHz channels in the 136.7 to 137 MHz range (136.725, 136.775, 136.825, 136.875 and 136.925 are the
-usual ones) and, in some regions, 131.525 and 131.725 MHz. Which of them carry traffic near you has to be found by listening: on the
+usual ones; this receiver decodes digital VDL2 only from 136.725 to 136.975 MHz). Which of them carry traffic near you has to be found by listening: on the
 CHANNELS screen, tap `- 25k` or `+ 25k` to step from the current frequency in 25 kHz steps (`CLEAR` returns to the preset). The
 receiver listens to one channel at a time.
 

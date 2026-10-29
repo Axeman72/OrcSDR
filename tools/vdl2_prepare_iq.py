@@ -24,7 +24,9 @@ from pathlib import Path
 ORCIQ_HEADER = struct.Struct('<8sIIIIHBBII')
 MAGIC = b'ORCIQ01\0'
 OUTPUT_RATE = 105000
-MAX_INPUT_BYTES = 256 * 1024 * 1024  # deliberate host-side safety bound
+# Deliberate host-side safety bound. Peak memory is several times the input: the CU8 bytes, a complex64 copy (4x the bytes) and the
+# filtered output, so a capture at this bound needs a host with about 2 GiB of free memory. Split larger captures first.
+MAX_INPUT_BYTES = 256 * 1024 * 1024
 
 
 def load_iq(path: Path, sample_rate: int | None, center_hz: int | None):
@@ -79,25 +81,30 @@ def convert(raw: bytes, source_rate: int) -> bytes:
     return output.tobytes()
 
 
+def publish_exclusive(src: Path, dst: Path) -> None:
+    """Make `dst` appear with the contents of `src`, failing with FileExistsError instead of replacing an existing file."""
+    try:
+        os.link(src, dst)
+    except FileExistsError:
+        raise
+    except (OSError, NotImplementedError):                 # a file system without hard links: create exclusively and copy
+        with src.open('rb') as source, dst.open('xb') as target:
+            target.write(source.read())
+
+
 def prepare(input_path: Path, output_path: Path, rate: int | None,
             center_hz: int | None, channel_hz: int):
     raw, rate, center_hz, kind = load_iq(input_path, rate, center_hz)
     if abs(channel_hz - center_hz) >= OUTPUT_RATE // 2 - 10_000:
         raise ValueError('VDL2 channel is too close to output Nyquist edge; '
                          'record closer to the desired channel center')
-    if output_path.exists() or output_path.with_suffix(output_path.suffix + '.json').exists():
-        raise FileExistsError('Output or metadata already exists; refusing to overwrite')
+    metadata_path = output_path.with_suffix(output_path.suffix + '.json')
+    if output_path.exists() and not metadata_path.exists():
+        output_path.unlink()               # an output without its sidecar is what an interrupted run leaves behind: retry cleanly
+    if output_path.exists() or metadata_path.exists():
+        raise FileExistsError('Output and metadata already exist; refusing to overwrite')
     payload = convert(raw, rate)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=output_path.name + '.', suffix='.tmp', dir=output_path.parent)   # unique per invocation
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, 'wb') as out:
-            out.write(payload)
-        os.replace(tmp, output_path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
     metadata = {
         'capture_origin': str(input_path), 'source_format': kind,
         'source_sample_rate_sps': rate, 'target_sample_rate_sps': OUTPUT_RATE,
@@ -107,13 +114,24 @@ def prepare(input_path: Path, output_path: Path, rate: int | None,
         'processing': 'scipy.signal.resample_poly complex IQ; quantized CU8',
         'no_decoder_run': True,
     }
-    metadata_path = output_path.with_suffix(output_path.suffix + '.json')
+    staged = []                            # temporary files of this invocation
+    created = []                           # final files this invocation published (and so may remove on failure)
     try:
-        metadata_path.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
-    except BaseException:                  # no output without its sidecar: the next attempt must not be blocked by a stale file
-        output_path.unlink(missing_ok=True)
-        metadata_path.unlink(missing_ok=True)
+        for data, final in ((payload, output_path), (json.dumps(metadata, indent=2).encode('utf-8') + b'\n', metadata_path)):
+            fd, tmp_name = tempfile.mkstemp(prefix=final.name + '.', suffix='.tmp', dir=final.parent)   # unique per invocation
+            staged.append(Path(tmp_name))
+            with os.fdopen(fd, 'wb') as out:
+                out.write(data)
+        for tmp, final in zip(staged, (output_path, metadata_path)):
+            publish_exclusive(tmp, final)  # raises FileExistsError if another run got there first: never replaces its file
+            created.append(final)
+    except BaseException:
+        for final in created:              # only what this invocation created
+            final.unlink(missing_ok=True)
         raise
+    finally:
+        for tmp in staged:
+            tmp.unlink(missing_ok=True)
     run_command = ('dumpvdl2 --iq-file ' + shlex.quote(str(output_path)) +
                    ' --sample-format U8 --oversample 1 --centerfreq ' +
                    str(center_hz) + ' ' + str(channel_hz))
