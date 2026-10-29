@@ -753,6 +753,7 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
   if (dfdau_climb_block(t, at, r)) any = true;
   if (dfdau_sw_header(t, at, r)) any = true;
   if (dfdau_sw_samples(t, at, r)) any = true;
+  r.decoded = any;                       // false: only the unit is known; interpret_h1 and interpret() keep that
   if (!any) {
     add_line(r, "Data block from the flight data recorder unit. Layout not decoded yet; raw text is shown above.");
     set_summary(r, "Flight data unit block");
@@ -765,6 +766,28 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
 // The date and time, and the position, describe themselves and were checked (the time matches the receive time to two seconds; the
 // positions form a track that ends at the destination airport). The ten other numbers are not documented anywhere found, so they
 // are shown as received and not named. Their likely meanings are research notes in INTERPRETER.md, not on screen.
+// "N 44.045 W 122.171" (label 32 from one carrier) or "N44.230 W121.750" (the same carrier's other variant, live 2026-10-29).
+bool parse_spaced_position(const char* p, size_t n, char* ns, unsigned* lat, char* ew, unsigned* lon) {
+  if (n < 10 || (p[0] != 'N' && p[0] != 'S')) return false;
+  size_t i = 1;
+  if (p[i] == ' ') ++i;
+  const size_t a = i;
+  while (i < n && p[i] != ' ') ++i;
+  const size_t e = i;
+  if (i + 2 > n) return false;
+  ++i;
+  if (p[i] != 'E' && p[i] != 'W') return false;
+  const char hemi = p[i];
+  ++i;
+  if (i < n && p[i] == ' ') ++i;
+  bool neg = false;
+  if (!parse_decimal(p + a, e - a, lat, &neg) || neg || *lat > 90000u) return false;
+  if (!parse_decimal(p + i, n - i, lon, &neg) || neg || *lon > 180000u) return false;
+  *ns = p[0];
+  *ew = hemi;
+  return true;
+}
+
 bool interpret_label32(const Text& t, Interpretation& r, bool altitude_known) {
   if (t.n < 40 || !is_upper(t.at(10)) || t.at(11) != ',') return false;   // "P" here, "N" in a community sample
   struct F { const char* s; size_t n; } f[20];
@@ -783,20 +806,12 @@ bool interpret_label32(const Text& t, Interpretation& r, bool altitude_known) {
   const unsigned month = dec(d + 5, 2), day = dec(d + 8, 2);
   char hms[7] = {d[11], d[12], d[14], d[15], d[17], d[18], '\0'};
   if (month < 1 || month > 12 || day < 1 || day > 31 || !valid_hms(hms)) return false;
-  // Position: "N 44.045 W 122.171".
-  const char* p = f[4].s;
-  const size_t pn = f[4].n;
-  if (pn < 10 || (p[0] != 'N' && p[0] != 'S') || p[1] != ' ') return false;
-  size_t sp = 2;
-  while (sp < pn && p[sp] != ' ') ++sp;
-  if (sp + 3 >= pn || (p[sp + 1] != 'E' && p[sp + 1] != 'W') || p[sp + 2] != ' ') return false;
   unsigned lat = 0, lon = 0;
-  bool neg = false;
-  if (!parse_decimal(p + 2, sp - 2, &lat, &neg) || neg || lat > 90000u) return false;
-  if (!parse_decimal(p + sp + 3, pn - sp - 3, &lon, &neg) || neg || lon > 180000u) return false;
+  char ns = 'N', ew = 'W';
+  if (!parse_spaced_position(f[4].s, f[4].n, &ns, &lat, &ew, &lon)) return false;
   char lat_s[16], lon_s[16], when[12];
-  fmt_coord(lat_s, sizeof(lat_s), p[0], lat);
-  fmt_coord(lon_s, sizeof(lon_s), p[sp + 1], lon);
+  fmt_coord(lat_s, sizeof(lat_s), ns, lat);
+  fmt_coord(lon_s, sizeof(lon_s), ew, lon);
   fmt_hms(when, sizeof(when), hms);
   set_headline(r, "POSITION REPORT");
   add_line(r, "Position %s %s   Reported %.10s %s", lat_s, lon_s, d, when);
@@ -870,6 +885,98 @@ bool interpret_label33(const Text& t, Interpretation& r) {
   return true;
 }
 
+// Label 22 position report seen from one low-cost carrier (live, 2026-10-29, flights at FL300 to FL380):
+//   "N 440914W1213321,-------,152006,37929, ,      , ,M 59,23777  62, 104,"
+// Position as degrees, minutes and seconds (44 09 14 N, 121 33 21 W), then a time hhmmss, then a number that behaves like an altitude
+// in feet (30210, 20246 and 37966 on three climbs and a cruise) and an "M 59" that behaves like a temperature (M = minus, as in ARINC
+// weather groups; -59 C at 37929 ft is 3 C below the standard atmosphere). Two consecutive fixes 5 minutes apart are 33 nm apart,
+// which is 400 kt. Altitude and temperature are shown as probable; the remaining numbers are not named.
+bool interpret_label22(const Text& t, Interpretation& r) {
+  if (t.n < 40 || (t.at(10) != 'N' && t.at(10) != 'S') || t.at(11) != ' ' || !all_digits(t.p + 12, 6) || (t.at(18) != 'E' && t.at(18) != 'W') ||
+      !all_digits(t.p + 19, 7) || t.at(26) != ',')
+    return false;
+  const unsigned lat_d = dec(t.p + 12, 2), lat_m = dec(t.p + 14, 2), lat_s = dec(t.p + 16, 2);
+  const unsigned lon_d = dec(t.p + 19, 3), lon_m = dec(t.p + 22, 2), lon_s = dec(t.p + 24, 2);
+  if (lat_d > 90 || lon_d > 180 || lat_m > 59 || lon_m > 59 || lat_s > 59 || lon_s > 59) return false;
+  size_t i = 27;
+  while (i < t.n && t.at(i) != ',') ++i;                       // the field of dashes
+  if (i >= t.n) return false;
+  ++i;
+  if (!all_digits(t.p + i, 6) || t.at(i + 6) != ',' || !valid_hms(t.p + i)) return false;
+  char hms[7];
+  std::memcpy(hms, t.p + i, 6);
+  hms[6] = '\0';
+  i += 7;
+  const size_t alt_at = i;
+  while (is_digit(t.at(i))) ++i;
+  const size_t alt_n = i - alt_at;
+  const bool have_alt = alt_n >= 3 && alt_n <= 5 && t.at(i) == ',';
+  const unsigned lat_milli = lat_d * 1000u + ((lat_m * 60u + lat_s) * 1000u) / 3600u;
+  const unsigned lon_milli = lon_d * 1000u + ((lon_m * 60u + lon_s) * 1000u) / 3600u;
+  char lat_str[16], lon_str[16], when[12];
+  fmt_coord(lat_str, sizeof(lat_str), t.at(10), lat_milli);
+  fmt_coord(lon_str, sizeof(lon_str), t.at(18), lon_milli);
+  fmt_hms(when, sizeof(when), hms);
+  // Temperature: "M 59" or "P 12" a few fields after the altitude.
+  int temp = 0;
+  bool have_temp = false;
+  for (size_t k = i, commas = 0; k + 3 < t.n && commas < 6; ++k) {
+    if (t.at(k) == ',') {
+      ++commas;
+      if ((t.at(k + 1) == 'M' || t.at(k + 1) == 'P') && t.at(k + 2) == ' ' && all_digits(t.p + k + 3, 2)) {
+        temp = static_cast<int>(dec(t.p + k + 3, 2));
+        if (t.at(k + 1) == 'M') temp = -temp;
+        have_temp = true;
+        break;
+      }
+    }
+  }
+  set_headline(r, "POSITION REPORT");
+  add_line(r, "Position %s %s   Reported %s", lat_str, lon_str, when);
+  if (have_alt && have_temp) add_line(r, "Altitude %.*s ft (probable)   Outside air %dC (probable)", static_cast<int>(alt_n), t.p + alt_at, temp);
+  else if (have_alt) add_line(r, "Altitude %.*s ft (probable)", static_cast<int>(alt_n), t.p + alt_at);
+  set_summary(r, "Position %s %s %s", lat_str, lon_str, when);
+  return true;
+}
+
+// Label 10 "LDR01" report seen from one carrier (live, 2026-10-29, cruise at FL370 to FL400):
+//   "LDR01,189,D,SWA-2600-019,0,N 43.779,W122.100,40003, 11.2,KSMF,KSEA,KSEA,16R/,16L/,..."
+// The position and the airport codes describe themselves and the position moves along a plausible track between consecutive reports.
+// The 5 digit number after the position behaves like an altitude in feet, and is shown as probable. What "LDR01" and the other
+// numbers are is not published anywhere found; they are left out.
+bool interpret_label10_ldr(const Text& t, Interpretation& r) {
+  if (!t.has(10, "LDR")) return false;
+  struct F { const char* s; size_t n; } f[16];
+  size_t nf = 0, start = 10;
+  for (size_t i = 10; i <= t.n && nf < 16; ++i) {
+    if (i == t.n || t.at(i) == ',') {
+      f[nf++] = {t.p + start, i - start};
+      start = i + 1;
+    }
+  }
+  if (nf < 11 || f[5].n < 8 || f[6].n < 8) return false;
+  // "N 43.779" and "W122.100" joined with a space for the shared parser.
+  char joined[40];
+  const int n = std::snprintf(joined, sizeof(joined), "%.*s %.*s", static_cast<int>(f[5].n), f[5].s, static_cast<int>(f[6].n), f[6].s);
+  if (n <= 0 || static_cast<size_t>(n) >= sizeof(joined)) return false;
+  char ns = 'N', ew = 'W';
+  unsigned lat = 0, lon = 0;
+  if (!parse_spaced_position(joined, static_cast<size_t>(n), &ns, &lat, &ew, &lon)) return false;
+  char lat_s[16], lon_s[16];
+  fmt_coord(lat_s, sizeof(lat_s), ns, lat);
+  fmt_coord(lon_s, sizeof(lon_s), ew, lon);
+  set_headline(r, "POSITION REPORT");
+  const bool have_alt = f[7].n >= 4 && f[7].n <= 5 && all_digits(f[7].s, f[7].n);
+  bool airports = f[9].n == 4 && f[10].n == 4;
+  for (size_t k = 9; k < 11 && airports; ++k)
+    for (size_t q = 0; q < 4; ++q) airports = airports && is_upper(f[k].s[q]);
+  add_line(r, "Position %s %s%s%.*s%s", lat_s, lon_s, have_alt ? "   Altitude " : "", have_alt ? static_cast<int>(f[7].n) : 0, f[7].s,
+           have_alt ? " ft (probable)" : "");
+  if (airports) add_line(r, "Airports listed: %.4s and %.4s", f[9].s, f[10].s);
+  set_summary(r, "Position %s %s", lat_s, lon_s);
+  return true;
+}
+
 // Central fault display (H1 sub-label CF) event list seen from one regional carrier (three distinct messages, one resent):
 //   "FDE0633591029ABZ 06315707301    0    0 06315707308    0    0 06320507310    0    0"
 // Structure: group tag "FDE", report time hhmmss, "1029ABZ" (not understood), then entries of hhmmss + a five digit code + two numbers
@@ -883,15 +990,16 @@ bool interpret_cf(const Text& t, size_t at, Interpretation& r) {
   char tag[12];
   size_t tag_len = 0;
   size_t i = at + 9;
-  while (i < t.n && t.at(i) != ' ' && tag_len + 1 < sizeof(tag)) tag[tag_len++] = t.at(i++);
+  auto is_ws = [](char c) { return c == ' ' || c == '\r' || c == '\n'; };
+  while (i < t.n && !is_ws(t.at(i)) && tag_len + 1 < sizeof(tag)) tag[tag_len++] = t.at(i++);
   tag[tag_len] = '\0';
   struct Entry { char hms[7]; char code[6]; } e[10];
   size_t shown = 0, total = 0;
   size_t s = 0, len = 0;
   auto next = [&]() {
-    while (i < t.n && t.at(i) == ' ') ++i;
+    while (i < t.n && is_ws(t.at(i))) ++i;
     s = i;
-    while (i < t.n && t.at(i) != ' ') ++i;
+    while (i < t.n && !is_ws(t.at(i))) ++i;
     len = i - s;
     return len > 0;
   };
@@ -1019,15 +1127,21 @@ bool interpret_arinc622(const Text& t, size_t at, Interpretation& r) {
 // After "TI2/" come: preferred characters per display line (3 digits), airport (4 letters), request type (1 letter) and a 4 digit hex
 // CRC, the same CRC-16 as above over "TI2/" and the eight data characters.
 bool interpret_atis_request(const Text& t, Interpretation& r) {
-  if (t.at(10) != '/' || !is_upper(t.at(11)) || t.at(15) != '.' || t.at(16) != 'T' || t.at(17) != 'I' || !is_digit(t.at(18)) || t.at(19) != '/') return false;
-  if (t.n != 20 + 8 + 4 || !all_digits(t.p + 20, 3)) return false;
-  for (size_t i = 23; i < 27; ++i)
+  // The station is 4 to 7 letters or digits ("KSEA", "ATSUAXA" live), so every later index moves by `o`.
+  if (t.at(10) != '/') return false;
+  size_t dot = 11;
+  while (dot < 18 && (is_upper(t.at(dot)) || is_digit(t.at(dot)))) ++dot;
+  if (dot < 15 || t.at(dot) != '.') return false;
+  const size_t o = dot - 15;
+  if (t.at(16 + o) != 'T' || t.at(17 + o) != 'I' || !is_digit(t.at(18 + o)) || t.at(19 + o) != '/') return false;
+  if (t.n != 32 + o || !all_digits(t.p + 20 + o, 3)) return false;
+  for (size_t i = 23 + o; i < 27 + o; ++i)
     if (!is_upper(t.at(i))) return false;
-  const char kind = t.at(27);
-  for (size_t i = 28; i < 32; ++i)
+  const char kind = t.at(27 + o);
+  for (size_t i = 28 + o; i < 32 + o; ++i)
     if (!is_hex_digit(t.at(i))) return false;
-  const unsigned want = (hex_value(t.at(28)) << 12) | (hex_value(t.at(29)) << 8) | (hex_value(t.at(30)) << 4) | hex_value(t.at(31));
-  const unsigned got = crc16_arinc(reinterpret_cast<const unsigned char*>(t.p + 16), 12, 0xFFFFu) ^ 0xFFFFu;
+  const unsigned want = (hex_value(t.at(28 + o)) << 12) | (hex_value(t.at(29 + o)) << 8) | (hex_value(t.at(30 + o)) << 4) | hex_value(t.at(31 + o));
+  const unsigned got = crc16_arinc(reinterpret_cast<const unsigned char*>(t.p + 16 + o), 12, 0xFFFFu) ^ 0xFFFFu;
   if (got != want) return false;
   const char* what = nullptr;
   switch (kind) {
@@ -1039,9 +1153,9 @@ bool interpret_atis_request(const Text& t, Interpretation& r) {
     default: return false;
   }
   set_headline(r, "AIRPORT WEATHER (ATIS) REQUEST");
-  add_line(r, "Aircraft asks station %.4s for %.4s %s", t.p + 11, t.p + 23, what);
-  add_line(r, "Display width %.3s characters   checksum OK", t.p + 20);
-  set_summary(r, "ATIS request %.4s", t.p + 23);
+  add_line(r, "Aircraft asks station %.*s for %.4s %s", static_cast<int>(4 + o), t.p + 11, t.p + 23 + o, what);
+  add_line(r, "Display width %.3s characters   checksum OK", t.p + 20 + o);
+  set_summary(r, "ATIS request %.4s", t.p + 23 + o);
   return true;
 }
 
@@ -1058,12 +1172,14 @@ bool interpret_h1(const MessageRecord& m, const Text& t, Interpretation& r) {
   else if (a == 'D' && b == 'F') done = interpret_dfdau(t, body, r);
   else if (a == 'C' && b == 'F') done = interpret_cf(t, body, r);
   if (done) {
-    // The first line identifies the message, then the decoded lines follow.
+    // The first line identifies the message, then the decoded lines follow. Only the flight data unit parser says when it understood nothing.
+    const bool really_decoded = (a == 'D' && b == 'F') ? r.decoded : true;
     Interpretation tmp = r;
+    tmp.decoded = really_decoded;
     r.line_count = 0;
     add_header_line(r, h);
     for (size_t i = 0; i < tmp.line_count && r.line_count < kInterpLines; ++i) add_line(r, "%s", tmp.lines[i]);
-    if (unit) { /* unit name already in the headline */ }
+    r.decoded = really_decoded;
     return true;
   }
   char head[48];
@@ -1075,6 +1191,7 @@ bool interpret_h1(const MessageRecord& m, const Text& t, Interpretation& r) {
   add_header_line(r, h);
   add_line(r, "Layout of this %s message is not decoded; raw text is shown above.", unit ? unit : "sub-label");
   set_summary(r, "%s %s", unit ? unit : "H1", h.flight);
+  r.decoded = false;                      // the unit is named, the text is not understood
   return true;
 }
 
@@ -1100,6 +1217,7 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
   const Text t{m.text, m.has_text ? m.text_length : 0u};
   const char* l = m.label;
   bool ok = false;
+  bool h1_decoded = true;
   if (l[0] == 'A' && l[1] == 'V' && m.mode == '2') {
     // A VDL2 data frame that is not ACARS, kept as received (acars_receiver). The label is ours, not an ACARS label.
     set_headline(r, "VDL2 DATA FRAME");
@@ -1124,10 +1242,22 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
     add_line(r, "Demand-mode ping used to keep or test the radio link.");
     set_summary(r, "Link ping");
     ok = true;
-  } else if (l[0] == 'H' && l[1] == '1') ok = interpret_h1(m, t, r);
+  } else if (l[0] == 'H' && l[1] == '1') {
+    ok = interpret_h1(m, t, r);
+    h1_decoded = ok && r.decoded;
+  }
   else if (l[0] == '2' && l[1] == '1') {
     const Header h = parse_header(m, t);
     if (h.ok && interpret_label21(t, 10, r)) {
+      Interpretation tmp = r;
+      r.line_count = 0;
+      add_header_line(r, h);
+      for (size_t i = 0; i < tmp.line_count && r.line_count < kInterpLines; ++i) add_line(r, "%s", tmp.lines[i]);
+      ok = true;
+    }
+  } else if ((l[0] == '2' && l[1] == '2') || (l[0] == '1' && l[1] == '0')) {
+    const Header h = parse_header(m, t);
+    if (h.ok && (l[0] == '2' ? interpret_label22(t, r) : interpret_label10_ldr(t, r))) {
       Interpretation tmp = r;
       r.line_count = 0;
       add_header_line(r, h);
@@ -1179,7 +1309,7 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
     ok = true;
   }
   r.recognised = ok;
-  r.decoded = parsed;
+  r.decoded = parsed && h1_decoded;
   return ok;
 }
 

@@ -49,4 +49,10 @@ run acars_receiver_tests -I"$UI" -I"$ROOT/tests" "${RECEIVER[@]}"
 if [[ "${SANITIZE:-1}" == "1" ]]; then
   run acars_receiver_tests_asan -fsanitize=address,undefined -fno-sanitize-recover=all -I"$UI" -I"$ROOT/tests" "${RECEIVER[@]}"
 fi
+# Real blocks captured on 2026-10-29 (tests/data): nothing may crash, break the screen contract, or fall below the decoded share of the
+# day it was cut from. The share rises as formats are added; raise the number with it.
+CORPUS=("$ROOT/tests/acars_corpus_check.cpp" "$UI/acars_archive.cpp" "${MODEL[@]}")
+echo "== acars_corpus_check"
+g++ "${FLAGS[@]}" -fsanitize=address,undefined -fno-sanitize-recover=all -I"$UI" "${CORPUS[@]}" -o "$OUT/acars_corpus_check"
+"$OUT/acars_corpus_check" "$ROOT/tests/data/acars_corpus_2026-10-29.jsonl" --strict --examples 0 --min-decoded-percent 40 2>&1 | tee -a "$OUT/ui-tests.log"
 echo "ACARS UI host tests passed (log: build/acars/ui-tests.log)"

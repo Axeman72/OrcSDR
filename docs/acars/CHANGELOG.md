@@ -6,6 +6,14 @@ This file tracks ACARS dashboard and decoder changes. The repository has no repo
 
 ## 2026-10-29 (evening) - Review of the overnight run, `#DFB` sample blocks and label 33
 
+- Robustness pass over a whole day of real blocks (2,393 from the SD log; harness `tests/acars_corpus_check.cpp`, ASan/UBSan, now part of `tools/test-acars-ui.sh` with a 329 block sample in `tests/data/`):
+  - The decoded share was overstated: every flight-data block counted as decoded even when the screen said the layout was not. `decoded` is now true only when text was understood. Honest share of the day: 57%.
+  - Fixed: label 32 variant without spaces; D-ATIS station of 4 to 7 characters; fault-display lists with line breaks in the text.
+  - Added: label 22 position report (degrees, minutes, seconds) and label 10 `LDR01` position with airports, both with altitude/temperature marked probable.
+  - Receiver self-heal: wrong-rate blocks for 3 s with no good block ask for the tune again (the receiver was stuck once overnight and recovered only after reopening ACARS).
+  - ARCHIVE store raised from 300 to 2000 blocks (PSRAM), 1 MiB of the log read at boot. Not flashed.
+  - United `PNM`/`HYDN` reports (5 s samples with altitude, outside air temperature and Mach) are readable but need blocks joined across a message; not built.
+
 - Later: label 17 uses the label 32 layout; Southwest climb position block (`CL`); ARINC 622 envelope parser with CRC check (`#M1B/BA ...AT1...`); D-ATIS request decoder for label B9 (`.TI2/`). Basis: `research/FORMAT_DOCS_RESEARCH.md`. CRC verified independently on the spec examples and live blocks. 713 messages in the next 1h52m on the new firmware (no gaps, 29 ms per block). Seen but not yet decoded: self-describing engine/air-data lines from GS0001 (`M1B ... 7.25000 mbar T20 (FROM ADC2)`), Alaska `#DFBE329KSMFKSEAN43046W121575...` and `#DFBD3B029KPDXKLASN44543W12201...`.
 - Overnight run: unit up 6.75 h, 712 messages counted, 1063 verified frames, no gaps or drops, decoder 28.2 ms average and 143 ms worst per 65 ms block. Only the last 300 blocks (13:31-14:21Z) survive: the SD archive is a 300-block ring and the screen holds 48, so the earlier part of the night is lost (counters only).
 - Interpreter: Southwest `#DFB` header block (type, date, flight, route) and sample blocks (time, altitude, speed, Mach), and label 33 position reports. Host tests pass under ASan/UBSan.

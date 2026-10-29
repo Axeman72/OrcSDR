@@ -361,6 +361,26 @@ void live_vdl2_formats() {
   CHECK(!interpret(make("B9", '9', '?', "L03AAS0608/KSEA.TI2/024KSEAA3BC4"), r) || std::strcmp(r.headline, "AIRPORT WEATHER (ATIS) REQUEST") != 0);
   CHECK(!interpret(make("B9", '9', '?', "L03AAS0608/KSEA.TI2/024KSEAX3BC3"), r) || std::strcmp(r.headline, "AIRPORT WEATHER (ATIS) REQUEST") != 0);
 
+  // Variants found by running the interpreter over a whole day of real blocks (2026-10-29).
+  // A seven-letter D-ATIS station.
+  CHECK(interpret(make("B9", '9', '?', "M61AUA0677/ATSUAXA.TI2/024KSFOC61DE"), r) && std::strcmp(r.headline, "AIRPORT WEATHER (ATIS) REQUEST") == 0);
+  CHECK(any_line_contains(r, "station ATSUAXA for KSFO"));
+  // Label 32 without the spaces after the hemisphere letters.
+  CHECK(interpret(make("32", '9', '?', "M32AOO6290P,R,2026-10-29 13:57:13,7920,67700,N44.230 W121.750,29592,242,"), r) && r.decoded &&
+        any_line_contains(r, "44.230N 121.750W"));
+  // Label 22 (position in degrees, minutes and seconds) and label 10 "LDR01".
+  CHECK(interpret(make("22", '9', '?', "M50AF92407N 440914W1213321,-------,152006,37929, ,      , ,M 59,23777  62, 104,"), r) && r.decoded);
+  CHECK(any_line_contains(r, "44.153N 121.555W") && any_line_contains(r, "15:20:06Z") && any_line_contains(r, "Altitude 37929 ft (probable)   Outside air -59C"));
+  CHECK(!interpret(make("22", '9', '?', "M50AF92407N 446114W1213321,-------,152006,37929, ,      , ,M 59,23777  62, 104,"), r) || !r.decoded);
+  CHECK(interpret(make("10", '9', '?', "M23AWN3972LDR01,189,D,SWA-2600-019,0,N 43.779,W122.100,40003, 11.2,KSMF,KSEA,KSEA,16R/,16L/,/,1,1,"), r) && r.decoded);
+  CHECK(any_line_contains(r, "43.779N 122.100W") && any_line_contains(r, "Altitude 40003 ft (probable)") && any_line_contains(r, "KSMF and KSEA"));
+  // Fault display entries separated by line breaks, as logged.
+  CHECK(interpret(make("H1", '1', '?', "C87AOO137C#CFBFDE0633591029ABZ\n06315707301   0   0\n06315707308   0   0\n06320507310   0   0\n"), r) && r.decoded &&
+        any_line_contains(r, "3 entries"));
+  // A flight data unit block with no known layout is recognised but not "decoded": the number shown for coverage must stay honest.
+  CHECK(interpret(make("H1", '9', '?', "D43FUA1220#DFB5.810.446    97    973511-0000\r\n1100  8183  8248"), r) && !r.decoded);
+  CHECK(interpret(make("H1", '9', '?', "F13BAS0574#M1B5,180,P0,M12/FHHYJOE,010851,268K"), r) && !r.decoded);
+
   // A VDL2 data frame that is not ACARS, kept as raw hex by the receiver.
   MessageRecord av = make("AV", '?', '\0', "2143658711234567008280AA550102");
   std::snprintf(av.tail, sizeof(av.tail), "%s", "1468D2A");
