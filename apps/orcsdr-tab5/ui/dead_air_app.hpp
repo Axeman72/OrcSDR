@@ -38,7 +38,8 @@ struct Hooks {
 };
 
 void install(const Hooks& hooks);
-void open();                       // screen opened: allocate state, start worker, first draw
+bool ready_to_open();              // waits for the last session's worker; false = cannot open now (do not retune the radio)
+void open();                    // screen opened: allocate state, start worker, first draw
 void close();                      // left for any reason; stops the worker and closes the file
 void tick();                       // main loop: build snapshot, run detector, repaint on change
 void draw(bool static_panel);      // refresh requested by the ScreenController

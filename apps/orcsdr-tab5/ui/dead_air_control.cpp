@@ -35,6 +35,7 @@ void ControlRun::tick(uint32_t now_ms) {
 
 void ControlRun::observe(const RfObservation& sample) {
   if (!running_) return;
+  if (sample.monotonic_ms - start_ms_ >= duration_ms_) return;  // at or past the deadline: tick() ends the run
   const bool measured = sample.valid && sample.settled;
   if (measured) {
     // Only time between consecutive measured samples counts; a retune or a lost receiver is a gap, not quiet.

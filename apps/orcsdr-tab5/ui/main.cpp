@@ -14648,6 +14648,7 @@ void open_dead_air_dashboard() {
   orcsdr::acars_app::close();
   rtl_rate_override_sps.store(0, std::memory_order_release);
   orcsdr::dead_air_app::install(dead_air_app_hooks());
+  if (!orcsdr::dead_air_app::ready_to_open()) return;  // the last session is still closing: leave the radio where it is
   // Keep the current tuning when a receiver is running; otherwise start on the general receive default.
   const uint32_t hz = rtl_ui_frequency_hz ? rtl_ui_frequency_hz : kRtlBrowseDefaultHz;
   (void)queue_local_rtl_listen(RtlBand::browse, hz, false);

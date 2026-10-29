@@ -76,8 +76,8 @@ const char* const kEnvironment[] = {
     "Not found  the fields show a dash. Nothing is estimated and",
     "           no earlier value is shown as if it were current.",
     "",
-    "Environment readings are context only. They are not used to",
-    "trigger events.",
+    "A temperature, humidity or pressure reading held away from its",
+    "learned baseline is logged as an event (see the Events tab).",
 };
 
 const char* const kEvents[] = {

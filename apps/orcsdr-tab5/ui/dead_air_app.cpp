@@ -245,6 +245,7 @@ bool g_open = false;
 std::atomic<AudioRing*> g_ring{nullptr};
 std::atomic<PcmRing*> g_rx_ring{nullptr};   // DSP thread writes the receiver audio here
 std::atomic<bool> g_replaying{false};        // a clip is playing through the speaker
+std::atomic<uint32_t> g_rx_writers{0};      // DSP-thread calls currently inside offer_audio's ring write
 std::atomic<PcmRing*> g_mic_ring{nullptr};  // the mic task writes room audio here
 std::atomic<bool> g_audio_wanted{false};
 uint8_t g_last_action = 0;     // diagnostic: last touch action kind seen by the app
@@ -670,6 +671,10 @@ void* psram_alloc(size_t bytes) {
 void release_audio_buffers(State& s) {
   vTaskDelay(pdMS_TO_TICKS(50));  // an audio callback or speaker DMA that loaded a pointer just before close() finishes
   if (g_open) return;             // the screen was reopened meanwhile: the buffers are in use again
+  // The DSP thread may be inside ring_write on the receiver ring; wait for it to leave (bounded). If it does not, keep the
+  // buffers: the next open() reuses them.
+  for (int i = 0; i < 50 && g_rx_writers.load(std::memory_order_acquire) != 0; ++i) vTaskDelay(pdMS_TO_TICKS(10));
+  if (g_rx_writers.load(std::memory_order_acquire) != 0 || g_open) return;
   s.replay_pcm = nullptr;  // borrowed from the mic ring: freed with it
   for (int16_t** p : {&s.rx.ring.pcm, &s.mic.ring.pcm, &s.chime_pcm}) {
     int16_t* buffer = *p;
@@ -1330,14 +1335,18 @@ bool levels_moved(const Snapshot& a, const Snapshot& b) {
 void install(const Hooks& hooks) { g_hooks = hooks; }
 bool active() { return g_open && dead_air::active(); }
 
-void open() {
-  if (!ready_hooks() || !ensure_state()) return;
+bool ready_to_open() {
+  if (!ready_hooks() || !ensure_state()) return false;
   State& s = *g_state;
-  {  // The previous session's worker frees the audio buffers as its last act: let it finish before they are allocated again.
-    const uint32_t begin = millis();
-    while (s.worker.alive.load(std::memory_order_acquire) && millis() - begin < kWorkerStopWaitMs) vTaskDelay(pdMS_TO_TICKS(10));
-    if (s.worker.alive.load(std::memory_order_acquire)) return;
-  }
+  // The previous session's worker frees the audio buffers as its last act: let it finish before they are allocated again.
+  const uint32_t begin = millis();
+  while (s.worker.alive.load(std::memory_order_acquire) && millis() - begin < kWorkerStopWaitMs) vTaskDelay(pdMS_TO_TICKS(10));
+  return !s.worker.alive.load(std::memory_order_acquire);
+}
+
+void open() {
+  if (!ready_to_open()) return;
+  State& s = *g_state;
   const uint32_t now = millis();
   s.model.reset();
   s.model.set_listener(on_event, &s);
@@ -1362,6 +1371,8 @@ void open() {
   s.rx.refused_no_audio = s.rx.refused_busy = s.rx.refused_limit = 0;
   // The microphone starts every session OFF; only an explicit tap turns it on.
   s.mic.enabled = false;
+  s.mic_resume = false;  // a replay from the last session must not switch the mic on in this one
+  s.mic_resume_due_ms = 0;
   s.mic.saved.store(0, std::memory_order_relaxed);
   s.mic.failed.store(0, std::memory_order_relaxed);
   s.mic.refused_no_audio = s.mic.refused_busy = s.mic.refused_limit = 0;
@@ -1794,7 +1805,9 @@ void touch(int32_t x, int32_t y) {
 void offer_audio(const int16_t* pcm, size_t count) {
   AudioRing* r = g_ring.load(std::memory_order_acquire);
   if (!r || !pcm || count == 0) return;
+  g_rx_writers.fetch_add(1, std::memory_order_acq_rel);  // announced before the ring pointer is read: release_audio_buffers waits for 0
   if (PcmRing* ring = g_rx_ring.load(std::memory_order_acquire)) ring_write(*ring, pcm, count);
+  g_rx_writers.fetch_sub(1, std::memory_order_acq_rel);
   AudioBucket out[4];
   const size_t m = r->meter.feed(pcm, count, out, 4);
   for (size_t i = 0; i < m; ++i) {

@@ -953,8 +953,10 @@ void scrub() {
                   static_cast<double>(e->value), static_cast<double>(e->reference), static_cast<double>(e->value - e->reference),
                   static_cast<double>(e->threshold));
     label(text, 40, 452, TFT_WHITE, 2);
-  } else if (e) {
+  } else if (e && e->source == Source::manual) {
     label("A mark you made: it carries no measurement, only the trace around it.", 40, 452, TFT_WHITE, 2);
+  } else if (e) {
+    label("A sensor reading moved away from its baseline; see the Events detail.", 40, 452, TFT_WHITE, 2);
   } else {
     label("This event has left the 48 kept in memory; its trace is still shown.", 40, 452, kMuted, 2);
   }
@@ -1408,7 +1410,10 @@ void fx_event(const Event& event, uint32_t now_ms) {
   else if (event.kind == Kind::manual_marker) kind = FxKind::mark;
   g_fx.trigger(kind, event.value - event.reference, event.sequence, now_ms);
 }
-void fx_idle(bool live, float proximity) { g_fx.set_idle(live, proximity); }
+void fx_idle(bool live, float proximity) {
+  if (g_fx.live() != live) g_fx_dirty = true;  // losing the receiver dims the orb even when nothing else changed
+  g_fx.set_idle(live, proximity);
+}
 
 namespace {
 M5Canvas* make_fx_canvas(int size) {
@@ -1523,8 +1528,18 @@ Action handle_touch(int32_t x, int32_t y, uint32_t now_ms) {
   if (y >= kTabY && y < kTabY + kTabHeight) {
     for (uint8_t i = 0; i < static_cast<uint8_t>(Page::count); ++i) {
       if (hit(x, y, kTabX + i * (kTabWidth + kTabGap), kTabY, kTabWidth, kTabHeight)) {
-        if (g_page != static_cast<Page>(i)) switch_page(static_cast<Page>(i));
-        return {};
+        if (g_page != static_cast<Page>(i)) {
+          switch_page(static_cast<Page>(i));
+          return {};
+        }
+        if (g_overlay == Overlay::none) return {};
+        // A tap on the current page's tab dismisses the open overlay, like its CLOSE button.
+        const Overlay closed = g_overlay;
+        g_overlay = Overlay::none;
+        g_scrub_cursor = -1;
+        if (g_scope) { g_scope->a_state = -1; g_scope->a_prev_n = 0; g_scope->prev_n = 0; }
+        draw_body(true);
+        return closed == Overlay::scrub ? Action{ActionKind::scrub_close, 0} : Action{};
       }
     }
   }

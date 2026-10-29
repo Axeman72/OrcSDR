@@ -95,6 +95,33 @@ int main() {
     snap.revision = 22;                         // back to the no-receiver snapshot the rest of this test expects
     da::update(snap);
   }
+  // Environment readings that change: the displayed value follows, and the whole screen is never cleared.
+  {
+    da::Snapshot env = snap;
+    env.environment_sensor_attached = true;
+    env.temperature_c = {21.0f, 0, 0, true, true, true};
+    env.humidity_rh = {40.0f, 0, 0, true, true, true};
+    env.pressure_hpa = {1013.0f, 0, 0, true, true, true};
+    env.revision = 30;
+    host_display::reset();
+    da::update(env);
+    assert(displayed("MODULE DETECTED") && displayed("21.0") && displayed("1013.0"));
+    for (int step = 1; step <= 4; ++step) {
+      env.temperature_c.value = 21.0f + step * 1.5f;
+      env.humidity_rh.value = 40.0f + step * 2.0f;
+      env.pressure_hpa.value = 1013.0f - step * 0.5f;
+      env.revision = 30 + step;
+      host_display::reset();
+      da::update(env);
+      char want[16];
+      std::snprintf(want, sizeof(want), "%.1f", static_cast<double>(env.temperature_c.value));
+      assert(displayed(want));
+      validate_bounds();
+      for (const Prim& p : host_display::prims) assert(!(p.kind == Prim::fill && p.w >= 1280 && p.h >= 700));
+    }
+    snap.revision = 40;                         // back to the absent-sensor snapshot
+    da::update(snap);
+  }
   // The orb: a dim still ring with nothing measured, a breathing glow when a level is measured, a burst when an event
   // is logged. It paints a big orb on the Overview and a small one in the header, in bounds, and is throttled.
   {

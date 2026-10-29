@@ -38,6 +38,7 @@ class Fx {
   void trigger(FxKind kind, float rise_db, uint32_t sequence, uint32_t now_ms);
   // `proximity` is 0..1: how close the live level is to the event limit. `live` is false when nothing is measured.
   void set_idle(bool live, float proximity);
+  bool live() const { return live_; }
   bool animating(uint32_t now_ms) const;
   FxFrame frame(uint32_t now_ms) const;
   void reset();
