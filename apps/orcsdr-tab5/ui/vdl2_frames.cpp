@@ -101,9 +101,10 @@ bool FrameDecoder::extract_acars(const uint8_t* p, size_t n, acars::Message& m) 
   m.block_id = static_cast<char>(p[11] & 0x7fu);
   m.end_marker = end;
   // Some legitimate uplink acknowledgements contain no STX and text.
-  if (p[12] != 0x02u) return n == 16u && !(m.block_id >= '0' && m.block_id <= '9');
+  if ((p[12] & 0x7fu) != 0x02u) return n == 16u && !(m.block_id >= '0' && m.block_id <= '9');
+  if (n < 17u) return false;
   const size_t text_size = n - 17u; // 12-byte header + STX + text + ETX + 2 BCS + DEL
-  if (n < 17u || text_size > sizeof(m.text)) return false;
+  if (text_size > sizeof(m.text)) return false;
   m.has_text = true;
   m.text_length = static_cast<uint16_t>(text_size);
   for (size_t i = 0; i < text_size; ++i) m.text[i] = static_cast<char>(p[13u + i] & 0x7fu);
