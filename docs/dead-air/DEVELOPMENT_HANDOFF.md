@@ -127,7 +127,11 @@ ENV III (SHT30 + QMP6988 on Port A) is read by `dead_air_env` (pure logic, host-
 (M5Unified `Ex_I2C`, which also switches the Port A 5 V rail on). Temperature, humidity and pressure appear on the
 Environment tab and the Overview card; `RTL_DEAD_AIR ENV` reports it. Not verified on a Tab5 yet.
 
-Still NOT connected: environment events (the readings are context only), device-motion reading (`motion_g` is never
+Environment events (`dead_air_envevents`, host-tested, fed once per sensor sample from `tick()`) log a temperature, humidity or
+pressure departure from the channel's own baseline. They do not yet trigger an RF measurement, scan or clip, and are not counted
+on the session card.
+
+Still NOT connected: device-motion reading (`motion_g` is never
 filled), continuous audio/IQ recording, session export. `ActionKind::start_recording`, `stop_recording`,
 `save_clip` and `export_session` exist but have no buttons.
 

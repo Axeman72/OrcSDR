@@ -686,6 +686,19 @@ void draw_event_detail(const Event& e) {
       std::snprintf(line, sizeof(line), "sensitivity %s", sensitivity_name(e.sensitivity));
       next(kMuted);
       break;
+    case Kind::temperature_change:
+    case Kind::humidity_change:
+    case Kind::pressure_change: {
+      const char* unit = e.kind == Kind::temperature_change ? "C" : e.kind == Kind::humidity_change ? "%RH" : "hPa";
+      std::snprintf(line, sizeof(line), "%.2f %s  base %.2f  %+.2f (limit %.2f)", static_cast<double>(e.value), unit,
+                    static_cast<double>(e.reference), static_cast<double>(e.value - e.reference), static_cast<double>(e.threshold));
+      next(TFT_WHITE);
+      std::snprintf(line, sizeof(line), "ENV III on Port A. Held away from its baseline, in either direction.");
+      next(kMuted);
+      std::snprintf(line, sizeof(line), "sensitivity %s", sensitivity_name(e.sensitivity));
+      next(kMuted);
+      break;
+    }
     case Kind::manual_marker:
       std::snprintf(line, sizeof(line), "Marked by you. No measurement attached.");
       next(TFT_WHITE);

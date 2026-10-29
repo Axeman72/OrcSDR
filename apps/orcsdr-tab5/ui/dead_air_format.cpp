@@ -33,6 +33,18 @@ void format_event_row(const Event& e, char* out, size_t capacity) {
       std::snprintf(out, capacity, "#%lu %s %s %.1f dBFS +%.0f dB", seq, clock, e.kind == Kind::rf_rise ? "RF RISE" : "AUDIO",
                     static_cast<double>(e.value), static_cast<double>(e.value - e.reference));
       break;
+    case Kind::temperature_change:
+      std::snprintf(out, capacity, "#%lu %s TEMP %.1f C %+.1f", seq, clock, static_cast<double>(e.value),
+                    static_cast<double>(e.value - e.reference));
+      break;
+    case Kind::humidity_change:
+      std::snprintf(out, capacity, "#%lu %s HUMIDITY %.1f %% %+.1f", seq, clock, static_cast<double>(e.value),
+                    static_cast<double>(e.value - e.reference));
+      break;
+    case Kind::pressure_change:
+      std::snprintf(out, capacity, "#%lu %s PRESSURE %.1f hPa %+.2f", seq, clock, static_cast<double>(e.value),
+                    static_cast<double>(e.value - e.reference));
+      break;
     case Kind::manual_marker:
       std::snprintf(out, capacity, "#%lu %s MARK %s", seq, clock, where);
       break;

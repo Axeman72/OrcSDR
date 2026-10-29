@@ -19,6 +19,7 @@ on:
       - 'tests/dead_air_fx_tests.cpp'
       - 'tests/dead_air_stats_tests.cpp'
       - 'tests/dead_air_env_tests.cpp'
+      - 'tests/dead_air_envevents_tests.cpp'
       - 'tests/dead_air_journal_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
   pull_request:
@@ -38,6 +39,7 @@ on:
       - 'tests/dead_air_fx_tests.cpp'
       - 'tests/dead_air_stats_tests.cpp'
       - 'tests/dead_air_env_tests.cpp'
+      - 'tests/dead_air_envevents_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
 permissions:
   contents: read
@@ -197,3 +199,13 @@ jobs:
             -o /tmp/dead-air-env-tests
       - name: Execute ENV III sensor tests
         run: /tmp/dead-air-env-tests
+      - name: Compile environment event detector with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_envevents_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_envevents.cpp \
+            apps/orcsdr-tab5/ui/dead_air_model.cpp \
+            -o /tmp/dead-air-envevents-tests
+      - name: Execute environment event tests
+        run: /tmp/dead-air-envevents-tests

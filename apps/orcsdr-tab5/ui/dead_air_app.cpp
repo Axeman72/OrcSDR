@@ -21,12 +21,15 @@
 #include "dead_air_dashboard.hpp"
 #include "dead_air_env.hpp"
 #include "dead_air_env_m5.hpp"
+#include "dead_air_envevents.hpp"
 #include "dead_air_journal.hpp"
 #include "dead_air_mic.hpp"
 #include "dead_air_model.hpp"
 #include "dead_air_sd_journal.hpp"
 #include "dead_air_stats.hpp"
 #include "dead_air_sweep.hpp"
+#include <esp_log.h>
+#include "memory_reclaim.hpp"
 #include "orcsdr_storage.hpp"
 #include "screen_controller.hpp"
 
@@ -180,8 +183,10 @@ struct State {
   uint8_t selected = 0;                   // clip chosen on the Review tab (index into recent)
   bool pinned = false;                    // the owner chose a clip; new clips do not move the selection
   char op_name[32]{};                     // clip the in-flight verify/load applies to
-  int16_t* replay_pcm = nullptr;          // PSRAM buffer the SD worker fills for a replay
+  int16_t* replay_pcm = nullptr;          // the mic ring's buffer, lent to the SD worker for a replay (never live together)
   uint32_t replay_cap = 0;                // samples
+  bool mic_resume = false;                // the mic was running when a replay took its buffer: start it again afterwards
+  uint32_t mic_resume_due_ms = 0;
   uint32_t replay_samples = 0;            // loaded
   uint8_t replay_state = 0;               // 0 idle, 1 loading, 2 playing, 3 not played
   const char* replay_note = "";
@@ -221,6 +226,10 @@ struct State {
   SessionStats stats;
   env::EnvSensor env_sensor;              // ENV III on Port A (SHT30 + QMP6988); polled from tick() while the screen is open
   bool env_bus = false;                   // the Port A bus could be started (not the same as a module being present)
+  EnvEventDetector env_events;            // temperature / humidity / pressure leaving their own baseline
+  uint32_t ring_retry_ms = 0;             // last attempt to allocate the receiver clip ring after open() could not
+  uint32_t env_last_at[3]{};              // sample time last fed to env_events, per channel (each sample is fed once)
+  bool env_seen[3]{};
   BandMapView map;                        // the last sweep's measured level per channel
   NoteQueue notes;                        // extra journal lines (control result, session summary) for the SD worker
   bool chime_on = false;
@@ -500,6 +509,9 @@ void write_clip_summary(State& s) {
 
 // Dedicated, low-priority storage worker. It owns the SD sink and journal; the UI task only
 // pushes events into the lock-free queue and reads the health atomics.
+void release_audio_buffers(State& s);
+void mic_stop(State& s, const char* reason);
+
 void worker_main(void* arg) {
   State* s = static_cast<State*>(arg);
   Worker& w = s->worker;
@@ -543,6 +555,7 @@ void worker_main(void* arg) {
   } else if (s->sink.opened()) {
     (void)s->sink.close();
   }
+  release_audio_buffers(*s);  // the screen is gone and this task was the last reader of the rings
   // The final state (stopped/failed) stays published for the dashboard.
   w.alive.store(false, std::memory_order_release);
   w.task = nullptr;
@@ -636,10 +649,43 @@ void ring_write(PcmRing& r, const int16_t* pcm, size_t count) {
   r.written.store(w, std::memory_order_release);
 }
 
+// PSRAM for the clip rings, the replay buffer and the chime. Other screens keep large buffers after the user leaves them
+// (the LoRa receiver holds 15.8 MB once opened), so a failed allocation asks the registered holders to give back what they
+// are not using and tries again (memory_reclaim::alloc_psram). Nothing the user has to do.
+void* psram_alloc(size_t bytes) {
+  size_t reclaimed = 0;
+  void* p = memory_reclaim::alloc_psram(bytes, &reclaimed);
+  if (!p || reclaimed)  // the serial log says what was asked, what other screens gave back, and what is left
+    ESP_LOGW("dead_air", "PSRAM request %u B %s; holders released %u B; PSRAM free %u B, largest block %u B",
+             static_cast<unsigned>(bytes), p ? "granted after reclaim" : "REFUSED", static_cast<unsigned>(reclaimed),
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
+  return p;
+}
+
+// Gives back the audio buffers (clip rings, replay buffer, chime: about 3.5 MB when all are in use) once the screen has
+// been left and nothing can touch them. Called by the SD worker as its last act, which is also the last user of the rings;
+// close() has already cleared the callback pointers, stopped the mic and any replay or chime. The next open() allocates
+// them again.
+void release_audio_buffers(State& s) {
+  vTaskDelay(pdMS_TO_TICKS(50));  // an audio callback or speaker DMA that loaded a pointer just before close() finishes
+  if (g_open) return;             // the screen was reopened meanwhile: the buffers are in use again
+  s.replay_pcm = nullptr;  // borrowed from the mic ring: freed with it
+  for (int16_t** p : {&s.rx.ring.pcm, &s.mic.ring.pcm, &s.chime_pcm}) {
+    int16_t* buffer = *p;
+    *p = nullptr;
+    if (buffer) heap_caps_free(buffer);
+  }
+  s.rx.ring.capacity = s.mic.ring.capacity = 0;
+  s.replay_cap = 0;
+  s.mic_resume = false;
+  s.chime_samples = 0;
+}
+
 bool alloc_ring(PcmRing& r) {
   if (r.pcm) return true;
   const uint32_t cap = kClipSampleRate / 1000u * kClipRingMs;
-  r.pcm = static_cast<int16_t*>(heap_caps_malloc(static_cast<size_t>(cap) * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  r.pcm = static_cast<int16_t*>(psram_alloc(static_cast<size_t>(cap) * sizeof(int16_t)));
   r.capacity = r.pcm ? cap : 0;
   return r.pcm != nullptr;
 }
@@ -726,7 +772,7 @@ void end_replay(State& s, bool completed) {
   if (g_hooks.replay_stop) g_hooks.replay_stop();
   g_replaying.store(false, std::memory_order_release);
   s.replay_state = 0;
-  if (s.mic.enabled) s.mic_restart_due_ms = (millis() + 300u) | 1u;  // playback leaves the shared I2S input returning a constant
+  if (s.mic_resume) s.mic_resume_due_ms = (millis() + 300u) | 1u;  // playback leaves the shared I2S input returning a constant
   s.log_pending = true;  // recorded once the worker is free
   s.log_completed = completed;
   const int i = find_recent(s, s.op_name);
@@ -737,11 +783,16 @@ void end_replay(State& s, bool completed) {
 void request_play(State& s) {
   if (!s.recent_count || s.replay_state == 1 || s.replay_state == 2 || !g_hooks.replay_begin) return;
   if (s.rx.mail.state.load(std::memory_order_acquire) != 0) { s.replay_state = 3; s.replay_note = "Busy writing; try again"; return; }
-  if (!s.replay_pcm) {
-    s.replay_cap = kClipSampleRate / 1000u * kClipRingMs;
-    s.replay_pcm = static_cast<int16_t*>(heap_caps_malloc(static_cast<size_t>(s.replay_cap) * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!s.replay_pcm) { s.replay_cap = 0; s.replay_state = 3; s.replay_note = "No memory for replay"; return; }
+  if (s.mic.mail.state.load(std::memory_order_acquire) != 0) { s.replay_state = 3; s.replay_note = "Busy writing; try again"; return; }
+  // The replay borrows the mic ring's buffer: the mic cannot record while a clip plays anyway. A running mic is stopped for
+  // the replay and started again afterwards.
+  if (!alloc_ring(s.mic.ring)) { s.replay_state = 3; s.replay_note = "No memory for replay"; return; }
+  if (s.mic.enabled) {
+    mic_stop(s, "replay");
+    s.mic_resume = true;
   }
+  s.replay_pcm = s.mic.ring.pcm;
+  s.replay_cap = s.mic.ring.capacity;
   const uint8_t i = std::min<uint8_t>(s.selected, static_cast<uint8_t>(s.recent_count - 1));
   ClipTicket t{};
   t.verify = true;
@@ -838,6 +889,7 @@ void mic_sink(const int16_t* pcm, size_t count) {
 
 bool mic_start(State& s) {
   if (s.mic.enabled) return true;
+  if (s.replay_state == 1 || s.replay_state == 2) { s.mic_error = "playing a clip"; s.mic_state = 3; return false; }  // its buffer is lent out
   if (!alloc_ring(s.mic.ring)) { s.mic_error = "no memory"; s.mic_state = 3; return false; }
   s.mic.ring.written.store(0, std::memory_order_relaxed);
   s.mic.ring.run_start.store(0, std::memory_order_relaxed);
@@ -1015,7 +1067,7 @@ void capture_trace(State& s, const Event& e) {
 bool build_chime(State& s) {
   if (s.chime_pcm) return true;
   constexpr uint32_t kNote = 4800;  // 100 ms per note at 48 kHz
-  s.chime_pcm = static_cast<int16_t*>(heap_caps_malloc(2u * kNote * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  s.chime_pcm = static_cast<int16_t*>(psram_alloc(2u * kNote * sizeof(int16_t)));
   if (!s.chime_pcm) return false;
   s.chime_samples = 2u * kNote;
   for (uint32_t i = 0; i < s.chime_samples; ++i) {
@@ -1281,6 +1333,11 @@ bool active() { return g_open && dead_air::active(); }
 void open() {
   if (!ready_hooks() || !ensure_state()) return;
   State& s = *g_state;
+  {  // The previous session's worker frees the audio buffers as its last act: let it finish before they are allocated again.
+    const uint32_t begin = millis();
+    while (s.worker.alive.load(std::memory_order_acquire) && millis() - begin < kWorkerStopWaitMs) vTaskDelay(pdMS_TO_TICKS(10));
+    if (s.worker.alive.load(std::memory_order_acquire)) return;
+  }
   const uint32_t now = millis();
   s.model.reset();
   s.model.set_listener(on_event, &s);
@@ -1342,6 +1399,8 @@ void open() {
   env::Bus* port_a = env::port_a_bus();
   s.env_bus = port_a != nullptr;
   s.env_sensor.begin(port_a);  // forgets any earlier readings; the module is probed again every time the screen opens
+  s.env_events.reset();
+  for (int c = 0; c < 3; ++c) { s.env_last_at[c] = 0; s.env_seen[c] = false; }
   s.map = BandMapView{};
   s.chime_on = false;  // the chime is off at every session start; only a tap turns it on
   s.chime_active = false;
@@ -1386,11 +1445,42 @@ void close() {
   g_state->worker.stop.store(true, std::memory_order_release);  // worker flushes, syncs and closes the file
 }
 
+// Each accepted sensor sample is fed to the environment detector once. A channel that has no reading (module unplugged,
+// dropped after repeated failures) is reset, so an unplug can never look like a departure from the baseline.
+void feed_env_events(State& s, uint32_t now) {
+  const EnvChannel channels[3] = {EnvChannel::temperature, EnvChannel::humidity, EnvChannel::pressure};
+  for (int c = 0; c < 3; ++c) {
+    float value = 0.0f;
+    uint32_t at = 0;
+    const bool have = c == 0   ? s.env_sensor.temperature(&value, &at)
+                      : c == 1 ? s.env_sensor.humidity(&value, &at)
+                               : s.env_sensor.pressure(&value, &at);
+    if (!have) {
+      s.env_events.reset(channels[c]);
+      s.env_seen[c] = false;
+      continue;
+    }
+    if (s.env_seen[c] && at == s.env_last_at[c]) continue;
+    s.env_seen[c] = true;
+    s.env_last_at[c] = at;
+    EnvFinding f;
+    if (s.env_events.observe(channels[c], value, at, s.model.sensitivity(), &f))
+      (void)s.model.append_measured(env_event(f, now, g_hooks.utc_epoch ? g_hooks.utc_epoch() : 0, s.model.sensitivity()));
+  }
+}
+
 void tick() {
   if (!g_open || !g_state || !dead_air::active()) return;
   State& s = *g_state;
   const uint32_t now = millis();
   s.env_sensor.service(now);  // a few short I2C transfers once a second; nothing in between
+  feed_env_events(s, now);
+  if (!s.rx.ring.pcm && now - s.ring_retry_ms >= 3000) {
+    // open() asked for the clip ring while another screen's buffers (or a retune still in flight) may have refused to
+    // release; once they can, clip capture starts without the owner doing anything.
+    s.ring_retry_ms = now;
+    if (alloc_ring(s.rx.ring)) s.rx.ring.capture.store(s.rx.enabled, std::memory_order_release);
+  }
   const bool ready = g_hooks.receiver_ready();
   const uint32_t signature = g_hooks.config_signature();
   s.rx_settled = ready && static_cast<int32_t>(now - s.settle_until_ms) >= 0;
@@ -1534,6 +1624,12 @@ void tick() {
         s.mic_restarts = 0;
       }
     }
+  }
+  if (s.mic_resume && s.replay_state != 1 && s.replay_state != 2 && !g_replaying.load(std::memory_order_relaxed) &&
+      (!s.mic_resume_due_ms || static_cast<int32_t>(now - s.mic_resume_due_ms) >= 0)) {
+    s.mic_resume = false;
+    s.mic_resume_due_ms = 0;
+    (void)mic_start(s);
   }
   if (s.replay_state == 2 && g_hooks.replay_playing && now - s.replay_started_ms > 300 && !g_hooks.replay_playing()) end_replay(s, true);
   if (s.chime_active && now - s.chime_start_ms > 300 && g_hooks.replay_playing && !g_hooks.replay_playing()) end_chime(s);
