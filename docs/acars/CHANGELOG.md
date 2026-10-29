@@ -16,6 +16,9 @@ This file tracks ACARS dashboard and decoder changes. The repository has no repo
   no dropped messages, decoder 27.98-28.12 ms per 65 ms block, worst block 81 ms, internal RAM free at least 50.9 KB. Counters moved from
   12 to 14 valid headers and 10 to 11 CRC-valid AVLC frames (one more frame with no data); no new ACARS message arrived. The 08:14Z
   N395CM / ATN3337 capture (matched to adsb.lol and the FAA registry) came just before the run.
+- Further capture attempts: a 30 minute channel hunt (136.975 down to 136.750 MHz, 3 minutes each, 09:03-09:33Z) heard nothing; a second continuous 
+  45 minute run on 136.975 MHz (09:34:48 to 10:19:37Z, 135 samples) saw valid headers go from 14 to 19 and verified frames from 11 to 12 (one more
+  frame with no data), no ACARS message. Nothing from those windows could be matched to a web source.
 
 ## 2026-10-29 - VDL Mode 2 on the ACARS dashboard (flashed to COM17, live RF not yet heard)
 
