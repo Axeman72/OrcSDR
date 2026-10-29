@@ -999,12 +999,17 @@ bool interpret_arinc622(const Text& t, size_t at, Interpretation& r) {
     else if (std::strcmp(app, "AFN") == 0) app_name = "logon (AFN)";
     else if (std::strcmp(app, "DIS") == 0) app_name = "disconnect";
     const char dir = t.at(at + 1);
+    // Short registrations are padded to 7 characters with leading dots (live: "AT1..N6509", "AT1..B-LJK"); the dots are part of the
+    // checksummed text but not of the registration.
+    const char* reg = t.p + rest;
+    size_t reg_n = reg_len;
+    while (reg_n > 1 && *reg == '.') { ++reg; --reg_n; }
     set_headline(r, "ATC DATA LINK MESSAGE (ARINC 622)");
     add_line(r, "%s   Ground address %.7s   %s", dir == 'B' ? "Downlink" : dir == 'A' ? "Uplink" : "Message", t.p + ga, app_name ? app_name : app);
-    add_line(r, "Aircraft %.*s   %u data byte%s   checksum OK", static_cast<int>(reg_len), t.p + rest, static_cast<unsigned>((data_len + 1) / 2),
+    add_line(r, "Aircraft %.*s   %u data byte%s   checksum OK", static_cast<int>(reg_n), reg, static_cast<unsigned>((data_len + 1) / 2),
              (data_len + 1) / 2 == 1 ? "" : "s");
     add_line(r, "Content as received: %.*s (needs the ATC message table)", static_cast<int>(data_len), t.p + data_at);
-    set_summary(r, "ATC %s %s %.*s", app, dir == 'B' ? "down" : dir == 'A' ? "up" : "", static_cast<int>(reg_len), t.p + rest);
+    set_summary(r, "ATC %s %s %.*s", app, dir == 'B' ? "down" : dir == 'A' ? "up" : "", static_cast<int>(reg_n), reg);
     return true;
   }
   return false;
