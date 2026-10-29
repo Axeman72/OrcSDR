@@ -10,6 +10,7 @@
 
 namespace orcsdr::vdl2 {
 constexpr size_t kMaxAvlcBytes = 2048; // IMPLEMENTATION CAP, not a protocol constant.
+constexpr size_t kMaxStuffedBytes = kMaxAvlcBytes + (kMaxAvlcBytes / 5u) + 16u; // HDLC worst-case 0 insertion after each 5 payload bits, plus slack
 constexpr uint32_t kCommonSignallingHz = 136975000u;
 
 struct FrameView {
@@ -51,7 +52,7 @@ class FrameDecoder {
   void complete();
   bool extract_acars(const uint8_t* bytes, size_t count, acars::Message& out) const;
   static uint32_t addr(const uint8_t* bytes);
-  std::array<uint8_t, kMaxAvlcBytes + 2> bits_{}; // PACKED, includes stuffed bits
+  std::array<uint8_t, kMaxStuffedBytes> bits_{}; // PACKED; stuffed bits can exceed 2048-byte payload cap
   std::array<uint8_t, kMaxAvlcBytes> frame_{};
   size_t bit_count_ = 0;
   uint8_t flag_window_ = 0;
