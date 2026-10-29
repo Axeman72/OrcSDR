@@ -37,6 +37,8 @@ Verified = directly confirmed in ETSI or in multiple independent credible docume
 | VDL2 proposed input | 250 kS/s complex IQ | Assumed deployment target | User requirement; actual negotiation untested |
 | Proposed channel DSP rate | 50 kS/s after /5 | Assumed | 50k/10.5k=4.7619 samples/symbol, needs fractional clock |
 | Fixed OrcSDR AVLC buffer cap | 2048 bytes | Assumed | Implementation memory bound, not a standard max |
+| Header FEC parity-check masks | 0x01FFF0, 0x07E1FE8, 0x18E61E4, 0x1B6A662, 0x0D3CAA1 | Reference-confirmed; synthetic host-tested | dumpvdl2/src/decode.c `H[5]`, xng header.rs; confirm vs IEC/ICAO edition before calling standard-verified |
+| HDLC stuffed bit buffer cap | 2048 + floor(2048/5) + 16 = 2473 octets | Assumed implementation capacity, not protocol limit | Worst-case five-one stuffing overhead plus slack in vdl2_frames.hpp |
 | RX RRC implementation choice and taps | **Not settled; A/B filter OFF vs ON** | Unknown (receiver design) | ETSI TX α=0.6; xng captured-IQ reports RX RRC harms demod; see cross-check below |
 | RS octet packing | LSB-first VDL2/HDLC wire order | Reference-confirmed | dumpvdl2 bitstream.c, xng VDL2 notes; verify against real RS vector |
 | Exact preamble bit orientation / header syndrome | TBD until off-air vectors | Unknown | Need ETSI + independent capture oracle |
