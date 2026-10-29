@@ -54,5 +54,5 @@ fi
 CORPUS=("$ROOT/tests/acars_corpus_check.cpp" "$UI/acars_archive.cpp" "${MODEL[@]}")
 echo "== acars_corpus_check"
 g++ "${FLAGS[@]}" -fsanitize=address,undefined -fno-sanitize-recover=all -I"$UI" "${CORPUS[@]}" -o "$OUT/acars_corpus_check"
-"$OUT/acars_corpus_check" "$ROOT/tests/data/acars_corpus_2026-10-29.jsonl" --strict --examples 0 --min-decoded-percent 40 2>&1 | tee -a "$OUT/ui-tests.log"
+"$OUT/acars_corpus_check" "$ROOT/tests/data/acars_corpus_2026-10-29.jsonl" --strict --examples 0 --min-decoded-percent 48 2>&1 | tee -a "$OUT/ui-tests.log"
 echo "ACARS UI host tests passed (log: build/acars/ui-tests.log)"

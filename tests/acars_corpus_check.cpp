@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
       else if (known) ++x->recognised;
       else ++x->unknown;
     }
-    if (!known && t.unknown_examples.size() < examples) {
+    if (!r.decoded && t.unknown_examples.size() < examples) {
       std::string p = m.preview;
       t.unknown_examples.push_back(p.substr(0, 100));
     }

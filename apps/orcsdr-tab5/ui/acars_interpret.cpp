@@ -652,10 +652,46 @@ bool dfdau_climb_block(const Text& t, size_t at, Interpretation& r) {
   return false;
 }
 
+// First block of a flight data unit report from several carriers: two airport codes written side by side in the header
+// ("...KEUGKSMF...", "CRZ01134950677KSEAKSFO10292600...", "...CYVRKPSP...") and, in some, a position in the FMC style N44079W123220
+// (degrees and tenths of minutes), which is the layout verified for the FMC position reports. The other numbers are not named.
+bool dfdau_route_position(const Text& t, size_t at, bool have_route, Interpretation& r) {
+  bool any = false;
+  const size_t end = t.n < at + 90 ? t.n : at + 90;
+  for (size_t i = at; i + 8 <= end && !have_route; ++i) {
+    bool letters = true;
+    for (size_t k = 0; k < 8 && letters; ++k) letters = is_upper(t.at(i + k));
+    // The route may run straight into a position ("KLASKPDXN42400W121355"): a hemisphere letter followed by a digit is not more letters.
+    const bool position_follows = (t.at(i + 8) == 'N' || t.at(i + 8) == 'S') && is_digit(t.at(i + 9));
+    if (!letters || (is_upper(t.at(i + 8)) && !position_follows) || (i > at && is_upper(t.at(i - 1)))) continue;
+    const char a = t.at(i), c = t.at(i + 4);
+    if (!((a == 'K' || a == 'C' || a == 'P') && (c == 'K' || c == 'C' || c == 'P'))) continue;
+    add_line(r, "Route %.4s to %.4s (from the report header)", t.p + i, t.p + i + 4);
+    set_summary(r, "%.4s to %.4s", t.p + i, t.p + i + 4);
+    any = true;
+    break;
+  }
+  for (size_t i = at; i + 13 <= end; ++i) {
+    if ((t.at(i) != 'N' && t.at(i) != 'S') || !all_digits(t.p + i + 1, 5) || (t.at(i + 6) != 'E' && t.at(i + 6) != 'W') ||
+        !all_digits(t.p + i + 7, 6))
+      continue;
+    unsigned lat = 0, lon = 0;
+    if (!parse_degmin(t.p + i + 1, 2, &lat) || !parse_degmin(t.p + i + 7, 3, &lon) || lat > 90000u || lon > 180000u) continue;
+    char lat_s[16], lon_s[16];
+    fmt_coord(lat_s, sizeof(lat_s), t.at(i), lat);
+    fmt_coord(lon_s, sizeof(lon_s), t.at(i + 6), lon);
+    add_line(r, "Position %s %s", lat_s, lon_s);
+    if (r.summary[0] == '\0') set_summary(r, "Position %s %s", lat_s, lon_s);
+    any = true;
+    break;
+  }
+  return any;
+}
+
 bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
   // `at` is the first character of the free text after "#DFB".
   size_t b = at;
-  while (t.at(b) == ' ') ++b;
+  while (t.at(b) == ' ' || t.at(b) == '\r' || t.at(b) == '\n') ++b;
   bool any = false;
   set_headline(r, "FLIGHT DATA UNIT REPORT");
   // TRP block: "TRP#202803#044.6863#-122.3252#400#...".
@@ -753,6 +789,7 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
   if (dfdau_climb_block(t, at, r)) any = true;
   if (dfdau_sw_header(t, at, r)) any = true;
   if (dfdau_sw_samples(t, at, r)) any = true;
+  if (dfdau_route_position(t, at, from[0] != '\0', r)) any = true;
   r.decoded = any;                       // false: only the unit is known; interpret_h1 and interpret() keep that
   if (!any) {
     add_line(r, "Data block from the flight data recorder unit. Layout not decoded yet; raw text is shown above.");
@@ -1159,6 +1196,76 @@ bool interpret_atis_request(const Text& t, Interpretation& r) {
   return true;
 }
 
+unsigned month_from_abbrev(const char* s) {
+  static const char* const kMonths[12] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+  for (unsigned m = 0; m < 12; ++m)
+    if (std::memcmp(s, kMonths[m], 3) == 0) return m + 1;
+  return 0;
+}
+bool valid_hhmm(const char* s) { return all_digits(s, 4) && dec(s, 2) < 24 && dec(s + 2, 2) < 60; }
+
+// H1 sub-label T1 (live, two carriers, 2026-10-29): "163AUA1241#T1BRTE 1 29OCT26 1209 N37257 UAL1241 KEUG/KDEN BCG59-U000-08..."
+// The date, time, tail, call sign and airport pair describe themselves. The three letter word ("RTE", "PLF") and the rest are shown as
+// received; what the message is for is not published anywhere found.
+bool interpret_t1(const Text& t, Interpretation& r) {
+  struct Tok { const char* s; size_t n; } tok[8];
+  size_t n = 0, i = 14;
+  while (n < 8) {
+    while (i < t.n && t.at(i) == ' ') ++i;
+    if (i >= t.n) break;
+    const size_t s = i;
+    while (i < t.n && t.at(i) != ' ' && t.at(i) != '\r' && t.at(i) != '\n') ++i;
+    tok[n++] = {t.p + s, i - s};
+    if (i < t.n && (t.at(i) == '\r' || t.at(i) == '\n')) break;
+  }
+  if (n < 7 || tok[0].n != 3 || tok[2].n != 7 || tok[3].n != 4 || tok[6].n < 9) return false;
+  for (size_t k = 0; k < 3; ++k)
+    if (!is_upper(tok[0].s[k])) return false;
+  if (!all_digits(tok[2].s, 2) || !all_digits(tok[2].s + 5, 2) || month_from_abbrev(tok[2].s + 2) == 0 || !valid_hhmm(tok[3].s)) return false;
+  const char* ap = tok[6].s;
+  for (size_t k = 0; k < 9; ++k)
+    if (k == 4 ? ap[k] != '/' : !is_upper(ap[k])) return false;
+  set_headline(r, "MESSAGE T1 (AIRLINE SYSTEM TEXT)");
+  add_line(r, "Report %.3s %.*s, %.7s %.2s:%.2sZ", tok[0].s, static_cast<int>(tok[1].n), tok[1].s, tok[2].s, tok[3].s, tok[3].s + 2);
+  add_line(r, "Aircraft %.*s   Flight %.*s   %.4s to %.4s", static_cast<int>(tok[4].n), tok[4].s, static_cast<int>(tok[5].n), tok[5].s, ap, ap + 5);
+  add_line(r, "The word %.3s and the rest of this text are shown as received.", tok[0].s);
+  set_summary(r, "%.3s %.4s to %.4s", tok[0].s, ap, ap + 5);
+  return true;
+}
+
+// "In range" reports (labels 28 and 80, live from two carriers): "...3701 INRANG 1358/29 KSMF/KSEA .N253AK /ETA 1430" (1358 is the
+// flight number, 29 the day of the month, and the ETA is the expected arrival time; checked against the ACARS headers of both carriers).
+bool interpret_inrange(const Text& t, Interpretation& r) {
+  size_t at = 0;
+  for (size_t i = 10; i + 7 < t.n && i < 30; ++i)
+    if (t.has(i, "INRANG ")) { at = i + 7; break; }
+  if (!at) return false;
+  struct Tok { const char* s; size_t n; } tok[6];
+  size_t n = 0, i = at;
+  while (n < 6) {
+    while (i < t.n && t.at(i) == ' ') ++i;
+    if (i >= t.n) break;
+    const size_t s = i;
+    while (i < t.n && t.at(i) != ' ') ++i;
+    tok[n++] = {t.p + s, i - s};
+  }
+  if (n < 5 || tok[0].n != 7 || tok[1].n != 9 || tok[3].n != 4 || std::memcmp(tok[3].s, "/ETA", 4) != 0 || tok[4].n < 4) return false;
+  // The first token is the flight number and the day of the month ("1358/29" on flight AS1358), not a time.
+  if (!all_digits(tok[0].s, 4) || tok[0].s[4] != '/' || !all_digits(tok[0].s + 5, 2) || dec(tok[0].s + 5, 2) < 1 || dec(tok[0].s + 5, 2) > 31 ||
+      !valid_hhmm(tok[4].s))
+    return false;
+  for (size_t k = 0; k < 9; ++k)
+    if (k == 4 ? tok[1].s[k] != '/' : !is_upper(tok[1].s[k])) return false;
+  const char* tail = tok[2].s;
+  size_t tail_n = tok[2].n;
+  if (tail_n > 1 && tail[0] == '.') { ++tail; --tail_n; }
+  set_headline(r, "IN-RANGE REPORT");
+  add_line(r, "Day %.2s   Route %.4s to %.4s", tok[0].s + 5, tok[1].s, tok[1].s + 5);
+  add_line(r, "Aircraft %.*s   Expected arrival %.2s:%.2sZ", static_cast<int>(tail_n), tail, tok[4].s, tok[4].s + 2);
+  set_summary(r, "In range %.4s to %.4s ETA %.2s:%.2sZ", tok[1].s, tok[1].s + 5, tok[4].s, tok[4].s + 2);
+  return true;
+}
+
 bool interpret_h1(const MessageRecord& m, const Text& t, Interpretation& r) {
   const Header h = parse_header(m, t);
   if (!h.ok || t.at(10) != '#' || t.n < 13) return false;
@@ -1242,9 +1349,20 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
     add_line(r, "Demand-mode ping used to keep or test the radio link.");
     set_summary(r, "Link ping");
     ok = true;
+  } else if (l[0] == 'H' && l[1] == '1' && t.has(10, "#T1B")) {
+    ok = interpret_t1(t, r);
   } else if (l[0] == 'H' && l[1] == '1') {
     ok = interpret_h1(m, t, r);
     h1_decoded = ok && r.decoded;
+  } else if ((l[0] == '2' && l[1] == '8') || (l[0] == '8' && l[1] == '0')) {
+    const Header h = parse_header(m, t);
+    if (h.ok && interpret_inrange(t, r)) {
+      Interpretation tmp = r;
+      r.line_count = 0;
+      add_header_line(r, h);
+      for (size_t i = 0; i < tmp.line_count && r.line_count < kInterpLines; ++i) add_line(r, "%s", tmp.lines[i]);
+      ok = true;
+    }
   }
   else if (l[0] == '2' && l[1] == '1') {
     const Header h = parse_header(m, t);

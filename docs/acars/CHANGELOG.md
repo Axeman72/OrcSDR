@@ -6,6 +6,8 @@ This file tracks ACARS dashboard and decoder changes. The repository has no repo
 
 ## 2026-10-29 (evening) - Review of the overnight run, `#DFB` sample blocks and label 33
 
+- Second pass on the SD log (3,057 blocks, 20:50Z): honest decoded share 56.7% -> 63.1%. Added: flight data unit headers with a route (`KEUGKSMF`, `CYVRKPSP`) and an FMC style position (`N44079W123220`); Alaska `#DFB` TRP blocks that start on a new line; H1 sub-label T1 (`RTE`/`PLF` lines with date, tail, flight and route); in-range reports (labels 28 and 80: day, route, tail, expected arrival). The harness caught two mistakes of mine on the way (the first number of an in-range report is the flight number, not a time; an empty summary on a position-only block). Not flashed.
+
 - Robustness pass over a whole day of real blocks (2,393 from the SD log; harness `tests/acars_corpus_check.cpp`, ASan/UBSan, now part of `tools/test-acars-ui.sh` with a 329 block sample in `tests/data/`):
   - The decoded share was overstated: every flight-data block counted as decoded even when the screen said the layout was not. `decoded` is now true only when text was understood. Honest share of the day: 57%.
   - Fixed: label 32 variant without spaces; D-ATIS station of 4 to 7 characters; fault-display lists with line breaks in the text.

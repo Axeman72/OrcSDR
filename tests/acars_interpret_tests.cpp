@@ -381,6 +381,21 @@ void live_vdl2_formats() {
   CHECK(interpret(make("H1", '9', '?', "D43FUA1220#DFB5.810.446    97    973511-0000\r\n1100  8183  8248"), r) && !r.decoded);
   CHECK(interpret(make("H1", '9', '?', "F13BAS0574#M1B5,180,P0,M12/FHHYJOE,010851,268K"), r) && !r.decoded);
 
+  // Second pass over the day's blocks: T1 messages, in-range reports, flight data unit headers with a route and a position.
+  CHECK(interpret(make("H1", '9', '?', "163AUA1241#T1BRTE 1 29OCT26 1209 N37257 UAL1241 KEUG/KDEN BCG59-U000-08"), r) && r.decoded);
+  CHECK(any_line_contains(r, "Report RTE 1, 29OCT26 12:09Z") && any_line_contains(r, "N37257") && any_line_contains(r, "KEUG to KDEN"));
+  CHECK(!interpret(make("H1", '9', '?', "163AUA1241#T1BRTE 1 29OCT26 2509 N37257 UAL1241 KEUG/KDEN"), r) || !r.decoded);
+  CHECK(interpret(make("80", '9', '?', "M18AAS13583701 INRANG 1358/29 KSMF/KSEA .N253AK  /ETA 1430"), r) && r.decoded);
+  CHECK(any_line_contains(r, "Day 29   Route KSMF to KSEA") && any_line_contains(r, "Aircraft N253AK   Expected arrival 14:30Z"));
+  CHECK(interpret(make("28", '9', '?', "M28AQX24523702 INRANG 2452/29 KMFR/KSEA  N646QX /ETA 1414/EFD 063"), r) && r.decoded && any_line_contains(r, "Aircraft N646QX"));
+  CHECK(!interpret(make("80", '9', '?', "M18AAS13583701 INRANG 1358/29 KSMF/KSEA .N253AK  /ETB 1430"), r) || !r.decoded);
+  CHECK(interpret(make("H1", '9', '?', "D13AWN1899#DFB76401  02E29KEUGKSMF  N44079W12322012180254P005217011G000"), r) && r.decoded);
+  CHECK(any_line_contains(r, "Route KEUG to KSMF") && any_line_contains(r, "Position 44.132N 123.367W"));
+  CHECK(interpret(make("H1", '9', '?', "D15AUA0677#DFBCRZ01134950677KSEAKSFO1029260057061318  268790034977N2901"), r) && r.decoded && any_line_contains(r, "Route KSEA to KSFO"));
+  CHECK(interpret(make("H1", '9', '?', "D65AAS0574#DFB\r\nTRP#011044#043.6299#-121.8231#350#141.1#\r\n455#0001923"), r) && r.decoded && any_line_contains(r, "43.629N 121.823W"));
+  // Random eight letter runs that are not airports must not become a route.
+  CHECK(interpret(make("H1", '9', '?', "D15AUA0677#DFBXYZABCDEFGHIJ 1234 5678"), r) && !r.decoded);
+
   // A VDL2 data frame that is not ACARS, kept as raw hex by the receiver.
   MessageRecord av = make("AV", '?', '\0', "2143658711234567008280AA550102");
   std::snprintf(av.tail, sizeof(av.tail), "%s", "1468D2A");
