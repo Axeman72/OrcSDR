@@ -11,6 +11,11 @@ This file tracks ACARS dashboard and decoder changes. The repository has no repo
 - Decoder CPU on the Tab5 is about 28 ms per 65 ms block when idle (44% of a core). Likely cause: double-precision arithmetic in
   `vdl2_receiver.cpp` (the P4 has a single-precision FPU only). Not changed yet.
 - Quiet-hour run: 30 minutes on 136.975 MHz from 07:03Z with no messages; light traffic.
+- Device tests on COM17 (2026-10-29, 08:15Z): `RTL_ACARS SELFTEST` 10 of 10 PASS; `RTL_ACARS ARCHIVETEST` PASS (12 written, 12 loaded, none dropped).
+- One continuous 45-minute run on 136.975 MHz, 08:16:32 to 09:01:22Z, single watcher, 135 status samples: no crash, no stream gaps,
+  no dropped messages, decoder 27.98-28.12 ms per 65 ms block, worst block 81 ms, internal RAM free at least 50.9 KB. Counters moved from
+  12 to 14 valid headers and 10 to 11 CRC-valid AVLC frames (one more frame with no data); no new ACARS message arrived. The 08:14Z
+  N395CM / ATN3337 capture (matched to adsb.lol and the FAA registry) came just before the run.
 
 ## 2026-10-29 - VDL Mode 2 on the ACARS dashboard (flashed to COM17, live RF not yet heard)
 
