@@ -125,3 +125,10 @@ Multi-block reports (`D17A` to `D17E` seen), ETB-terminated blocks of fixed-widt
 
 The interpreter names the unit and the report and shows the text; the columns are not decoded and no meaning is claimed. Decoding
 this needs the blocks joined in order first (not done: the interpreter keeps no state across messages).
+
+## Saved screens, 2026-10-29 17:00-17:05Z (unit up about 2 hours on the new firmware)
+
+- `archive-pages/page-00.png` to `page-37.png`: all 38 pages (300 saved blocks) of the ARCHIVE screen, newest first. The newest saved block is 16:33:14Z and the oldest 16:20:54Z. The text is cut at the screen width, so long blocks end in an ellipsis.
+- `live-list-1703/live-0.png` to `live-3.png`: the four pages of the 48 held LIVE messages at 17:03Z, where the list shows the interpreted summaries.
+- Finding: the unit had counted 761 messages by 17:02Z, but the newest block in the archive was 28 minutes old. The SD archive was not keeping up with live traffic, or had stopped writing at its 300-block cap. Not yet diagnosed; this is why the live list was saved as well.
+- The unit holds only the last 48 messages in RAM and 300 on the SD card, so everything earlier is only in the counters: 761 messages, 1262 verified frames, no gaps.
