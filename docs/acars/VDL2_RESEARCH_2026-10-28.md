@@ -90,3 +90,5 @@ c++ -std=c++17 -O1 -g -Wall -Wextra -Werror -pedantic -fsanitize=address,undefin
     -o /tmp/orcsdr-vdl2/vdl2_burst_test
 /tmp/orcsdr-vdl2/vdl2_burst_test
 ```
+
+**Reproducible host entrypoint:** `bash tools/test-vdl2-host.sh` from repository root, building both C++17 modules against the checked-out real OrcSDR `acars_core.hpp`. This exact script was committed but was not executed against a GitHub checkout in the web session; the local standalone mirror passed ASan/UBSan.
