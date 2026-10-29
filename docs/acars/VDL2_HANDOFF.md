@@ -51,3 +51,6 @@ The tests prove byte/bit framing under synthetic inputs, not real radio decoding
 
 ## Important 2026-10-28 PHY correction
 Follow ETSI's **transmitted** full raised-cosine alpha=0.6; do not assume there is an RRC half-filter on TX. The xng project documented a same-IQ comparison in which adding RRC on RX reduced CRC-good frames from 17 to 1. This is xng's self-reported measurement, not ours. RX filter selection must therefore be A/B evaluated against identical off-air IQ; default candidate is the anti-alias channel FIR without RX RRC. Also assemble Reed–Solomon octets from transmitted bits **LSB-first** (HDLC wire order) before applying RS(255,249) arithmetic; see xng docs/notes/VDL2.md and BENCHMARKS.md.
+
+## One-command repeatable host tests
+From repository root, run `bash tools/test-vdl2-host.sh`. The script compiles both modules against the **actual** `acars_core.hpp` from the checkout and runs synthetic tests with strict C++17 warnings and ASan/UBSan (set `ORC_VDL2_SANITIZE=0` if the local compiler cannot provide sanitizer runtimes). This command has **not** been run on the fetched GitHub checkout in this web session; the sandbox equivalent with mirrored source was executed and passed.
