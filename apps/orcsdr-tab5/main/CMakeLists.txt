@@ -164,6 +164,7 @@ idf_component_register(
         "../ui/acars_receiver.cpp"
         "../ui/acars_selftest.cpp"
         "../ui/acars_demo_data.cpp"
+        "../ui/acars_interpret.cpp"
         "../ui/pocsag_dashboard.cpp"
         "../ui/pocsag_decoder_core.cpp"
         "../ui/pocsag_store.cpp"

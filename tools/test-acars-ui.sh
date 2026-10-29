@@ -7,7 +7,7 @@ UI="$ROOT/apps/orcsdr-tab5/ui"
 OUT="$ROOT/build/acars"
 mkdir -p "$OUT"
 FLAGS=(-std=c++17 -O1 -g -Wall -Wextra -Werror -pedantic -pthread)
-MODEL=("$UI/acars_dashboard_model.cpp" "$UI/acars_demo_data.cpp" "$UI/acars_dashboard_layout.cpp" "$UI/acars_dashboard_ui.cpp" "$UI/acars_dirty_rects.cpp")
+MODEL=("$UI/acars_dashboard_model.cpp" "$UI/acars_demo_data.cpp" "$UI/acars_dashboard_layout.cpp" "$UI/acars_dashboard_ui.cpp" "$UI/acars_dirty_rects.cpp" "$UI/acars_interpret.cpp")
 
 run() {
   local name="$1"; shift
@@ -33,6 +33,11 @@ ARCHIVE=("$ROOT/tests/acars_archive_tests.cpp" "$UI/acars_archive.cpp" "${MODEL[
 run acars_archive_tests -I"$UI" "${ARCHIVE[@]}"
 if [[ "${SANITIZE:-1}" == "1" ]]; then
   run acars_archive_tests_asan -fsanitize=address,undefined -fno-sanitize-recover=all -I"$UI" "${ARCHIVE[@]}"
+fi
+INTERPRET=("$ROOT/tests/acars_interpret_tests.cpp" "${MODEL[@]}")
+run acars_interpret_tests -I"$UI" "${INTERPRET[@]}"
+if [[ "${SANITIZE:-1}" == "1" ]]; then
+  run acars_interpret_tests_asan -fsanitize=address,undefined -fno-sanitize-recover=all -I"$UI" "${INTERPRET[@]}"
 fi
 DIRTY=("$ROOT/tests/acars_dirty_rects_tests.cpp" "$UI/acars_dirty_rects.cpp")
 run acars_dirty_rects_tests -I"$UI" "${DIRTY[@]}"
