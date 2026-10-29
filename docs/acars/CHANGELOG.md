@@ -21,6 +21,9 @@ This file tracks ACARS dashboard and decoder changes. The repository has no repo
   frame with no data), no ACARS message. Nothing from those windows could be matched to a web source.
 - Third continuous 45 minute window on the analog channel 131.550 MHz (10:22:39 to about 11:07Z): 44 CRC-verified blocks, all squitters from EUG,
   matched to OurAirports (KEUG at 44.1246N 123.2120W; squitter 0.5 nm away). No aircraft block was heard on that channel that night.
+- Fourth 45 minute window (11:12:18 to 11:57:19Z): the unit's own ADS-B receiver (1090 MHz) on the ADS-B screen with serial trace logging, checked
+  once a minute against adsb.lol by `tools/adsb_live_xref.py`. The receiver reported RECEIVING / signal good but decoded 0 aircraft and 0 messages
+  (VHF whip antenna, night-time traffic), so there was nothing to compare. The serial verbosity was restored to NORMAL afterwards.
 
 ## 2026-10-29 - VDL Mode 2 on the ACARS dashboard (flashed to COM17, live RF not yet heard)
 
