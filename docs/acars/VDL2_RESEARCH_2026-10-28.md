@@ -37,7 +37,8 @@ Verified = directly confirmed in ETSI or in multiple independent credible docume
 | VDL2 proposed input | 250 kS/s complex IQ | Assumed deployment target | User requirement; actual negotiation untested |
 | Proposed channel DSP rate | 50 kS/s after /5 | Assumed | 50k/10.5k=4.7619 samples/symbol, needs fractional clock |
 | Fixed OrcSDR AVLC buffer cap | 2048 bytes | Assumed | Implementation memory bound, not a standard max |
-| RRC taps, timing/CFO loop gains, threshold | TBD | Unknown | Need realistic IQ sweeps and captures |
+| RX RRC implementation choice and taps | **Not settled; A/B filter OFF vs ON** | Unknown (receiver design) | ETSI TX α=0.6; xng captured-IQ reports RX RRC harms demod; see cross-check below |
+| RS octet packing | LSB-first VDL2/HDLC wire order | Reference-confirmed | dumpvdl2 bitstream.c, xng VDL2 notes; verify against real RS vector |
 | Exact preamble bit orientation / header syndrome | TBD until off-air vectors | Unknown | Need ETSI + independent capture oracle |
 
 **Critical trap:** A hobby protocol wiki describes a *different* Golay(24,12) header, 3-octet AVLC addresses, and scrambler/RS polynomial. It conflicts with ETSI's 17+5 header and the verified dumpvdl2 source. Do NOT use those values without proving waveform compatibility.
@@ -54,7 +55,7 @@ Verified = directly confirmed in ETSI or in multiple independent credible docume
 - User reports: dumpvdl2 documents high placement/clear RF view, measured SNR/ppm and no-clip gain as critical. No independently controlled user comparison was obtained. https://docs.airframes.io/docs/decoders/install-dumpvdl2/
 
 ## Target pipeline and implementation gates
-`RTL-SDR CU8 250k -> channel mixer, DC/CFO correction -> anti-alias /5 to ~50k -> matched RRC (alpha .6) -> fractional symbol clock & D8PSK phase demod -> 16-symbol sync -> 17-bit length/header FEC -> descrambling -> RS/deinterleave -> AVLC flag/unstuff/CRC -> marker & ACARS BCS -> acars::Message -> existing dashboard's SPSC event queue -> interpreter.`
+`RTL-SDR CU8 250k -> channel mixer, DC/CFO correction -> anti-alias /5 to ~50k -> selectable RX filter (start without RRC; A/B test alpha .6 RRC) -> fractional symbol clock & D8PSK phase demod -> 16-symbol sync -> 17-bit length/header FEC -> descrambling -> RS/deinterleave -> AVLC flag/unstuff/CRC -> marker & ACARS BCS -> acars::Message -> existing dashboard's SPSC event queue -> interpreter.`
 
 Existing 2400-bps AM-envelope/MSK ACARS path MUST NOT be reused for D8PSK demod; share UI records and interpreter, not DSP. Preserve ATN/CPDLC/ADS-C as explicit raw hex, no invented message translation. Avoid `main.cpp`. Receive-only.
 
@@ -71,3 +72,8 @@ c++ -std=c++17 -O1 -g -Wall -Wextra -Werror -pedantic -fsanitize=address,undefin
 ```
 
 **Next acceptance gates:** 1. capture pinned real 136.975-MHz IQ and reference dumpvdl2 AVLC hex/counts; 2. independent reference vectors for header/RS and bit order; 3. offline IQ demod symbol/FEC modules with deterministic replays and CFO/SNR robustness; 4. profile CPU/RAM/USB continuity on Tab5; 5. wire approved receiver callback to existing dashboard and add POA/VDL2 source indicator plus raw-hex view, maintaining 5-inch UI readability; 6. flash/test only on authorized hardware. No valid on-air VDL2 decodes are yet claimed.
+
+## Critical independent waveform cross-check (airframesio/xng; recorded 2026-10-28)
+**Do not assume a receiver root-raised-cosine (RRC) filter is appropriate.** ETSI EN 301 841-1 §5.3 specifies the *transmitted* raised-cosine spectrum with alpha 0.6. The independently developed `airframesio/xng` receiver reports that the **transmitter output is already full raised-cosine (Nyquist)**; adding an RRC on receive is then not the matched half of a TX-RRC/RX-RRC pair, and can introduce ISI and lose frames. Its authors report a captured-IQ experiment where an added RX RRC dropped frame count from 17 to 1. This is a *project-reported off-air result*, not an independently repeated OrcSDR measurement. Sources: https://github.com/airframesio/xng/blob/main/docs/notes/VDL2.md and https://github.com/airframesio/xng/blob/main/docs/notes/BENCHMARKS.md (check current default branch before reusing literal main). **Our default experimental candidate should be a channel anti-alias/filtering path *without* additional RRC; RRC-on and RRC-off must be compared with identical off-air IQ and a CRC-valid AVLC frame count oracle.** The user's RRC requirement is thereby addressed in the filter-design decision and A/B tests, not blindly implemented.
+
+Another reproducibility trap documented by xng: **Reed-Solomon symbols assemble LSB-first from the VDL2/HDLC bitstream**. Feeding MSB-first reversed octets into otherwise correct RS arithmetic can appear to be total FEC failure. In xng's own captured-IQ benchmark, repairing this convention contributed to the reported 44 vs 41 valid-frame counts (xng vs dumpvdl2, single capture). Treat these numbers as benchmark authors' claims, not a broad decoder ranking. Their fractional interpolation at 100/105 kS/s and phase/CFO fit are also candidate approaches to benchmark on the P4, not constants in ICAO. See the xng VDL2 notes above.
