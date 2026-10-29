@@ -1,6 +1,6 @@
 # Native VDL Mode 2 receiver: Claude integration handoff
 
-**Prepared:** 2026-10-28. **Baseline:** `hardcoreerik/OrcSDR`, branch `claude/acars-data-decoding-6e3ed0`. Do not merge into `main` without a physical test. No changes to `main.cpp` required or authorized.
+**Prepared:** 2026-10-28. **Native source pushed:** commit `efd8027135c8f4a5a9c6933cb9b8d5bf5dac8cba`. **Baseline:** `hardcoreerik/OrcSDR`, branch `claude/acars-data-decoding-6e3ed0`. Do not merge into `main` without a physical test. No changes to `main.cpp` required or authorized.
 
 ## What is implemented
 
@@ -8,7 +8,7 @@ Original C++17 receive-only chain (not a wrapper around dumpvdl2 or xng):
 
 `RTL-SDR CU8 -> vdl2::Channel (DDC + 127-tap anti-alias FIR + /5 or /10) -> vdl2::Receiver (UW acquisition, coherent 16-symbol timing+CFO fit, D8PSK differential decisions, pilot-based PLL, bit LFSR, header FEC) -> vdl2::RsCodec (GF(256) 0x187, roots 120..125, RS255/249, shortened checks, column interleave, hard-decision errors/erasures) -> existing vdl2::FrameDecoder (HDLC flags / destuffing / AVLC FCS / AOA inner BCS) -> acars::Message callback`. Input target can be 250 kS/s -> 50 kS/s or 1.05 MS/s -> 105 kS/s, or a prefiltered 50/105 kS/s capture. The 105k option is an exact 10 samples/symbol. No additional RX RRC filter (ETSI's TX response is full RC alpha 0.6; xng reports RX RRC can degrade actual off-air decodes). Loop gains and thresholds are **receiver design candidates**, not standardized constants.
 
-No allocation in production sample path. Bounded static arrays owned by decoder instance. All direct samples are complex baseband; optional channel-mixer offset in Hz. ACARS/AVLC callback works on received frame, and unknown ATN stays raw hex.
+No allocation in production sample path. Note: no firmware CMake wiring or ACARS dashboard connection has been added yet. Bounded static arrays owned by decoder instance. All direct samples are complex baseband; optional channel-mixer offset in Hz. ACARS/AVLC callback works on received frame, and unknown ATN stays raw hex.
 
 ## Files in this bundle
 
@@ -20,7 +20,7 @@ No allocation in production sample path. Bounded static arrays owned by decoder 
 - `tools/vdl2_prepare_iq.py`, `tests/test_vdl2_prepare_iq.py` — host CU8/ORCIQ conversion to 105k replay (Python with NumPy/SciPy).
 - `tools/test-vdl2-native.sh` — compile and run host tests, optional off-air replay; saves logfile to invoking directory.
 
-These NEW files are intended to be added alongside the existing, already committed `vdl2_frames.{hpp,cpp}` and `vdl2_burst.{hpp,cpp}` on the requested branch. Do not overwrite `acars_core.hpp` (the sandbox's stub is excluded from the bundle). Do not copy compiled test binaries or standalone stubs.
+These new files are committed on the requested branch alongside the existing, already committed `vdl2_frames.{hpp,cpp}` and `vdl2_burst.{hpp,cpp}` on the requested branch. Do not overwrite `acars_core.hpp` (the sandbox's stub is excluded from the bundle). Do not copy compiled test binaries or standalone stubs.
 
 ## Test results from sandbox
 
@@ -68,7 +68,7 @@ Gain `30 dB` is a starting experiment, **not** a recommended universal gain; ins
 
 ## Claude integration tasks
 
-1. Apply new files to the exact remote branch (never `main`). Verify AGENTS.md.
+1. Pull the exact remote branch `claude/acars-data-decoding-6e3ed0` (never `main`); verify applicable AGENTS.md and the new native files are present. No ZIP/patch needed when pulling GitHub.
 2. Run `bash tools/test-vdl2-native.sh` with ASan/UBSan and full real repo headers; correct compilation issues and unverified assumptions.
 3. Retrieve xng reference fixture, replay with our binary, independently replay with dumpvdl2 (50 kS/s input must be resampled to integer multiple of 105k for dumpvdl2). Compare AVLC raw hex, CRC and expected HB-IJW.
 4. Improve real-capture demod until deterministic off-air acceptance passes, document all tuning values and errors. Add failing/negative fixture checks, BER/CFO/SNR sweep.
