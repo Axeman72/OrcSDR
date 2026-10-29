@@ -14634,6 +14634,8 @@ orcsdr::dead_air_app::Hooks dead_air_app_hooks() {
   return hooks;
 }
 void open_dead_air_dashboard() {
+  orcsdr::dead_air_app::install(dead_air_app_hooks());
+  if (!orcsdr::dead_air_app::ready_to_open()) return;  // the last session is still closing: the current screen stays as it is
   persist_dashboard_open(orcsdr::dashboards::Id::dead_air);
   // Dead Air rides the general (BROWSE, NFM) band. Remember where the radio was so Home can take it back to the right
   // band and demodulator when Dead Air is left; 0 means there was nothing to return to.
@@ -14647,7 +14649,6 @@ void open_dead_air_dashboard() {
   orcsdr::sstv_app::close();
   orcsdr::acars_app::close();
   rtl_rate_override_sps.store(0, std::memory_order_release);
-  orcsdr::dead_air_app::install(dead_air_app_hooks());
   // Keep the current tuning when a receiver is running; otherwise start on the general receive default.
   const uint32_t hz = rtl_ui_frequency_hz ? rtl_ui_frequency_hz : kRtlBrowseDefaultHz;
   (void)queue_local_rtl_listen(RtlBand::browse, hz, false);
@@ -20136,6 +20137,12 @@ void process_command(char* command) {
   if (strcmp(command, "RTL_DEAD_AIR STATUS") == 0) {
     char line[768];
     orcsdr::dead_air_app::describe(line, sizeof(line));
+    Serial.println(line);
+    return;
+  }
+  if (strcmp(command, "RTL_DEAD_AIR ENV") == 0) {
+    char line[420];
+    orcsdr::dead_air_app::describe_env(line, sizeof(line));
     Serial.println(line);
     return;
   }
