@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdint>
+#include <initializer_list>
 using namespace orcsdr::vdl2;
 namespace {
 constexpr uint32_t kMasks[5] = {0x01fff0u,0x07e1fe8u,0x18e61e4u,0x1b6a662u,0x0d3caa1u};
