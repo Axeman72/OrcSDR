@@ -609,6 +609,49 @@ bool dfdau_sw_samples(const Text& t, size_t at, Interpretation& r) {
   return true;
 }
 
+// Climb/cruise block seen from Southwest (B737-8, 2026-10-29): "91513,32973,-51.8,241,076,CL,00000,0,  N4527.7,W1212x.x,..."
+// A phase code (CL) is followed by a position in degrees and minutes. The second number is shown as the altitude and the third as the
+// outside air temperature: 32973 ft and -51.8 C agree with the standard atmosphere at that level (-51 C), so both are marked probable.
+bool dfdau_climb_block(const Text& t, size_t at, Interpretation& r) {
+  struct F { const char* s; size_t n; } f[16];
+  size_t nf = 0, start = at;
+  for (size_t i = at; i <= t.n && nf < 16; ++i) {
+    if (i == t.n || t.at(i) == ',') {
+      while (start < i && t.p[start] == ' ') ++start;
+      f[nf++] = {t.p + start, i - start};
+      start = i + 1;
+    }
+  }
+  for (size_t k = 3; k + 1 < nf; ++k) {
+    const F& la = f[k];
+    const F& lo = f[k + 1];
+    if (la.n != 7 || lo.n < 8 || (la.s[0] != 'N' && la.s[0] != 'S') || (lo.s[0] != 'E' && lo.s[0] != 'W')) continue;
+    if (!(all_digits(la.s + 1, 4) && la.s[5] == '.' && is_digit(la.s[6]))) continue;
+    if (!(all_digits(lo.s + 1, 5) && lo.s[6] == '.' && is_digit(lo.s[7]))) continue;
+    if (f[k - 3].n != 2 || !is_upper(f[k - 3].s[0]) || !is_upper(f[k - 3].s[1])) continue;
+    char lat_d[6] = {la.s[1], la.s[2], la.s[3], la.s[4], la.s[6], '\0'};
+    char lon_d[7] = {lo.s[1], lo.s[2], lo.s[3], lo.s[4], lo.s[5], lo.s[7], '\0'};
+    unsigned lat = 0, lon = 0;
+    if (!parse_degmin(lat_d, 2, &lat) || !parse_degmin(lon_d, 3, &lon) || lat > 90000u || lon > 180000u) continue;
+    char lat_s[16], lon_s[16];
+    fmt_coord(lat_s, sizeof(lat_s), la.s[0], lat);
+    fmt_coord(lon_s, sizeof(lon_s), lo.s[0], lon);
+    const char code[3] = {f[k - 3].s[0], f[k - 3].s[1], '\0'};
+    const char* ph = phase_name(code);
+    char line[kInterpLineChars];
+    int u = std::snprintf(line, sizeof(line), "Position %s %s", lat_s, lon_s);
+    if (nf > 2 && f[1].n == 5 && all_digits(f[1].s, 5)) u += std::snprintf(line + u, sizeof(line) - static_cast<size_t>(u), "   Altitude %u ft (probable)", dec(f[1].s, 5));
+    int temp = 0;
+    if (nf > 2 && f[2].n >= 3 && parse_temp(f[2].s, f[2].n, &temp)) std::snprintf(line + u, sizeof(line) - static_cast<size_t>(u), "   %dC", temp);
+    set_headline(r, "FLIGHT DATA UNIT POSITION");
+    add_line(r, "%s", line);
+    if (ph) add_line(r, "Phase: %s", ph);
+    set_summary(r, "%s %s %s", lat_s, lon_s, ph ? ph : "");
+    return true;
+  }
+  return false;
+}
+
 bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
   // `at` is the first character of the free text after "#DFB".
   size_t b = at;
@@ -707,6 +750,7 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
     set_summary(r, "%u fix%s %s %s %s %dC", count, count == 1 ? "" : "es", lat, lon, alt, last.temp);
     any = true;
   }
+  if (dfdau_climb_block(t, at, r)) any = true;
   if (dfdau_sw_header(t, at, r)) any = true;
   if (dfdau_sw_samples(t, at, r)) any = true;
   if (!any) {
@@ -721,7 +765,7 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
 // The date and time, and the position, describe themselves and were checked (the time matches the receive time to two seconds; the
 // positions form a track that ends at the destination airport). The ten other numbers are not documented anywhere found, so they
 // are shown as received and not named. Their likely meanings are research notes in INTERPRETER.md, not on screen.
-bool interpret_label32(const Text& t, Interpretation& r) {
+bool interpret_label32(const Text& t, Interpretation& r, bool altitude_known) {
   if (t.n < 40 || !is_upper(t.at(10)) || t.at(11) != ',') return false;   // "P" here, "N" in a community sample
   struct F { const char* s; size_t n; } f[20];
   size_t nf = 0, start = 12;
@@ -758,7 +802,7 @@ bool interpret_label32(const Text& t, Interpretation& r) {
   add_line(r, "Position %s %s   Reported %.10s %s", lat_s, lon_s, d, when);
   // The field after the position is an altitude in feet: a community note marks it "altitude in feet?" and the five samples here fall
   // from 14097 to 3723 ft on the approach to the destination. Shown as probable; everything else is shown as received.
-  const bool have_alt = nf > 5 && f[5].n >= 1 && f[5].n <= 5 && all_digits(f[5].s, f[5].n);
+  const bool have_alt = altitude_known && nf > 5 && f[5].n >= 1 && f[5].n <= 5 && all_digits(f[5].s, f[5].n);
   if (have_alt) add_line(r, "Altitude %.*s ft (probable)", static_cast<int>(f[5].n), f[5].s);
   char rest[kInterpLineChars];
   size_t used = 0;
@@ -992,9 +1036,10 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
       for (size_t i = 0; i < tmp.line_count && r.line_count < kInterpLines; ++i) add_line(r, "%s", tmp.lines[i]);
       ok = true;
     }
-  } else if (l[0] == '3' && l[1] == '2') {
+  } else if ((l[0] == '3' && l[1] == '2') || (l[0] == '1' && l[1] == '7')) {
+    // Label 17 from the same carrier has the same layout (live, 2026-10-29); its altitude field is not confirmed, so it stays unnamed.
     const Header h = parse_header(m, t);
-    if (h.ok && interpret_label32(t, r)) {
+    if (h.ok && interpret_label32(t, r, l[0] == '3')) {
       Interpretation tmp = r;
       r.line_count = 0;
       add_header_line(r, h);

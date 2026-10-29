@@ -307,6 +307,21 @@ void live_vdl2_formats() {
   CHECK(!interpret(make("33", '9', '?', "M30AQX245227,B,29OCT26,253601,+44.219,-122.470,30006,7808,KMFR,KSEA,"), r) || !r.decoded);
   CHECK(!interpret(make("33", '9', '?', "M30AQX245227,B,29OCT26,133601,+94.219,-122.470,30006,7808,KMFR,KSEA,"), r) || !r.decoded);
 
+  // Southwest climb block (live, WN3763, B737-8; the longitude was cut by the screen and is completed here).
+  const MessageRecord climb = make("H1", '9', '?', "D57BWN3763#DFB91513,32973,-51.8,241,076,CL,00000,0,  N4527.7,W12126.9,");
+  CHECK(interpret(climb, r) && r.decoded);
+  dump(r);
+  CHECK(any_line_contains(r, "45.462N 121.448W"));
+  CHECK(any_line_contains(r, "Altitude 32973 ft (probable)   -51C"));
+  CHECK(any_line_contains(r, "Phase: climb"));
+  CHECK(interpret(make("H1", '9', '?', "D57BWN3763#DFB91513,32973,-51.8,241,076,CL,00000,0,  N4567.7,W12126.9,"), r) && std::strcmp(r.headline, "FLIGHT DATA UNIT POSITION") != 0);
+  // Header block with the "++" prefix and a MAX type (live, WN3763 KSEA to KSAN).
+  CHECK(interpret(make("H1", '9', '?', "D57AWN3763#DFB++86501,N8971L,B7378MAX,261029,WN3763,KSEA,KSAN,"), r) && any_line_contains(r, "B7378MAX  flight WN3763  KSEA to KSAN"));
+  // Label 17 uses the label 32 layout; its altitude field is not named.
+  const MessageRecord l17 = make("17", '9', '?', "M14AOO4075P,E,2026-10-29 15:26:11,4140,65924,N 44.102 W 122.183,9340,109,005,11,291,294,448,1546,");
+  CHECK(interpret(l17, r) && r.decoded && any_line_contains(r, "44.102N 122.183W"));
+  CHECK(!any_line_contains(r, "probable"));
+
   // A VDL2 data frame that is not ACARS, kept as raw hex by the receiver.
   MessageRecord av = make("AV", '?', '\0', "2143658711234567008280AA550102");
   std::snprintf(av.tail, sizeof(av.tail), "%s", "1468D2A");
