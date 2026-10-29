@@ -77,7 +77,7 @@ int main() {
   assert(out.n==3 && out.raw==2 && d.stats().acars_bad==1);
   // No allocation, bounded stream: discard a frame exceeding capacity.
   d.reset();for(int bit=0;bit<8;++bit)d.push_bit(((0x7e>>bit)&1)!=0);
-  for(size_t i=0;i<(kMaxAvlcBytes+10)*8;i++) d.push_bit(i%2!=0);
+  for(size_t i=0;i<(kMaxStuffedBytes+10)*8;i++) d.push_bit(i%2!=0);
   assert(d.stats().overflow > 0);
   std::puts("vdl2_frames_test passed (synthetic framing / CRC / ACARS)");
 }
