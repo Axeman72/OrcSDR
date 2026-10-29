@@ -2,6 +2,16 @@
 
 This file tracks ACARS dashboard and decoder changes. The repository has no repository-wide CHANGELOG.md.
 
+## 2026-10-29 (later) - Live VDL2 captures and two new formats
+- First live VDL2 traffic on the Tab5 (SkyWest N244SY on OO137C, Delta N338DU on DL0661): 18 CRC-valid AVLC frames, 10 ACARS, no drops.
+- Interpreter: label 32 position reports (date, time, position; altitude marked probable; other values as received) and `H1 #CFB FDE`
+  flight-deck-effect lists (report time and date, entries as received). Captures, screenshots and the cross-check against FAA,
+  OpenSky and adsb.lol are in `captures/2026-10-29-vdl2-136975/`.
+- `tools/acars_adsb_xref.py` compares a decoded position with the live adsb.lol position.
+- Decoder CPU on the Tab5 is about 28 ms per 65 ms block when idle (44% of a core). Likely cause: double-precision arithmetic in
+  `vdl2_receiver.cpp` (the P4 has a single-precision FPU only). Not changed yet.
+- Quiet-hour run: 30 minutes on 136.975 MHz from 07:03Z with no messages; light traffic.
+
 ## 2026-10-29 - VDL Mode 2 on the ACARS dashboard (flashed to COM17, live RF not yet heard)
 
 - **Receive path chosen by channel:** a requested channel from 136.725 to 136.975 MHz runs the native `vdl2::Channel` (250 kS/s stream,

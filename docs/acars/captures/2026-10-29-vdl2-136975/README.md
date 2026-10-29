@@ -37,3 +37,21 @@ EUG at 44.117N 123.217W).
   06:28:36 (7310, 7301, 7308) and with a leading `0` at 06:31:57 to 06:32:05, and 7402 appears as `17402` at 06:28:15 and `07402`
   at 06:29:51, which suggests the leading digit is on/off. 7294 is only seen with `1`. Not verified.
 - `Q0`: link test, decoded.
+
+## Cross-reference with web sources (2026-10-29)
+
+| Check | Source | Result |
+|---|---|---|
+| Tail N244SY is a SkyWest Embraer ERJ 170-200 | FAA registry (Mode S hex A24082) | confirmed |
+| Flight OO137C is callsign SKW137C | OpenSky flights API for A24082 | confirmed: callsign `SKW137C`, departed KSLC (first seen 04:55:13Z), last seen 06:38:15Z |
+| Last seen a few minutes after our last report (06:34Z), near Eugene | OpenSky | consistent with landing at Eugene (EUG) |
+| Delta link test: N338DU, flight DL0661 | adsb.lol live feed | confirmed: N338DU is `DAL661` (BCS3), airborne over Oregon at 37,875 ft |
+| Label 32 track ends at Eugene (EUG 44.1246N 123.2120W) | our five positions | distance falls 45.1, 35.1, 18.3, 11.5, 7.3 nm |
+| Field after the position is altitude in feet | community note ("altitude in feet?") and our data | descent rates between reports 1258, 1065, 915, 884 fpm while closing on EUG: consistent |
+| The speed-like field (249, 249, 235, 246, 232) is ground speed | position legs | **no**: implied ground speed is 312, 265, 231, 180 kt; the field is something else |
+| `FDE` is Flight Deck Effect; four digits after the time are month-day | community CFB page and our samples | consistent (`1029` = 29 Oct; community `0805` beside a 2020-08-05 report) |
+
+Not done: the position track of N244SY from a public source. Anonymous OpenSky track and state history endpoints return 404 or need an
+account, and adsb.lol/airplanes.live trace files return 403 to scripts. `tools/acars_adsb_xref.py` compares a report with the live
+adsb.lol position, so it only works within a minute or two of the report. Credentials for any research account stay in environment
+variables on the researcher's own machine and never go into code.

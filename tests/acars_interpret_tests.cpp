@@ -234,8 +234,13 @@ void live_vdl2_formats() {
   CHECK(any_line_contains(r, "Flight OO137C (SkyWest)"));
   CHECK(any_line_contains(r, "44.045N 122.171W"));
   CHECK(any_line_contains(r, "2026-10-29 06:23:43Z"));
-  CHECK(any_line_contains(r, "4140 65924 14097 249 045 -13 333 368 585 0635"));   // shown as received, not named
+  CHECK(any_line_contains(r, "Altitude 14097 ft (probable)"));
+  CHECK(any_line_contains(r, "P E 4140 65924 249 045 -13 333 368 585 0635"));   // shown as received, not named
   CHECK(std::strstr(r.summary, "44.045N 122.171W 06:23:43Z") != nullptr);
+  // The community sample (SkyWest, 2022) starts with "N" instead of "P".
+  const MessageRecord pos_n = make("32", '9', '?',
+      "M10AOO5484N,E,2022-06-18 15:30:15,4240,66554,N 29.798 W 095.666,9340,109,005,11,291,294,448,1546,");
+  CHECK(interpret(pos_n, r) && r.decoded && any_line_contains(r, "29.798N 95.666W") && any_line_contains(r, "Altitude 9340 ft"));
   // A different position and a negative-free sample from the same descent.
   const MessageRecord pos2 = make("32", '4', '?',
       "M15AOO137CP,E,2026-10-29 06:25:43,4080,65864,N 44.102 W 122.399,11581,249,029,-9,274,297,468,0636,");
@@ -249,9 +254,9 @@ void live_vdl2_formats() {
       "C87AOO137C#CFBFDE0633591029ABZ 06315707301    0    0 06315707308    0    0 06320507310    0    0");
   CHECK(interpret(cf, r) && r.decoded);
   dump(r);
-  CHECK(std::strcmp(r.headline, "CENTRAL FAULT DISPLAY EVENTS") == 0);
+  CHECK(std::strcmp(r.headline, "FLIGHT DECK EFFECTS (FAULT DISPLAY)") == 0);
   CHECK(any_line_contains(r, "Flight OO137C (SkyWest)"));
-  CHECK(any_line_contains(r, "report 06:33:59Z, tag 1029ABZ. 3 entries"));
+  CHECK(any_line_contains(r, "Report 06:33:59Z 10-29, tag ABZ: 3 entries"));
   CHECK(any_line_contains(r, "06:31:57 07301  06:31:57 07308  06:32:05 07310"));
   const MessageRecord cf6 = make("H1", '7', '?',
       "C85AOO137C#CFBFDE0630151029ABZ 06281417294    0    0 06281517402    0    0 06283617310    0    0 06283617301    0    0 06283617308    0    0 06295107402    0    0");

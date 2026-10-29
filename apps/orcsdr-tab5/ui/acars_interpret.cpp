@@ -653,7 +653,7 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
 // positions form a track that ends at the destination airport). The ten other numbers are not documented anywhere found, so they
 // are shown as received and not named. Their likely meanings are research notes in INTERPRETER.md, not on screen.
 bool interpret_label32(const Text& t, Interpretation& r) {
-  if (t.n < 40 || t.at(10) != 'P' || t.at(11) != ',') return false;
+  if (t.n < 40 || !is_upper(t.at(10)) || t.at(11) != ',') return false;   // "P" here, "N" in a community sample
   struct F { const char* s; size_t n; } f[20];
   size_t nf = 0, start = 12;
   for (size_t i = 12; i <= t.n && nf < 20; ++i) {
@@ -687,16 +687,20 @@ bool interpret_label32(const Text& t, Interpretation& r) {
   fmt_hms(when, sizeof(when), hms);
   set_headline(r, "POSITION REPORT");
   add_line(r, "Position %s %s   Reported %.10s %s", lat_s, lon_s, d, when);
+  // The field after the position is an altitude in feet: a community note marks it "altitude in feet?" and the five samples here fall
+  // from 14097 to 3723 ft on the approach to the destination. Shown as probable; everything else is shown as received.
+  const bool have_alt = nf > 5 && f[5].n >= 1 && f[5].n <= 5 && all_digits(f[5].s, f[5].n);
+  if (have_alt) add_line(r, "Altitude %.*s ft (probable)", static_cast<int>(f[5].n), f[5].s);
   char rest[kInterpLineChars];
   size_t used = 0;
   rest[0] = '\0';
-  for (size_t k = 0; k < nf; ++k) {
-    if (k == 0 || k == 1 || k == 4 || f[k].n == 0) continue;
-    if (used + f[k].n + 2 >= sizeof(rest)) break;
-    used += static_cast<size_t>(std::snprintf(rest + used, sizeof(rest) - used, "%s%.*s", used ? " " : "", static_cast<int>(f[k].n), f[k].s));
+  used += static_cast<size_t>(std::snprintf(rest, sizeof(rest), "%c %.*s", t.at(10), static_cast<int>(f[0].n), f[0].s));
+  for (size_t k = 2; k < nf; ++k) {
+    if (k == 4 || (k == 5 && have_alt) || f[k].n == 0) continue;
+    if (used + f[k].n + 2 >= sizeof(rest) - 29) break;
+    used += static_cast<size_t>(std::snprintf(rest + used, sizeof(rest) - used, " %.*s", static_cast<int>(f[k].n), f[k].s));
   }
-  add_line(r, "Other values (meaning not published):");
-  add_line(r, "%s", rest);
+  add_line(r, "Other values, not published: %s", rest);
   set_summary(r, "Position %s %s %s", lat_s, lon_s, when);
   return true;
 }
@@ -745,9 +749,15 @@ bool interpret_cf(const Text& t, size_t at, Interpretation& r) {
   if (total == 0) return false;
   char when[12];
   fmt_hms(when, sizeof(when), hms);
-  set_headline(r, "CENTRAL FAULT DISPLAY EVENTS");
-  if (total > shown) add_line(r, "Group FDE, report %s, tag %s. %u entries (first %u shown); codes as received.", when, tag, static_cast<unsigned>(total), static_cast<unsigned>(shown));
-  else add_line(r, "Group FDE, report %s, tag %s. %u entr%s; codes as received.", when, tag, static_cast<unsigned>(total), total == 1 ? "y" : "ies");
+  set_headline(r, "FLIGHT DECK EFFECTS (FAULT DISPLAY)");
+  // "FDE" is Flight Deck Effect (community documentation). The four digits of the tag are month and day: "1029" is the day this was
+  // captured, and a community sample "0805" sits beside a 2020-08-05 report. The three letters after them are not understood.
+  char when_date[16] = "";
+  if (tag_len == 7 && all_digits(tag, 4) && dec(tag, 2) >= 1 && dec(tag, 2) <= 12 && dec(tag + 2, 2) >= 1 && dec(tag + 2, 2) <= 31)
+    std::snprintf(when_date, sizeof(when_date), " %c%c-%c%c", tag[0], tag[1], tag[2], tag[3]);
+  const char* letters = tag_len == 7 ? tag + 4 : tag;
+  if (total > shown) add_line(r, "Report %s%s, tag %s: %u entries, first %u shown. Codes as received.", when, when_date, letters, static_cast<unsigned>(total), static_cast<unsigned>(shown));
+  else add_line(r, "Report %s%s, tag %s: %u entr%s. Codes as received.", when, when_date, letters, static_cast<unsigned>(total), total == 1 ? "y" : "ies");
   for (size_t first = 0; first < shown; first += 5) {
     char row[kInterpLineChars];
     size_t used = 0;
