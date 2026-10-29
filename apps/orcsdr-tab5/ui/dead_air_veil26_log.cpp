@@ -44,6 +44,11 @@ size_t format_record(const RecordInput& in, char* out, size_t capacity) {
   if (in.unix_time) std::snprintf(utc, sizeof(utc), "%" PRIu32, in.unix_time);
   else std::snprintf(utc, sizeof(utc), "null");
   const Frame& f = in.frame;
+  const int ri = runes::index(in.alphabet, f.state);
+  const auto* rune = runes::glyph(in.alphabet, static_cast<unsigned>(ri));
+  char rune_fields[96];
+  if (rune) std::snprintf(rune_fields, sizeof(rune_fields), "\"rune_index\":%d,\"rune_name\":\"%s\"", ri, rune->name);
+  else std::snprintf(rune_fields, sizeof(rune_fields), "\"rune_index\":null,\"rune_name\":null");
   const int n = std::snprintf(
       out, capacity,
       "{\"v\":1,\"type\":\"veil26\",\"interpreted\":true,\"alg\":\"%s\",\"dict\":\"%s\",\"quant\":\"%s\","
@@ -51,17 +56,17 @@ size_t format_record(const RecordInput& in, char* out, size_t capacity) {
       "\"frame\":%" PRIu32 ",\"t_ms\":%" PRIu32 ",\"utc\":%s,\"freq_hz\":%" PRIu32 ",\"level_dbfs\":%.3f,\"level_src\":\"%s\","
       "\"cfg_rev\":%" PRIu32 ",\"freq_code\":%" PRId64 ",\"level_code\":%" PRId64 ",\"state_in\":\"%08" PRIx32 "\","
       "\"state\":\"%08" PRIx32 "\",\"letter_n\":%u,\"letter\":\"%c\",\"word_i\":%u,\"word\":\"%s\","
-      "\"a1z26\":%" PRIu32 ",\"pyth\":%" PRIu32 "}\n",
+      "\"a1z26\":%" PRIu32 ",\"pyth\":%" PRIu32 ",\"rune_alphabet\":\"%s\",%s}\n",
       kAlgorithm, kDictionaryId, kQuantLog, in.trigger == Trigger::event ? "event" : "sample", in.event_sequence, kind, intention,
       in.seed, f.index, in.monotonic_ms, utc, in.frequency_hz, std::isfinite(in.level_dbfs) ? in.level_dbfs : 0.0,
       in.level_source ? in.level_source : "rf", in.config_revision, f.codes.frequency, f.codes.level, f.state_in, f.state,
       static_cast<unsigned>(f.letter_number), f.letter, static_cast<unsigned>(f.word_index), f.word, f.word_a1z26,
-      f.word_pythagorean);
+      f.word_pythagorean, runes::alphabet(in.alphabet).id, rune_fields);
   if (n <= 0 || static_cast<size_t>(n) >= capacity) return 0;
   return static_cast<size_t>(n);
 }
 
-size_t format_config(const char* intention, uint32_t seed, uint32_t unix_time, uint32_t monotonic_ms, char* out, size_t capacity) {
+size_t format_config(const char* intention, uint32_t seed, uint32_t unix_time, uint32_t monotonic_ms, char* out, size_t capacity, runes::Alphabet alphabet) {
   if (!out || capacity < 8) return 0;
   char text[kMaxIntention * 2 + 4];
   size_t p = 0;
@@ -73,10 +78,10 @@ size_t format_config(const char* intention, uint32_t seed, uint32_t unix_time, u
   const int n = std::snprintf(
       out, capacity,
       "{\"v\":1,\"type\":\"veil26_config\",\"interpreted\":true,\"alg\":\"%s\",\"dict\":\"%s\",\"dict_canonical\":false,"
-      "\"quant\":\"%s\",\"frame_base\":0,\"rule\":\"docs/dead-air/VEIL26.md\","
+      "\"quant\":\"%s\",\"rune_alphabet\":\"%s\",\"frame_base\":0,\"rule\":\"docs/dead-air/VEIL26.md\","
       "\"intention\":\"%s\",\"seed\":\"%08" PRIx32 "\",\"utc\":%s,\"t_ms\":%" PRIu32 ","
       "\"note\":\"symbols come from a fixed recipe applied to measured numbers; not measurements, messages or detections\"}\n",
-      kAlgorithm, kDictionaryId, kQuantLog, text, seed, utc, monotonic_ms);
+      kAlgorithm, kDictionaryId, kQuantLog, runes::alphabet(alphabet).id, text, seed, utc, monotonic_ms);
   if (n <= 0 || static_cast<size_t>(n) >= capacity) return 0;
   return static_cast<size_t>(n);
 }

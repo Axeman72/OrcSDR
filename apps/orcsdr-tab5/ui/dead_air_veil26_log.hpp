@@ -9,6 +9,7 @@
 #include <cstdint>
 
 #include "dead_air_veil26.hpp"
+#include "dead_air_runes.hpp"
 
 namespace orcsdr::dead_air::veil26 {
 
@@ -17,6 +18,7 @@ enum class Trigger : uint8_t { sample, event };
 // What the app knows when it analyses a frame. All numbers are measured or logged values; nothing here is invented.
 struct RecordInput {
   Frame frame{};
+  runes::Alphabet alphabet = runes::Alphabet::latin;
   const char* intention = "";
   uint32_t seed = 0;
   Trigger trigger = Trigger::sample;
@@ -34,7 +36,8 @@ constexpr size_t kLineBytes = 640;
 // One JSON line, newline included. Returns the length, or 0 if it does not fit. Strings are escaped.
 size_t format_record(const RecordInput& in, char* out, size_t capacity);
 // The session header written when the file is opened and whenever the intention changes.
-size_t format_config(const char* intention, uint32_t seed, uint32_t unix_time, uint32_t monotonic_ms, char* out, size_t capacity);
+size_t format_config(const char* intention, uint32_t seed, uint32_t unix_time, uint32_t monotonic_ms, char* out, size_t capacity,
+                     runes::Alphabet alphabet = runes::Alphabet::latin);
 // The closing line: what was analysed, what was logged, what was dropped.
 struct Counters {
   uint32_t frames = 0, gaps = 0, skipped_invalid = 0, records_posted = 0, records_dropped = 0, records_written = 0, write_failures = 0;
