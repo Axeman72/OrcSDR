@@ -93,3 +93,35 @@ messages, and 44 held by the time of the screenshot).
 | Station codes EUG / KEUG | OurAirports IATA `EUG`, ICAO `KEUG` | match |
 | The squitter offers VDL2 on 136.975 MHz | live VDL2 traffic on 136.975 (SkyWest, Delta, N395CM on the same night) | consistent |
 | Squitter rate | the 44 rows span 10:22 to 11:10 UTC, about one every 1 to 2 minutes | one station, steady |
+
+## Continuous 45-minute VDL2 window with aircraft traffic: 11:58:08 to 12:43 UTC, matched live against adsb.lol and OpenSky
+
+At about 12:00 UTC (early morning on the US West Coast) traffic picked up. One uninterrupted watcher run on 136.975 MHz (no other use of
+the serial port) decoded **135 ACARS messages and 213 CRC-verified AVLC frames** (337 valid VDL2 headers; 64 frames carried no data and
+were only counted). Decoder load stayed at 28.4 ms per 65 ms block, worst block 141 ms. The held list (newest 48) was read right after the
+window; screenshots: `window-1158-1243-list.png` (LIVE list) and `window-1158-1243-details.png` (three message details).
+
+Aircraft seen in the window and the live cross-check, run at 12:45:28 UTC (8 minutes after the last of these messages):
+
+| Tail | Flight on our screen | adsb.lol live feed | Other source |
+|---|---|---|---|
+| N244SY | OO3708, label 32 positions 44.017N 123.203W at 12:35:05 and 44.013N 122.992W at 12:37:05 | `SKW3708`, E75L, hex a24082, now 44.030N 121.708W, 24,925 ft, 445 kt, track 089 | OpenSky: departed KEUG, first seen 12:32:41 UTC (our fixes are 2 and 4 minutes after take-off, 6 and 9 nm from the field) |
+| N8862Q | WN1701 | `SWA1701`, B38M, hex ac36cc, FL330 | |
+| N483WN | WN1899 | `SWA1899`, B737, hex a5f5bf, FL410 | |
+| N298FR | MQ4048 | `ENY4048` (Envoy), E75L, hex a313bf, 27,925 ft | |
+
+The ADS-B position of N244SY eight minutes after our second fix is 55 nm further east (about 400 kt average while climbing), consistent
+with the track; the callsigns and types agree for all four aircraft.
+
+Parsers that had only been host-tested were seen on the real screen in this window: label-32 position reports ("Position 44.013N
+122.992W ..." from N244SY), H1 central fault display messages for OO3708 and MQ4048, and H1 flight data unit blocks for the Southwest
+aircraft.
+
+### New unread format from this window: Southwest H1 `#DFB` data blocks (WN1701, N8862Q)
+
+Multi-block reports (`D17A` to `D17E` seen), ETB-terminated blocks of fixed-width numbers, for example:
+
+`D17EWN1701#DFB13  -9210250327200445  87 -14  11  11  12 5` ... and `D17DWN1701#DFB  000-1300 1441 1456 2344 2348030003  90071 ...`
+
+The interpreter names the unit and the report and shows the text; the columns are not decoded and no meaning is claimed. Decoding
+this needs the blocks joined in order first (not done: the interpreter keeps no state across messages).

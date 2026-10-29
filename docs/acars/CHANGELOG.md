@@ -24,6 +24,10 @@ This file tracks ACARS dashboard and decoder changes. The repository has no repo
 - Fourth 45 minute window (11:12:18 to 11:57:19Z): the unit's own ADS-B receiver (1090 MHz) on the ADS-B screen with serial trace logging, checked
   once a minute against adsb.lol by `tools/adsb_live_xref.py`. The receiver reported RECEIVING / signal good but decoded 0 aircraft and 0 messages
   (VHF whip antenna, night-time traffic), so there was nothing to compare. The serial verbosity was restored to NORMAL afterwards.
+- Fifth window, 11:58:08 to 12:43Z on VDL2 136.975 MHz, with traffic: 135 ACARS messages, 213 verified frames, decoder 28.4 ms per 65 ms block.
+  Four aircraft (SkyWest N244SY, Southwest N8862Q and N483WN, Envoy N298FR) matched live against adsb.lol at 12:45:28Z (callsigns SKW3708, SWA1701,
+  SWA1899, ENY4048) and N244SY's KEUG departure against OpenSky. The label-32 and fault-display parsers were seen on the live screen. New unread
+  format: Southwest `H1 #DFB` multi-block data reports. Screenshots and tables in `captures/2026-10-29-vdl2-136975/`.
 
 ## 2026-10-29 - VDL Mode 2 on the ACARS dashboard (flashed to COM17, live RF not yet heard)
 
