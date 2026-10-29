@@ -20,6 +20,8 @@ on:
       - 'tests/dead_air_stats_tests.cpp'
       - 'tests/dead_air_env_tests.cpp'
       - 'tests/dead_air_envevents_tests.cpp'
+      - 'tests/dead_air_veil26_tests.cpp'
+      - 'tests/dead_air_veil26_log_tests.cpp'
       - 'tests/dead_air_journal_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
   pull_request:
@@ -40,6 +42,8 @@ on:
       - 'tests/dead_air_stats_tests.cpp'
       - 'tests/dead_air_env_tests.cpp'
       - 'tests/dead_air_envevents_tests.cpp'
+      - 'tests/dead_air_veil26_tests.cpp'
+      - 'tests/dead_air_veil26_log_tests.cpp'
       - '.github/workflows/dead-air-host-tests.yml'
 permissions:
   contents: read
@@ -209,3 +213,20 @@ jobs:
             -o /tmp/dead-air-envevents-tests
       - name: Execute environment event tests
         run: /tmp/dead-air-envevents-tests
+      - name: Compile VEIL-26 engine and records with warnings as errors
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_veil26_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_veil26.cpp \
+            -o /tmp/dead-air-veil26-tests
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Iapps/orcsdr-tab5/ui \
+            tests/dead_air_veil26_log_tests.cpp \
+            apps/orcsdr-tab5/ui/dead_air_veil26_log.cpp \
+            apps/orcsdr-tab5/ui/dead_air_veil26.cpp \
+            -o /tmp/dead-air-veil26-log-tests
+      - name: Execute VEIL-26 tests
+        run: |
+          /tmp/dead-air-veil26-tests
+          /tmp/dead-air-veil26-log-tests
