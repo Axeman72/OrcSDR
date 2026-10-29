@@ -27,10 +27,13 @@ Expected: `vdl2_frames_test passed (synthetic framing / CRC / ACARS)`. On 2026-1
 
 ## Next ordered gates
 1. Capture VDL2 bursts and collect `dumpvdl2` decoded AVLC hex/count oracle at matching frequencies and sampling rates. Note actual board/RTL-SDR rate and clock settings.
-2. Implement separate streaming physical-layer and burst FEC modules, no `main.cpp` changes, with RRC alpha 0.6, fractional timing recovery at chosen rate, D8PSK ambiguity resolution, 17+5 header, 15-bit descrambler and shortened RS(255,249).
+2. Implement separate streaming physical-layer and burst FEC modules, no `main.cpp` changes, with fractional timing recovery and a documented RRC-on/off comparison (ETSI TX uses a full raised-cosine alpha 0.6; xng notes that adding RX RRC hurts real-capture results), at chosen rate, D8PSK ambiguity resolution, 17+5 header, 15-bit descrambler and shortened RS(255,249).
 3. Compare on-air CRC-valid AVLC/ACARS counts to dumpvdl2, benchmark Tab5 memory/CPU and USB discontinuities.
 4. Bridge validated `acars::Message` into existing queue/UI and show original channel and bearer POA vs VDL2. ATN/CPDLC/ADS-C remain raw bytes, not guessed translations.
 5. Build ESP-IDF and run on explicitly authorized Tab5. Check 1280x720 layouts legible on physical 5-inch screen and no full-screen redraw regressions.
 
 ## Known limitations
 The tests prove byte/bit framing under synthetic inputs, not real radio decoding; ACARS inner BCS/parity conventions need off-air fixtures; a deliberately fixed 2,048-byte AVLC cap is only an initial memory limit; all PHY gain constants and RS edge cases remain unvalidated. Firmware raw-frame display and message-transport labels are not yet present.
+
+## Important 2026-10-28 PHY correction
+Follow ETSI's **transmitted** full raised-cosine alpha=0.6; do not assume there is an RRC half-filter on TX. The xng project documented a same-IQ comparison in which adding RRC on RX reduced CRC-good frames from 17 to 1. This is xng's self-reported measurement, not ours. RX filter selection must therefore be A/B evaluated against identical off-air IQ; default candidate is the anti-alias channel FIR without RX RRC. Also assemble Reed–Solomon octets from transmitted bits **LSB-first** (HDLC wire order) before applying RS(255,249) arithmetic; see xng docs/notes/VDL2.md and BENCHMARKS.md.
