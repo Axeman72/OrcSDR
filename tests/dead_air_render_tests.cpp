@@ -116,6 +116,12 @@ int main() {
       char want[16];
       std::snprintf(want, sizeof(want), "%.1f", static_cast<double>(env.temperature_c.value));
       assert(displayed(want));
+      char want_rh[16];
+      std::snprintf(want_rh, sizeof(want_rh), "%.1f", static_cast<double>(env.humidity_rh.value));
+      assert(displayed(want_rh));
+      char want_hpa[16];
+      std::snprintf(want_hpa, sizeof(want_hpa), "%.1f", static_cast<double>(env.pressure_hpa.value));
+      assert(displayed(want_hpa));
       validate_bounds();
       for (const Prim& p : host_display::prims) assert(!(p.kind == Prim::fill && p.w >= 1280 && p.h >= 700));
     }
