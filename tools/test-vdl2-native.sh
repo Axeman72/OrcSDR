@@ -28,7 +28,7 @@ SRC=("$ROOT/apps/orcsdr-tab5/ui/vdl2_channel.cpp" "$ROOT/apps/orcsdr-tab5/ui/vdl
  if [[ $# -gt 0 ]]; then
    echo "REAL OFF-AIR FIXTURE: $1"
    "$TMP/replay" "$1" i16 50000 | tee "$TMP/replay.log"
-   grep -q 'HB-IJW' "$TMP/replay.log" || { echo 'FAILED real fixture: expected HB-IJW'; exit 1; }
+   grep -Eq '^ACARS tail=\.*HB-IJW[ ]' "$TMP/replay.log" || { echo 'FAILED real fixture: expected HB-IJW'; exit 1; }
    awk '/VDL2_REPORT/ {for(i=1;i<=NF;i++)if($i~/^frames=/){split($i,a,"=");if(a[2]>=2)ok=1}}END{exit !ok}' "$TMP/replay.log" || { echo 'FAILED real fixture: <2 AVLC frames'; exit 1; }
    echo 'REAL IQ: ACCEPTANCE PASSED (2+ AVLC and HB-IJW)'
  else

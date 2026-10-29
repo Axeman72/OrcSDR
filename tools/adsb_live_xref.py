@@ -13,6 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tab5_ft8 as t
 import tab5_ft8_shot as sh
 
+MAX_FRAME_AGE_S = 15        # a frame older than this is not compared with the live feed (the aircraft has moved on)
+MAX_LOOKUPS_PER_PASS = 10   # feed lookups block; aircraft beyond the cap are carried into the next pass, not dropped
 FRAME = re.compile(r"RTL_ADSB_FRAME raw=(\S+) icao=(\w+) tc=(\d+) callsign=(\S*) altitude_ft=(-?\d+) altitude_valid=(\d) "
                    r"speed_kts=(-?\d+) speed_valid=(\d) heading_deg=(-?\d+) heading_valid=(\d)")
 
@@ -32,29 +34,54 @@ def main():
     os.makedirs(out, exist_ok=True)
     key = t.find_key(None)
     dev = t.Tab5(port)
+
     def cmd(c, pre, to=6):
         dev.authenticate(key); dev.send(c)
         return [x for x in dev.read_until((pre,), to, echo=False) if pre in x]
+
     old = cmd("RTL_SERIAL VERBOSITY", "RTL_SERIAL_VERBOSITY")
     if not old:                       # never guess the stored mode: a wrong restore would overwrite the device's setting
         sys.exit("could not read the current serial verbosity; nothing was changed")
     old_mode = re.search(r"mode=(\w+)", old[-1]).group(1)
     print("previous verbosity", old_mode, flush=True)
-    if not cmd("RTL_SERIAL VERBOSITY TRACE", "RTL_SERIAL_VERBOSITY_OK"):
-        sys.exit("the device did not confirm TRACE verbosity; nothing was started")
-    opened = cmd("RTL_UI OPEN ADSB", "RTL_UI_OPEN_OK")
-    print(opened, flush=True)
-    if not opened:
-        cmd("RTL_SERIAL VERBOSITY " + old_mode, "RTL_SERIAL_VERBOSITY_OK")
-        sys.exit("the ADS-B screen did not open; verbosity restored")
-    end = time.time() + minutes * 60
     seen = {}          # icao -> last frame dict
-    heard_this_minute = set()
-    next_check = time.time() + 60
-    shots = [time.time() + 20 * 60, time.time() + 40 * 60]
+    pending = set()    # heard and not yet looked up
     rows = []
-    f = open(os.path.join(out, "xref.jsonl"), "w")
+    f = None
+
+    def check(icao):
+        ours = seen[icao]
+        web = lookup(icao)
+        age = time.time() - ours["t"]
+        row = dict(utc=time.strftime("%H:%M:%S", time.gmtime()), icao=icao, ours=ours, age_s=round(age, 1),
+                   web=None if not web else {k: web.get(k) for k in ("r", "flight", "t", "alt_baro", "gs", "track", "lat", "lon", "seen")})
+        if web:
+            fresh = age <= MAX_FRAME_AGE_S
+            wa = web.get("alt_baro")
+            row["d_alt"] = (wa - ours["alt"]) if fresh and isinstance(wa, (int, float)) and ours["alt"] is not None else None
+            row["d_gs"] = (web.get("gs") - ours["gs"]) if fresh and web.get("gs") is not None and ours["gs"] is not None else None
+            row["callsign_match"] = bool(ours["cs"] not in ("-", "") and (web.get("flight") or "").strip() == ours["cs"].strip())
+        f.write(json.dumps(row) + "\n"); f.flush(); rows.append(row)
+        print(row["utc"], icao, ours["cs"], "ours alt/gs/hdg", ours["alt"], ours["gs"], ours["hdg"], "age %.0fs" % age,
+              "| web", None if not web else (web.get("r"), (web.get("flight") or "").strip(), web.get("alt_baro"), web.get("gs"), web.get("track")),
+              "| d_alt", row.get("d_alt"), "d_gs", row.get("d_gs"), flush=True)
+
+    def drain(limit):
+        for icao in sorted(pending)[:limit]:
+            pending.discard(icao)
+            check(icao)
+
     try:
+        if not cmd("RTL_SERIAL VERBOSITY TRACE", "RTL_SERIAL_VERBOSITY_OK"):
+            sys.exit("the device did not confirm TRACE verbosity; nothing was started")
+        opened = cmd("RTL_UI OPEN ADSB", "RTL_UI_OPEN_OK")
+        print(opened, flush=True)
+        if not opened:
+            sys.exit("the ADS-B screen did not open")
+        f = open(os.path.join(out, "xref.jsonl"), "w")
+        end = time.time() + minutes * 60
+        next_check = time.time() + 60
+        shots = [time.time() + 20 * 60, time.time() + 40 * 60]
         while time.time() < end:
             raw = dev.s.readline()
             if raw:
@@ -64,37 +91,27 @@ def main():
                     seen[icao] = dict(t=time.time(), cs=m.group(4), alt=int(m.group(5)) if m.group(6) == "1" else None,
                                       gs=int(m.group(7)) if m.group(8) == "1" else None,
                                       hdg=int(m.group(9)) if m.group(10) == "1" else None, tc=int(m.group(3)))
-                    heard_this_minute.add(icao)
+                    pending.add(icao)
             if time.time() >= next_check:
                 next_check = time.time() + 60
-                for icao in sorted(heard_this_minute)[:10]:
-                    ours = seen[icao]
-                    web = lookup(icao)
-                    row = dict(utc=time.strftime("%H:%M:%S", time.gmtime()), icao=icao, ours=ours,
-                               web=None if not web else {k: web.get(k) for k in ("r", "flight", "t", "alt_baro", "gs", "track", "lat", "lon", "seen")})
-                    if web:
-                        wa = web.get("alt_baro")
-                        row["d_alt"] = (wa - ours["alt"]) if isinstance(wa, (int, float)) and ours["alt"] is not None else None
-                        row["d_gs"] = (web.get("gs") - ours["gs"]) if web.get("gs") is not None and ours["gs"] is not None else None
-                        row["callsign_match"] = bool(ours["cs"] not in ("-", "") and (web.get("flight") or "").strip() == ours["cs"].strip())
-                    f.write(json.dumps(row) + "\n"); f.flush(); rows.append(row)
-                    print(row["utc"], icao, ours["cs"], "ours alt/gs/hdg", ours["alt"], ours["gs"], ours["hdg"],
-                          "| web", None if not web else (web.get("r"), (web.get("flight") or "").strip(), web.get("alt_baro"), web.get("gs"), web.get("track")),
-                          "| d_alt", row.get("d_alt"), "d_gs", row.get("d_gs"), flush=True)
-                heard_this_minute.clear()
+                drain(MAX_LOOKUPS_PER_PASS)
             if shots and time.time() >= shots[0]:
                 shots.pop(0)
                 try:
                     dev.authenticate(key); sh.snap_png(dev, key, os.path.join(out, "adsb_%s.png" % time.strftime("%H%M%S", time.gmtime())))
                 except BaseException as e:
                     print("snap failed", e, flush=True)
+        drain(MAX_LOOKUPS_PER_PASS)       # the last partial interval, so a short run still compares what it heard
     finally:
+        if f:
+            f.close()
         try:
-            cmd("RTL_SERIAL VERBOSITY " + old_mode, "RTL_SERIAL_VERBOSITY_OK")
-        except BaseException:
-            pass
+            if not cmd("RTL_SERIAL VERBOSITY " + old_mode, "RTL_SERIAL_VERBOSITY_OK"):
+                print("WARNING: the device did not confirm restoring serial verbosity %s; set it by hand" % old_mode, flush=True)
+        except BaseException as e:
+            print("WARNING: could not restore serial verbosity %s (%s); set it by hand" % (old_mode, e), flush=True)
     ok = [r for r in rows if r.get("web")]
-    print("SUMMARY aircraft heard %d, lookups %d, found on adsb.lol %d" % (len(seen), len(rows), len(ok)), flush=True)
+    print("SUMMARY aircraft heard %d, lookups %d, found on adsb.lol %d, not looked up %d" % (len(seen), len(rows), len(ok), len(pending)), flush=True)
     da = [abs(r["d_alt"]) for r in ok if r.get("d_alt") is not None]
     dg = [abs(r["d_gs"]) for r in ok if r.get("d_gs") is not None]
     if da: print("altitude difference median %d ft, max %d ft (n=%d)" % (sorted(da)[len(da) // 2], max(da), len(da)))

@@ -5,7 +5,7 @@
 Usage: acars_adsb_xref.py <registration> <lat> <lon> <alt_ft> [--when HH:MM:SS]
 The ADS-B lookup is live, so it only means something when run within a minute or two of the report. The script prints the aircraft's
 ADS-B position, the distance to the reported position and the altitude difference, extrapolating the ADS-B position along its track
-to the report time when --when is given (UTC, today).
+to the report time when --when is given (UTC; the day nearest the ADS-B fix is used, so a report from just before midnight still works).
 """
 import argparse, json, math, sys, time, urllib.request
 from datetime import datetime, timezone
@@ -43,6 +43,10 @@ def main():
     if a.when and ac.get("gs") is not None and ac.get("track") is not None:
         h, m, s = (int(x) for x in a.when.split(":"))
         today = datetime.now(timezone.utc).replace(hour=h, minute=m, second=s, microsecond=0).timestamp()
+        while today - t_pos > 43200:          # pick the UTC day nearest the fix, not blindly today
+            today -= 86400
+        while t_pos - today > 43200:
+            today += 86400
         dt = today - t_pos
         dist = ac["gs"] / 3600.0 * dt        # nautical miles
         trk = math.radians(ac["track"])

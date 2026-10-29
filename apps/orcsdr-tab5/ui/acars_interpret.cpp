@@ -790,6 +790,7 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
     fmt_alt_ft(alt, sizeof(alt), last.alt_ft);
     const char* ph = phase_name(last.phase);
     set_headline(r, "FLIGHT DATA UNIT POSITIONS");
+    if (r.line_count > 1) r.line_count = 1;          // the four-line cap: keep one earlier line so the latest fix lines are not dropped
     add_line(r, "%u position fix%s; latest %s %s   Altitude %s", count, count == 1 ? "" : "es", lat, lon, alt);
     add_line(r, "At day %u %.2s:%.2s   Outside air %dC   wind %03u/%u kt%s%s", last.day, last.hm, last.hm + 2, last.temp, last.wdir,
              last.wspd, ph ? "   " : "", ph ? ph : "");
