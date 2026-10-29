@@ -55,3 +55,27 @@ Not done: the position track of N244SY from a public source. Anonymous OpenSky t
 account, and adsb.lol/airplanes.live trace files return 403 to scripts. `tools/acars_adsb_xref.py` compares a report with the live
 adsb.lol position, so it only works within a minute or two of the report. Credentials for any research account stay in environment
 variables on the researcher's own machine and never go into code.
+
+## Second live capture, 08:14 UTC, matched live against ADS-B
+
+After 56 minutes with no decoded message, the Tab5 decoded four ACARS blocks on 136.975 MHz at 08:14:33 to 08:14:44 UTC (plus
+four AVLC frames with no data, counted only). Screenshots: `live2-0814-list.png`, `live2-0814-details.png`.
+
+| UTC | Tail | Flight | Label | Block | Text |
+|---|---|---|---|---|---|
+| 08:14:44 | N395CM | 8C3337 | H1 | 6 | `F12A8C3337#M1B/BA USADCXA.AT1.N395CM651483A8002AD7` |
+| 08:14:40 | N395CM | 8C3337 | H1 | 6 | same (resent) |
+| 08:14:37 | N395CM | 8C3337 | `_?` | 5 | `S30A8C3337`, acknowledges uplink block O |
+| 08:14:33 | N395CM | 8C3337 | `_?` | 5 | `S30A8C3337`, acknowledges uplink block O |
+
+Cross-reference, run at 08:15:25 UTC, about 40 seconds after the last block:
+
+| Check | Source | Result |
+|---|---|---|
+| N395CM is flight 8C3337 | adsb.lol live feed | confirmed: callsign `ATN3337`, type B763, hex a4959a |
+| Aircraft type and owner | FAA registry | Boeing 767-323, Mode S A4959A, Cargo Aircraft Management Inc. |
+| Aircraft in our region | adsb.lol | airborne at 36,000 ft, 44.996N 122.087W, ground speed 450 kt, track 335 degrees |
+| Interpreter output | on-screen | ACK blocks and "left FMC" unit name correct; the H1 text layout is not decoded |
+
+The H1 text has an ARINC 622 shape (a seven character ground address `USADCXA`, the identifier `AT1`, then the registration and a hex-like
+payload). It is not decoded and no meaning is claimed here.
