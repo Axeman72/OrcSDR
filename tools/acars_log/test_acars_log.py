@@ -17,6 +17,7 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(classify.crc16(b'ADS.N678DL' + bytes.fromhex('032D')), 0x2633)
         self.assertEqual(classify.crc16(b'TI2/024KSEAA'), 0x3BC3)
 
+    @unittest.skipUnless(SAMPLE.exists(), 'requires the local data/acars-sd/20261029.jsonl sample')
     def test_real_capture_formats(self):
         expected={'ARINC 622', 'TI2 ATIS request', 'fault display', 'Southwest DFB header', 'Southwest DFB samples', 'DFB cruise fix', 'M1BPOS', 'label 32 position', 'label 33 position', 'Southwest DFB climb', 'DFB TRP'}
         seen=set()
@@ -33,6 +34,7 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(classify.classify('H1',text,'N926WN')['format'],'unclassified')
         self.assertEqual(classify.classify('37','unknown data')['format'],'unclassified')
 
+    @unittest.skipUnless(SAMPLE.exists(), 'requires the local data/acars-sd/20261029.jsonl sample')
     def test_ingest_is_idempotent_and_reports(self):
         with tempfile.TemporaryDirectory() as tmp:
             db=acars_log.connect(str(Path(tmp)/'test.sqlite'))

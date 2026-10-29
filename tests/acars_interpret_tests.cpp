@@ -396,6 +396,18 @@ void live_vdl2_formats() {
   // Random eight letter runs that are not airports must not become a route.
   CHECK(interpret(make("H1", '9', '?', "D15AUA0677#DFBXYZABCDEFGHIJ 1234 5678"), r) && !r.decoded);
 
+  // Review fixes: impossible coordinates and dates are not shown as decoded.
+  CHECK(!interpret(make("H1", '9', '?', "F63AAS0536#M1BPOSN95397W122192,KNGDM,202750,350"), r) || !r.decoded);      // latitude 95
+  CHECK(!interpret(make("H1", '9', '?', "F63AAS0536#M1BPOSN44397W190192,KNGDM,202750,350"), r) || !r.decoded);      // longitude 190
+  CHECK(interpret(make("SQ", '?', '?', "02XAEUGKEUG14407N12313WV136975/ARINC"), r) && any_line_contains(r, "Located at"));
+  CHECK(interpret(make("SQ", '?', '?', "02XAEUGKEUG14467N12313WV136975/ARINC"), r) && !any_line_contains(r, "Located at") && any_line_contains(r, "VDL2 136.975"));
+  CHECK(interpret(make("SQ", '?', '?', "02XAEUGKEUG19107N12313WV136975/ARINC"), r) && !any_line_contains(r, "Located at"));
+  CHECK(!interpret(make("32", '9', '?', "M10AOO137CP,E,2026-02-31 06:23:43,4140,65924,N 44.045 W 122.171,14097,249,045,-13,333,368,585,0635,"), r) || !r.decoded);
+  CHECK(interpret(make("32", '9', '?', "M10AOO137CP,E,2024-02-29 06:23:43,4140,65924,N 44.045 W 122.171,14097,249,045,-13,333,368,585,0635,"), r) && r.decoded);   // leap day
+  CHECK(!interpret(make("33", '9', '?', "M30AQX245227,B,31FEB26,133601,+44.219,-122.470,30006,7808,KMFR,KSEA,"), r) || !r.decoded);
+  CHECK(interpret(make("Q0", '9', '?', "S74AUA2818"), r) && r.decoded);
+  CHECK(interpret(make("Q0", '9', '?', "??"), r) && !r.decoded);
+
   // A VDL2 data frame that is not ACARS, kept as raw hex by the receiver.
   MessageRecord av = make("AV", '?', '\0', "2143658711234567008280AA550102");
   std::snprintf(av.tail, sizeof(av.tail), "%s", "1468D2A");

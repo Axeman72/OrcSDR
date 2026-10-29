@@ -120,7 +120,8 @@ void on_vdl2_frame(void*, const vdl2::FrameView& frame) {
     if (g_model->post_message(*frame.acars_message, now_ms(), utc)) g_msgs_posted.fetch_add(1, std::memory_order_relaxed);
     else g_msgs_dropped.fetch_add(1, std::memory_order_relaxed);
     g_v2_acars.fetch_add(1, std::memory_order_relaxed);
-  } else if (frame.raw && frame.raw_size > 2 && (frame.control & 0x01u) == 0) {   // information frame (bit 0 clear)
+  } else if (frame.raw && frame.raw_size > 11 && (frame.control & 0x01u) == 0) {   // information frame (bit 0 clear) with at least one
+                                                                                  // information octet after the 9 byte header and the 2 byte FCS
     static constexpr char kHex[] = "0123456789ABCDEF";
     acars::Message m;
     m.frequency_hz = g_channel_hz.load(std::memory_order_relaxed);
@@ -251,6 +252,11 @@ bool start(acars_ui::Model* model) {
   g_reported = false;
   g_tune_calls = g_tune_refused = 0;
   g_wrong_seen = g_stuck_since_ms = 0;
+  g_v2_header_ok.store(0);
+  g_v2_fec_ok.store(0);
+  g_v2_acars.store(0);
+  g_v2_raw.store(0);
+  g_v2_other.store(0);
   acars_ui::Capabilities caps;
   caps.live_reception = true;       // this receiver decodes live signals; the other capabilities stay off
   g_model->post_capabilities(caps);
@@ -395,11 +401,13 @@ Status status() {
   s.decoder.bits = g_stat_words[6].load(std::memory_order_relaxed);
   s.level = static_cast<float>(g_level_milli.load(std::memory_order_relaxed)) / 1000.f;
   s.vdl2 = g_vdl2_mode.load(std::memory_order_relaxed);
-  s.vdl2_header_ok = g_v2_header_ok.load(std::memory_order_relaxed);
-  s.vdl2_fec_ok = g_v2_fec_ok.load(std::memory_order_relaxed);
-  s.vdl2_acars = g_v2_acars.load(std::memory_order_relaxed);
-  s.vdl2_raw = g_v2_raw.load(std::memory_order_relaxed);
-  s.vdl2_other = g_v2_other.load(std::memory_order_relaxed);
+  if (s.vdl2) {                       // the counters stay in place; they are only reported while a VDL2 channel is tuned
+    s.vdl2_header_ok = g_v2_header_ok.load(std::memory_order_relaxed);
+    s.vdl2_fec_ok = g_v2_fec_ok.load(std::memory_order_relaxed);
+    s.vdl2_acars = g_v2_acars.load(std::memory_order_relaxed);
+    s.vdl2_raw = g_v2_raw.load(std::memory_order_relaxed);
+    s.vdl2_other = g_v2_other.load(std::memory_order_relaxed);
+  }
   return s;
 }
 

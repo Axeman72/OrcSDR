@@ -98,7 +98,7 @@ hex payload.
   all four community samples (`B5F0`, `B1E3`, `81CC`, `B6BD`). The spec's ground-to-ground form is simply `080KPITA`.
 - The reply is an `A9` uplink (S2 4.5.9, ARINC 623 B-5): airport ATIS text. Lengthy ATIS uplinks have lower delivery success (S2 4.5.9).
 
-**Test:** every `B9` block should show station == the airport inside the data. The Alaska `0608` after the flight id in the header
+**Test:** every `B9` block should show a station and an airport as separate fields (they need not be equal: live samples have a ground-system station such as `ATSUAXA` and the destination airport `KSFO`). The Alaska `0608` after the flight id in the header
 is the message sequence; it is not part of this format.
 
 **Name fields safely:** all four (line width, airport, request type with the five meanings, CRC ok). Plain-English output: "ATIS

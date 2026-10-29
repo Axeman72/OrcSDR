@@ -14,8 +14,10 @@ import hashlib
 import json
 import math
 import os
+import shlex
 import struct
 import sys
+import tempfile
 from fractions import Fraction
 from pathlib import Path
 
@@ -26,6 +28,8 @@ MAX_INPUT_BYTES = 256 * 1024 * 1024  # deliberate host-side safety bound
 
 
 def load_iq(path: Path, sample_rate: int | None, center_hz: int | None):
+    if path.stat().st_size > MAX_INPUT_BYTES + ORCIQ_HEADER.size:   # refuse before reading it all into memory
+        raise ValueError('Capture exceeds the 256 MiB host processing bound; split it first')
     content = path.read_bytes()
     if not content:
         raise ValueError('Capture is empty')
@@ -85,10 +89,11 @@ def prepare(input_path: Path, output_path: Path, rate: int | None,
         raise FileExistsError('Output or metadata already exists; refusing to overwrite')
     payload = convert(raw, rate)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = output_path.with_suffix(output_path.suffix + '.tmp')
+    fd, tmp_name = tempfile.mkstemp(prefix=output_path.name + '.', suffix='.tmp', dir=output_path.parent)   # unique per invocation
+    tmp = Path(tmp_name)
     try:
-        with tmp.open('xb') as fd:
-            fd.write(payload)
+        with os.fdopen(fd, 'wb') as out:
+            out.write(payload)
         os.replace(tmp, output_path)
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -103,8 +108,13 @@ def prepare(input_path: Path, output_path: Path, rate: int | None,
         'no_decoder_run': True,
     }
     metadata_path = output_path.with_suffix(output_path.suffix + '.json')
-    metadata_path.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
-    run_command = ('dumpvdl2 --iq-file ' + str(output_path) +
+    try:
+        metadata_path.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+    except BaseException:                  # no output without its sidecar: the next attempt must not be blocked by a stale file
+        output_path.unlink(missing_ok=True)
+        metadata_path.unlink(missing_ok=True)
+        raise
+    run_command = ('dumpvdl2 --iq-file ' + shlex.quote(str(output_path)) +
                    ' --sample-format U8 --oversample 1 --centerfreq ' +
                    str(center_hz) + ' ' + str(channel_hz))
     return metadata, run_command

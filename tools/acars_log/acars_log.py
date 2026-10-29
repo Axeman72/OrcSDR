@@ -40,7 +40,7 @@ def ingest(db, paths):
             with path.open(encoding='utf-8') as stream:
                 for lineno,line in enumerate(stream,1):
                     try:
-                        obj=json.loads(line); obj['utc']=obj.get('utc') or 0
+                        obj=json.loads(line); obj['utc']=int(obj.get('utc') or 0)
                         for key in ('up','f','x'):
                             if key not in obj: raise ValueError('missing '+key)
                         raw=bytes.fromhex(obj['x']); obj['x']=raw.hex().upper()

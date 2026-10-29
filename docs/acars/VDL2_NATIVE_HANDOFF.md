@@ -48,6 +48,8 @@ bash tools/test-vdl2-native.sh /path/to/vdl2_offair_6s.i16
 For the native host replay only:
 
 ```bash
+# tools/test-vdl2-native.sh builds the replay tool into a temporary directory. To run it by hand, build it first:
+g++ -std=c++17 -O2 -I apps/orcsdr-tab5/ui tools/vdl2_replay_iq.cpp apps/orcsdr-tab5/ui/vdl2_burst.cpp apps/orcsdr-tab5/ui/vdl2_channel.cpp     apps/orcsdr-tab5/ui/vdl2_frames.cpp apps/orcsdr-tab5/ui/vdl2_receiver.cpp apps/orcsdr-tab5/ui/vdl2_rs.cpp -o vdl2_replay_iq
 ./vdl2_replay_iq /path/to/vdl2_offair_6s.i16 i16 50000
 ```
 

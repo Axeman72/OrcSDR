@@ -44,6 +44,7 @@ void RsCodec::encode(const uint8_t data[kRsData],uint8_t parity[kRsCheck]) const
 bool RsCodec::correct(uint8_t cw[kRsBlock],const uint8_t* erasures,size_t f,size_t& corrected) const {
   corrected=0;
   if(f>kRsCheck || (f && !erasures))return false;
+  for(size_t i=0;i<f;++i)if(erasures[i]>=255)return false;   // reject bad positions for clean codewords too
   uint8_t synd[6]{};
   bool zero=true;
   for(unsigned j=0;j<6;++j){

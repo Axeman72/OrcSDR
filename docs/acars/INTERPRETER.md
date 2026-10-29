@@ -1,11 +1,11 @@
 # ACARS message interpreter
 
-Status: **host-tested; not yet built into firmware or run on a device.** Code: `apps/orcsdr-tab5/ui/acars_interpret.{hpp,cpp}`,
+Status: **host-tested, built into the firmware (`apps/orcsdr-tab5/main/CMakeLists.txt`) and run on a Tab5 with live traffic.** Code: `apps/orcsdr-tab5/ui/acars_interpret.{hpp,cpp}`,
 tests: `tests/acars_interpret_tests.cpp` (run by `tools/test-acars-ui.sh`, with ASan/UBSan).
 
 The decoder delivers a CRC-verified block; this module turns its label and text into plain language. It is a pure function over a
 `MessageRecord` (no allocation, no hardware, no state), computed when a row or the detail page is drawn, so it adds no per-record RAM
-(the Tab5 internal RAM boot pool is nearly full; see the project notes). The raw text is always shown beside it. A field that is not
+(the Tab5 internal RAM boot pool is nearly full; see the project notes). The raw text is shown beside it by default; the `RAW TEXT IN DETAIL` setting (SETUP > RAW TEXT) can hide it on the detail page. A field that is not
 understood is left out or shown as received, never given a name.
 
 On screen: in the LIVE list the interpreted summary is drawn **cyan**, raw text stays white; a block whose text layout is not

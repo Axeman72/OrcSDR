@@ -55,7 +55,14 @@ int main(int argc, char** argv) {
   for (int i = 2; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--strict")) strict = true;
     else if (!std::strcmp(argv[i], "--examples") && i + 1 < argc) examples = static_cast<unsigned>(std::atoi(argv[++i]));
-    else if (!std::strcmp(argv[i], "--min-decoded-percent") && i + 1 < argc) min_decoded = std::atof(argv[++i]);
+    else if (!std::strcmp(argv[i], "--min-decoded-percent") && i + 1 < argc) {
+      char* end = nullptr;
+      min_decoded = std::strtod(argv[++i], &end);
+      if (end == argv[i] || *end != '\0' || min_decoded < 0.0 || min_decoded > 100.0) {
+        std::fprintf(stderr, "--min-decoded-percent needs a number from 0 to 100, got '%s'\n", argv[i]);
+        return 2;
+      }
+    }
   }
   FILE* f = std::fopen(argv[1], "rb");
   if (!f) {

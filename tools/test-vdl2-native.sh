@@ -19,6 +19,11 @@ SRC=("$ROOT/apps/orcsdr-tab5/ui/vdl2_channel.cpp" "$ROOT/apps/orcsdr-tab5/ui/vdl
  "$TMP/receiver"
  "$CXX" "${FLAGS[@]}" "${INC[@]}" "$ROOT/tests/vdl2_channel_test.cpp" "${SRC[@]}" -o "$TMP/channel"
  "$TMP/channel"
+ if python3 -c 'import numpy, scipy' 2>/dev/null; then
+   python3 "$ROOT/tests/test_vdl2_prepare_iq.py"      # the converter's own regression test (needs numpy and scipy)
+ else
+   echo 'tests/test_vdl2_prepare_iq.py: NOT RUN (numpy/scipy missing)'
+ fi
  "$CXX" "${FLAGS[@]}" "${INC[@]}" "$ROOT/tools/vdl2_replay_iq.cpp" "${SRC[@]}" -o "$TMP/replay"
  if [[ $# -gt 0 ]]; then
    echo "REAL OFF-AIR FIXTURE: $1"

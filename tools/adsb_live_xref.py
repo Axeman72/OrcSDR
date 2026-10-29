@@ -36,10 +36,17 @@ def main():
         dev.authenticate(key); dev.send(c)
         return [x for x in dev.read_until((pre,), to, echo=False) if pre in x]
     old = cmd("RTL_SERIAL VERBOSITY", "RTL_SERIAL_VERBOSITY")
-    old_mode = re.search(r"mode=(\w+)", old[-1]).group(1) if old else "NORMAL"
+    if not old:                       # never guess the stored mode: a wrong restore would overwrite the device's setting
+        sys.exit("could not read the current serial verbosity; nothing was changed")
+    old_mode = re.search(r"mode=(\w+)", old[-1]).group(1)
     print("previous verbosity", old_mode, flush=True)
-    cmd("RTL_SERIAL VERBOSITY TRACE", "RTL_SERIAL_VERBOSITY_OK")
-    print(cmd("RTL_UI OPEN ADSB", "RTL_UI_OPEN"), flush=True)
+    if not cmd("RTL_SERIAL VERBOSITY TRACE", "RTL_SERIAL_VERBOSITY_OK"):
+        sys.exit("the device did not confirm TRACE verbosity; nothing was started")
+    opened = cmd("RTL_UI OPEN ADSB", "RTL_UI_OPEN_OK")
+    print(opened, flush=True)
+    if not opened:
+        cmd("RTL_SERIAL VERBOSITY " + old_mode, "RTL_SERIAL_VERBOSITY_OK")
+        sys.exit("the ADS-B screen did not open; verbosity restored")
     end = time.time() + minutes * 60
     seen = {}          # icao -> last frame dict
     heard_this_minute = set()

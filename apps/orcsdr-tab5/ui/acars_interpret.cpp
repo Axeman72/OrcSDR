@@ -60,6 +60,12 @@ void set_summary(Interpretation& r, const char* fmt, ...) {
 void fmt_hms(char* out, size_t cap, const char* six) {   // "202750" -> "20:27:50Z"
   std::snprintf(out, cap, "%c%c:%c%c:%c%cZ", six[0], six[1], six[2], six[3], six[4], six[5]);
 }
+bool valid_date(unsigned year, unsigned month, unsigned day) {
+  static const unsigned kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (month < 1 || month > 12 || day < 1) return false;
+  const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+  return day <= kDays[month - 1] + (month == 2 && leap ? 1u : 0u);
+}
 bool valid_hms(const char* six) {
   return dec(six, 2) < 24 && dec(six + 2, 2) < 60 && dec(six + 4, 2) < 60;
 }
@@ -75,7 +81,7 @@ bool parse_degmin(const char* p, size_t deg_digits, unsigned* milli_deg) {
   const unsigned tenths = dec(p + deg_digits, 3);   // minutes * 10
   if (tenths >= 600) return false;
   *milli_deg = deg * 1000u + (tenths * 5u + 1u) / 3u;
-  return true;
+  return *milli_deg <= (deg_digits == 2 ? 90000u : 180000u);
 }
 // Plain decimal degrees ("42.872", "044.6863") truncated to thousandths; sets *negative for a leading '-'.
 bool parse_decimal(const char* p, size_t n, unsigned* milli_deg, bool* negative) {
@@ -312,11 +318,14 @@ bool interpret_squitter(const Text& t, Interpretation& r) {
     // Latitude ddmm + N/S, longitude dddmm + E/W, whole minutes.
     const unsigned latd = dec(t.p + pos, 2), latm = dec(t.p + pos + 2, 2);
     const unsigned lond = dec(t.p + pos + 5, 3), lonm = dec(t.p + pos + 8, 2);
-    char lat[16], lon[16];
-    fmt_coord(lat, sizeof(lat), t.at(pos + 4), latd * 1000u + (latm * 1000u + 30u) / 60u);
-    fmt_coord(lon, sizeof(lon), t.at(pos + 10), lond * 1000u + (lonm * 1000u + 30u) / 60u);
-    std::snprintf(where, sizeof(where), "%s %s", lat, lon);
-    add_line(r, "Located at %s.", where);
+    const unsigned lat_milli = latd * 1000u + (latm * 1000u + 30u) / 60u, lon_milli = lond * 1000u + (lonm * 1000u + 30u) / 60u;
+    if (latm < 60 && lonm < 60 && lat_milli <= 90000u && lon_milli <= 180000u) {   // a position that cannot exist is not shown
+      char lat[16], lon[16];
+      fmt_coord(lat, sizeof(lat), t.at(pos + 4), lat_milli);
+      fmt_coord(lon, sizeof(lon), t.at(pos + 10), lon_milli);
+      std::snprintf(where, sizeof(where), "%s %s", lat, lon);
+      add_line(r, "Located at %s.", where);
+    }
     pos += 11;
   }
   // Optional service availability: flag (V/A/B) + six digit kHz, then optional ",address" lists, "-" between services, "/" ends.
@@ -429,6 +438,7 @@ bool interpret_label21(const Text& t, size_t at, Interpretation& r) {
   s = p;
   while (is_digit(t.at(p)) || t.at(p) == '.') ++p;
   if (!parse_decimal(t.p + s, p - s, &lon_m, &neg)) return false;
+  if (lat_m > 90000u || lon_m > 180000u) return false;
   struct F { const char* s; size_t n; } f[10];
   size_t nf = 0;
   while (p < t.n && t.at(p) == ',' && nf < 10) {
@@ -842,7 +852,7 @@ bool interpret_label32(const Text& t, Interpretation& r, bool altitude_known) {
     return false;
   const unsigned month = dec(d + 5, 2), day = dec(d + 8, 2);
   char hms[7] = {d[11], d[12], d[14], d[15], d[17], d[18], '\0'};
-  if (month < 1 || month > 12 || day < 1 || day > 31 || !valid_hms(hms)) return false;
+  if (!valid_date(dec(d, 4), month, day) || !valid_hms(hms)) return false;
   unsigned lat = 0, lon = 0;
   char ns = 'N', ew = 'W';
   if (!parse_spaced_position(f[4].s, f[4].n, &ns, &lat, &ew, &lon)) return false;
@@ -890,7 +900,7 @@ bool interpret_label33(const Text& t, Interpretation& r) {
   for (unsigned m = 0; m < 12; ++m)
     if (std::memcmp(f[2].s + 2, kMonths[m], 3) == 0) month = m + 1;
   const unsigned day = dec(f[2].s, 2), yy = dec(f[2].s + 5, 2);
-  if (month == 0 || day < 1 || day > 31 || !valid_hms(f[3].s)) return false;
+  if (month == 0 || !valid_date(2000u + yy, month, day) || !valid_hms(f[3].s)) return false;
   unsigned lat = 0, lon = 0;
   bool lat_neg = false, lon_neg = false;
   if (f[4].n < 5 || (f[4].s[0] != '+' && f[4].s[0] != '-') || f[5].n < 5 || (f[5].s[0] != '+' && f[5].s[0] != '-')) return false;
@@ -1344,6 +1354,7 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
     if (h.ok) add_line(r, "Message %.4s   Flight %s", h.msn, h.flight);
     set_summary(r, "Link test%s%s", h.ok ? " " : "", h.ok ? h.flight : "");
     ok = true;
+    h1_decoded = h.ok;                  // without a readable header only the label's meaning is known
   } else if (l[0] == '_' && l[1] == 'd') {
     set_headline(r, "LINK PING");
     add_line(r, "Demand-mode ping used to keep or test the radio link.");

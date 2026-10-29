@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-path = Path(__file__).with_name('vdl2_prepare_iq.py')
+path = Path(__file__).resolve().parents[1] / 'tools' / 'vdl2_prepare_iq.py'
 spec = importlib.util.spec_from_file_location('vdl2_prepare_iq', path)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)

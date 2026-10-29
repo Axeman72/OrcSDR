@@ -70,7 +70,7 @@ Available with the receiver adapter (`acars_receiver`): live reception, a `TUNED
 centre, and UTC receive time when the Tab5 clock is valid (otherwise `+m:ss` since boot).
 
 Not available (shown as such, never simulated): SNR / RSSI / carrier-lock / symbol-timing, channel activity, multi-channel
-reception, SD archive, multi-block reassembly, aircraft position, ADS-B correlation. Application-message interpretation exists
+reception, multi-block reassembly, aircraft position, ADS-B correlation. Application-message interpretation exists
 for a documented set of labels and formats only (`INTERPRETER.md`); everything else is shown as received.
 
 Counters are used for what they are: `sync_candidates` is a count of frame starts, not signal quality; a
