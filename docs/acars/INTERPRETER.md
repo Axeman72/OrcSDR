@@ -29,6 +29,9 @@ documents are the publisher's and are not stored in this repository.
 | `H1` `#M1B` `POS...` (FMC position) | position, altitude, waypoint and time, next waypoint ETA, temperature, wind | observed, Alaska and others; community POS page agrees on the field order |
 | label `21` `POS...` (Frontier style) | position, altitude, report time, temperature, ETA and destination | one aircraft type observed |
 | `H1` `#DF` (flight data unit) | cruise fixes (decimal degrees, day/time, altitude, temperature, wind, phase), `TRP#` position blocks, route and report header | observed (Alaska, and a `KPDX`-`KLAX` report); not in any public documentation found |
+| label `32` (one regional carrier) | date, time and position; ten other numbers shown as received | observed live on VDL2 (five samples); see `captures/2026-10-29-vdl2-136975/README.md` |
+| `H1` `#CFB` `FDE...` (central fault display) | report time, tag, and the event entries (time + code, as received) | observed live on VDL2 (three messages); code meanings not published |
+| `AV` (VDL2 data frame, not ACARS) | source address; raw hex only | produced by the VDL2 receiver for non-ACARS information frames |
 | message header | message number (originator, sequence, block letter), flight id, airline name for AS F9 WN DL AA UA B6 NK HA G4 QX OO AC FX 5X YX MQ OH SY | ARINC 620 message layout; airline codes are conventional IATA |
 | about 50 other labels | a plain-English name only | ARINC 620 Table C-1 rows that were unambiguous, plus community research |
 

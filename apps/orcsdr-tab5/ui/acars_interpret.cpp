@@ -647,6 +647,123 @@ bool interpret_dfdau(const Text& t, size_t at, Interpretation& r) {
   return true;
 }
 
+// Label 32 position report seen from one regional carrier (five samples, 06:23-06:33Z, a descent into Eugene):
+//   "M10AOO137CP,E,2026-10-29 06:23:43,4140,65924,N 44.045 W 122.171,14097,249,045,-13,333,368,585,0635,"
+// The date and time, and the position, describe themselves and were checked (the time matches the receive time to two seconds; the
+// positions form a track that ends at the destination airport). The ten other numbers are not documented anywhere found, so they
+// are shown as received and not named. Their likely meanings are research notes in INTERPRETER.md, not on screen.
+bool interpret_label32(const Text& t, Interpretation& r) {
+  if (t.n < 40 || t.at(10) != 'P' || t.at(11) != ',') return false;
+  struct F { const char* s; size_t n; } f[20];
+  size_t nf = 0, start = 12;
+  for (size_t i = 12; i <= t.n && nf < 20; ++i) {
+    if (i == t.n || t.at(i) == ',') {
+      f[nf++] = {t.p + start, i - start};
+      start = i + 1;
+    }
+  }
+  if (nf < 6 || f[0].n != 1 || f[1].n != 19) return false;
+  const char* d = f[1].s;
+  if (!(all_digits(d, 4) && d[4] == '-' && all_digits(d + 5, 2) && d[7] == '-' && all_digits(d + 8, 2) && d[10] == ' ' &&
+        all_digits(d + 11, 2) && d[13] == ':' && all_digits(d + 14, 2) && d[16] == ':' && all_digits(d + 17, 2)))
+    return false;
+  const unsigned month = dec(d + 5, 2), day = dec(d + 8, 2);
+  char hms[7] = {d[11], d[12], d[14], d[15], d[17], d[18], '\0'};
+  if (month < 1 || month > 12 || day < 1 || day > 31 || !valid_hms(hms)) return false;
+  // Position: "N 44.045 W 122.171".
+  const char* p = f[4].s;
+  const size_t pn = f[4].n;
+  if (pn < 10 || (p[0] != 'N' && p[0] != 'S') || p[1] != ' ') return false;
+  size_t sp = 2;
+  while (sp < pn && p[sp] != ' ') ++sp;
+  if (sp + 3 >= pn || (p[sp + 1] != 'E' && p[sp + 1] != 'W') || p[sp + 2] != ' ') return false;
+  unsigned lat = 0, lon = 0;
+  bool neg = false;
+  if (!parse_decimal(p + 2, sp - 2, &lat, &neg) || neg || lat > 90000u) return false;
+  if (!parse_decimal(p + sp + 3, pn - sp - 3, &lon, &neg) || neg || lon > 180000u) return false;
+  char lat_s[16], lon_s[16], when[12];
+  fmt_coord(lat_s, sizeof(lat_s), p[0], lat);
+  fmt_coord(lon_s, sizeof(lon_s), p[sp + 1], lon);
+  fmt_hms(when, sizeof(when), hms);
+  set_headline(r, "POSITION REPORT");
+  add_line(r, "Position %s %s   Reported %.10s %s", lat_s, lon_s, d, when);
+  char rest[kInterpLineChars];
+  size_t used = 0;
+  rest[0] = '\0';
+  for (size_t k = 0; k < nf; ++k) {
+    if (k == 0 || k == 1 || k == 4 || f[k].n == 0) continue;
+    if (used + f[k].n + 2 >= sizeof(rest)) break;
+    used += static_cast<size_t>(std::snprintf(rest + used, sizeof(rest) - used, "%s%.*s", used ? " " : "", static_cast<int>(f[k].n), f[k].s));
+  }
+  add_line(r, "Other values (meaning not published):");
+  add_line(r, "%s", rest);
+  set_summary(r, "Position %s %s %s", lat_s, lon_s, when);
+  return true;
+}
+
+// Central fault display (H1 sub-label CF) event list seen from one regional carrier (three distinct messages, one resent):
+//   "FDE0633591029ABZ 06315707301    0    0 06315707308    0    0 06320507310    0    0"
+// Structure: group tag "FDE", report time hhmmss, "1029ABZ" (not understood), then entries of hhmmss + a five digit code + two numbers
+// (zero in every sample). The codes are not published and are shown as received; INTERPRETER.md records what the samples suggest.
+bool interpret_cf(const Text& t, size_t at, Interpretation& r) {
+  if (!t.has(at, "FDE") || !all_digits(t.p + at + 3, 6)) return false;
+  char hms[7];
+  std::memcpy(hms, t.p + at + 3, 6);
+  hms[6] = '\0';
+  if (!valid_hms(hms)) return false;
+  char tag[12];
+  size_t tag_len = 0;
+  size_t i = at + 9;
+  while (i < t.n && t.at(i) != ' ' && tag_len + 1 < sizeof(tag)) tag[tag_len++] = t.at(i++);
+  tag[tag_len] = '\0';
+  struct Entry { char hms[7]; char code[6]; } e[10];
+  size_t shown = 0, total = 0;
+  size_t s = 0, len = 0;
+  auto next = [&]() {
+    while (i < t.n && t.at(i) == ' ') ++i;
+    s = i;
+    while (i < t.n && t.at(i) != ' ') ++i;
+    len = i - s;
+    return len > 0;
+  };
+  while (next()) {
+    if (len != 11 || !all_digits(t.p + s, 11)) return false;       // an entry: hhmmss + five digit code
+    char entry_time[7];
+    std::memcpy(entry_time, t.p + s, 6);
+    entry_time[6] = '\0';
+    if (!valid_hms(entry_time)) return false;
+    if (shown < 10) {
+      std::memcpy(e[shown].hms, entry_time, 7);
+      std::memcpy(e[shown].code, t.p + s + 6, 5);
+      e[shown].code[5] = '\0';
+      ++shown;
+    }
+    ++total;
+    for (int k = 0; k < 2; ++k)                                      // two trailing numbers
+      if (!next() || len > 6 || !all_digits(t.p + s, len)) return false;
+  }
+  if (total == 0) return false;
+  char when[12];
+  fmt_hms(when, sizeof(when), hms);
+  set_headline(r, "CENTRAL FAULT DISPLAY EVENTS");
+  if (total > shown) add_line(r, "Group FDE, report %s, tag %s. %u entries (first %u shown); codes as received.", when, tag, static_cast<unsigned>(total), static_cast<unsigned>(shown));
+  else add_line(r, "Group FDE, report %s, tag %s. %u entr%s; codes as received.", when, tag, static_cast<unsigned>(total), total == 1 ? "y" : "ies");
+  for (size_t first = 0; first < shown; first += 5) {
+    char row[kInterpLineChars];
+    size_t used = 0;
+    row[0] = '\0';
+    for (size_t k = first; k < shown && k < first + 5; ++k) {
+      char hh[12];
+      fmt_hms(hh, sizeof(hh), e[k].hms);
+      hh[8] = '\0';                                                  // drop the Z: these are entry times, shown as hh:mm:ss
+      used += static_cast<size_t>(std::snprintf(row + used, sizeof(row) - used, "%s%s %s", used ? "  " : "", hh, e[k].code));
+    }
+    add_line(r, "%s", row);
+  }
+  set_summary(r, "Fault display events (%u) %s", static_cast<unsigned>(total), when);
+  return true;
+}
+
 bool interpret_h1(const MessageRecord& m, const Text& t, Interpretation& r) {
   const Header h = parse_header(m, t);
   if (!h.ok || t.at(10) != '#' || t.n < 13) return false;
@@ -657,6 +774,7 @@ bool interpret_h1(const MessageRecord& m, const Text& t, Interpretation& r) {
   bool done = false;
   if (a == 'M' && (b == '1' || b == '2' || b == '3' || b == 'D')) done = interpret_fmc_position(t, body, r);
   else if (a == 'D' && b == 'F') done = interpret_dfdau(t, body, r);
+  else if (a == 'C' && b == 'F') done = interpret_cf(t, body, r);
   if (done) {
     // The first line identifies the message, then the decoded lines follow.
     Interpretation tmp = r;
@@ -728,6 +846,15 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
   else if (l[0] == '2' && l[1] == '1') {
     const Header h = parse_header(m, t);
     if (h.ok && interpret_label21(t, 10, r)) {
+      Interpretation tmp = r;
+      r.line_count = 0;
+      add_header_line(r, h);
+      for (size_t i = 0; i < tmp.line_count && r.line_count < kInterpLines; ++i) add_line(r, "%s", tmp.lines[i]);
+      ok = true;
+    }
+  } else if (l[0] == '3' && l[1] == '2') {
+    const Header h = parse_header(m, t);
+    if (h.ok && interpret_label32(t, r)) {
       Interpretation tmp = r;
       r.line_count = 0;
       add_header_line(r, h);

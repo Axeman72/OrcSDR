@@ -212,9 +212,63 @@ void unknown_and_names() {
     // Also splice real headers so the deeper parsers are reached.
     if (round % 3 == 0 && m.text_length > 20) std::memcpy(m.text, "D59AAS0536#DFB", 14);
     if (round % 5 == 0 && m.text_length > 20) std::memcpy(m.text, "F63AAS0536#M1BPOSN44397W122192", 30 > m.text_length ? m.text_length : 30);
+    if (round % 7 == 0 && m.text_length > 30) std::memcpy(m.text, "C87AOO137C#CFBFDE0633591029ABZ 0631570730", m.text_length < 41 ? m.text_length : 41);
+    if (round % 11 == 0 && m.text_length > 30) {
+      std::memcpy(m.text, "M10AOO137CP,E,2026-10-29 06:23:43,4140,65924,N 44.0", m.text_length < 51 ? m.text_length : 51);
+      m.label[0] = '3';
+      m.label[1] = '2';
+    }
     interpret(m, r);
     CHECK(r.line_count <= kInterpLines);
   }
+}
+
+// Live VDL2 captures from the Tab5 on 136.975 MHz (2026-10-29), verbatim.
+void live_vdl2_formats() {
+  Interpretation r;
+  const MessageRecord pos = make("32", '9', '?',
+      "M10AOO137CP,E,2026-10-29 06:23:43,4140,65924,N 44.045 W 122.171,14097,249,045,-13,333,368,585,0635,");
+  CHECK(interpret(pos, r) && r.decoded);
+  dump(r);
+  CHECK(std::strcmp(r.headline, "POSITION REPORT") == 0);
+  CHECK(any_line_contains(r, "Flight OO137C (SkyWest)"));
+  CHECK(any_line_contains(r, "44.045N 122.171W"));
+  CHECK(any_line_contains(r, "2026-10-29 06:23:43Z"));
+  CHECK(any_line_contains(r, "4140 65924 14097 249 045 -13 333 368 585 0635"));   // shown as received, not named
+  CHECK(std::strstr(r.summary, "44.045N 122.171W 06:23:43Z") != nullptr);
+  // A different position and a negative-free sample from the same descent.
+  const MessageRecord pos2 = make("32", '4', '?',
+      "M15AOO137CP,E,2026-10-29 06:25:43,4080,65864,N 44.102 W 122.399,11581,249,029,-9,274,297,468,0636,");
+  CHECK(interpret(pos2, r) && any_line_contains(r, "44.102N 122.399W"));
+  // Impossible dates, times or coordinates are not decoded.
+  CHECK(!interpret(make("32", '9', '?', "M10AOO137CP,E,2026-13-29 06:23:43,4140,65924,N 44.045 W 122.171,1,2,3,"), r) || !r.decoded);
+  CHECK(!interpret(make("32", '9', '?', "M10AOO137CP,E,2026-10-29 25:23:43,4140,65924,N 44.045 W 122.171,1,2,3,"), r) || !r.decoded);
+  CHECK(!interpret(make("32", '9', '?', "M10AOO137CP,E,2026-10-29 06:23:43,4140,65924,N 94.045 W 122.171,1,2,3,"), r) || !r.decoded);
+
+  const MessageRecord cf = make("H1", '1', '?',
+      "C87AOO137C#CFBFDE0633591029ABZ 06315707301    0    0 06315707308    0    0 06320507310    0    0");
+  CHECK(interpret(cf, r) && r.decoded);
+  dump(r);
+  CHECK(std::strcmp(r.headline, "CENTRAL FAULT DISPLAY EVENTS") == 0);
+  CHECK(any_line_contains(r, "Flight OO137C (SkyWest)"));
+  CHECK(any_line_contains(r, "report 06:33:59Z, tag 1029ABZ. 3 entries"));
+  CHECK(any_line_contains(r, "06:31:57 07301  06:31:57 07308  06:32:05 07310"));
+  const MessageRecord cf6 = make("H1", '7', '?',
+      "C85AOO137C#CFBFDE0630151029ABZ 06281417294    0    0 06281517402    0    0 06283617310    0    0 06283617301    0    0 06283617308    0    0 06295107402    0    0");
+  CHECK(interpret(cf6, r) && r.decoded);
+  CHECK(any_line_contains(r, "6 entries"));
+  CHECK(any_line_contains(r, "06:28:14 17294  06:28:15 17402  06:28:36 17310  06:28:36 17301  06:28:36 17308"));
+  CHECK(any_line_contains(r, "06:29:51 07402"));
+  // A damaged entry makes the event list undecoded; the unit is still named.
+  const MessageRecord bad = make("H1", '1', '?', "C87AOO137C#CFBFDE0633591029ABZ 0631570730    0    0");
+  CHECK(interpret(bad, r) && std::strncmp(r.headline, "MESSAGE FOR/FROM", 16) == 0);   // only the unit is named
+
+  // A VDL2 data frame that is not ACARS, kept as raw hex by the receiver.
+  MessageRecord av = make("AV", '?', '\0', "2143658711234567008280AA550102");
+  std::snprintf(av.tail, sizeof(av.tail), "%s", "1468D2A");
+  CHECK(interpret(av, r) && r.recognised && !r.decoded);
+  CHECK(std::strcmp(r.headline, "VDL2 DATA FRAME") == 0);
+  CHECK(any_line_contains(r, "1468D2A"));
 }
 
 }  // namespace
@@ -227,6 +281,7 @@ int main() {
   label21();
   dfdau();
   unknown_and_names();
+  live_vdl2_formats();
   std::printf("acars_interpret_tests passed\n");
   return 0;
 }
