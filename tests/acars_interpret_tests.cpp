@@ -322,6 +322,43 @@ void live_vdl2_formats() {
   CHECK(interpret(l17, r) && r.decoded && any_line_contains(r, "44.102N 122.183W"));
   CHECK(!any_line_contains(r, "probable"));
 
+  // ARINC 622 envelope: four live blocks (checksum passes) and the specification's own example "AT1.N678DL" + 4104532300 -> A9B3.
+  static const char* const arinc[][2] = {
+      {"F06AWN0436#M1B/BA USADCXA.AT1.N926WN6082D826032E1F", "N926WN"},
+      {"M14AGS0001#M1B/BA USADCXA.AT1.N142QS6187080700B267", "N142QS"},
+      {"F17AUA1114#M1B/BA USADCXA.AT1.N775306209080600CB04", "N77530"},
+      {"F27AAS1337#M1B/BA USADCXA.AT1.N982AK620907C900E55B", "N982AK"},
+      {"F01AXX0001#M1B/AA OAKXGXA.AT1.N678DL4104532300A9B3", "N678DL"}};
+  for (const auto& a : arinc) {
+    CHECK(interpret(make("H1", '9', '?', a[0]), r) && r.decoded);
+    CHECK(std::strcmp(r.headline, "ATC DATA LINK MESSAGE (ARINC 622)") == 0);
+    CHECK(any_line_contains(r, a[1]));
+    CHECK(any_line_contains(r, "checksum OK"));
+  }
+  interpret(make("H1", '9', '?', arinc[0][0]), r);
+  dump(r);
+  CHECK(any_line_contains(r, "Downlink   Ground address USADCXA   ATC data"));
+  CHECK(any_line_contains(r, "Content as received: 6082D82603"));
+  // A damaged checksum or data is not decoded as an ARINC 622 message.
+  CHECK(interpret(make("H1", '9', '?', "F06AWN0436#M1B/BA USADCXA.AT1.N926WN6082D826032E1E"), r) && std::strcmp(r.headline, "ATC DATA LINK MESSAGE (ARINC 622)") != 0);
+  CHECK(interpret(make("H1", '9', '?', "F06AWN0436#M1B/BA USADCXA.AT1.N926WN6082D826132E1F"), r) && std::strcmp(r.headline, "ATC DATA LINK MESSAGE (ARINC 622)") != 0);
+
+  // D-ATIS request (label B9): six samples, all pass the checksum (the first is live from this unit, the rest from the same carrier).
+  static const char* const atis[][3] = {
+      {"L03AAS0608/KSEA.TI2/024KSEAA3BC3", "KSEA", "arrival ATIS"},
+      {"M85AOO3736/KSJC.TI2/024KSJCC51D2", "KSJC", "automatic updates"},
+      {"L01AXX0001/KRDU.TI2/024KRDUAB5F0", "KRDU", "arrival ATIS"},
+      {"L01AXX0001/KLAX.TI2/024KLAXCB1E3", "KLAX", "automatic updates"},
+      {"L01AXX0001/KSFO.TI2/040KSFODB6BD", "KSFO", "departure ATIS"}};
+  for (const auto& a : atis) {
+    CHECK(interpret(make("B9", '9', '?', a[0]), r) && r.decoded);
+    CHECK(std::strcmp(r.headline, "AIRPORT WEATHER (ATIS) REQUEST") == 0);
+    CHECK(any_line_contains(r, a[1]));
+    CHECK(any_line_contains(r, a[2]));
+  }
+  CHECK(!interpret(make("B9", '9', '?', "L03AAS0608/KSEA.TI2/024KSEAA3BC4"), r) || std::strcmp(r.headline, "AIRPORT WEATHER (ATIS) REQUEST") != 0);
+  CHECK(!interpret(make("B9", '9', '?', "L03AAS0608/KSEA.TI2/024KSEAX3BC3"), r) || std::strcmp(r.headline, "AIRPORT WEATHER (ATIS) REQUEST") != 0);
+
   // A VDL2 data frame that is not ACARS, kept as raw hex by the receiver.
   MessageRecord av = make("AV", '?', '\0', "2143658711234567008280AA550102");
   std::snprintf(av.tail, sizeof(av.tail), "%s", "1468D2A");

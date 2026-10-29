@@ -939,6 +939,107 @@ bool interpret_cf(const Text& t, size_t at, Interpretation& r) {
   return true;
 }
 
+// ARINC 622 message carried in an H1 block: "/BA USADCXA.AT1.N926WN6082D826032E1F" (checked live, 2026-10-29). Layout from the ARINC
+// 622 specification: "/", two-letter message function ("BA" downlink, "AA" uplink), a space, a 7 character ground address, ".", the
+// 3 character application code, ".", the aircraft registration, the data as hex digits, and a 4 digit hex CRC. The CRC is the CRC-16
+// with polynomial 0x1021, start value 0xFFFF and final complement, computed over the application code, ".", registration and the data
+// bytes. It reproduces the specification's published examples and every live block checked, so a block that fails it is not decoded.
+// The data bits (CPDLC and similar) need a separate commercial standard and are shown as received.
+unsigned crc16_arinc(const unsigned char* p, size_t n, unsigned crc) {
+  for (size_t i = 0; i < n; ++i) {
+    crc ^= static_cast<unsigned>(p[i]) << 8;
+    for (int k = 0; k < 8; ++k) crc = (crc & 0x8000u) ? ((crc << 1) ^ 0x1021u) & 0xFFFFu : (crc << 1) & 0xFFFFu;
+  }
+  return crc;
+}
+bool is_hex_digit(char c) { return is_digit(c) || (c >= 'A' && c <= 'F'); }
+unsigned hex_value(char c) { return is_digit(c) ? static_cast<unsigned>(c - '0') : static_cast<unsigned>(c - 'A' + 10); }
+
+bool interpret_arinc622(const Text& t, size_t at, Interpretation& r) {
+  if (t.at(at) != '/' || !is_upper(t.at(at + 1)) || !is_upper(t.at(at + 2)) || t.at(at + 3) != ' ') return false;
+  const size_t ga = at + 4;
+  if (t.at(ga + 7) != '.' || t.at(ga + 11) != '.') return false;
+  for (size_t i = 0; i < 7; ++i)
+    if (!(is_upper(t.at(ga + i)) || is_digit(t.at(ga + i)))) return false;
+  const size_t imi = ga + 8;
+  if (!is_upper(t.at(imi)) || !is_upper(t.at(imi + 1)) || !(is_upper(t.at(imi + 2)) || is_digit(t.at(imi + 2)))) return false;
+  const size_t rest = imi + 4;
+  if (t.n < rest + 5 + 4) return false;
+  const size_t tail_end = t.n;
+  for (size_t i = tail_end - 4; i < tail_end; ++i)
+    if (!is_hex_digit(t.at(i))) return false;
+  const unsigned want = (hex_value(t.at(tail_end - 4)) << 12) | (hex_value(t.at(tail_end - 3)) << 8) | (hex_value(t.at(tail_end - 2)) << 4) | hex_value(t.at(tail_end - 1));
+  // The registration is 4 to 9 characters; the rest up to the CRC is the hex data. The CRC picks the split.
+  for (size_t reg_len = 4; reg_len <= 9; ++reg_len) {
+    const size_t data_at = rest + reg_len;
+    if (data_at + 4 >= tail_end) break;
+    const size_t data_len = tail_end - 4 - data_at;
+    bool hex = true;
+    for (size_t i = data_at; i < data_at + data_len; ++i) hex = hex && is_hex_digit(t.at(i));
+    if (!hex || data_len > 64) continue;
+    unsigned char buf[96];
+    size_t n = 0;
+    for (size_t i = 0; i < 3; ++i) buf[n++] = static_cast<unsigned char>(t.at(imi + i));
+    buf[n++] = '.';
+    for (size_t i = 0; i < reg_len; ++i) buf[n++] = static_cast<unsigned char>(t.at(rest + i));
+    for (size_t i = 0; i < data_len; i += 2) {
+      const unsigned hi = hex_value(t.at(data_at + i));
+      const unsigned lo = i + 1 < data_len ? hex_value(t.at(data_at + i + 1)) : 0u;   // an odd count is padded with a zero nibble
+      buf[n++] = static_cast<unsigned char>((hi << 4) | lo);
+    }
+    const unsigned got = crc16_arinc(buf, n, 0xFFFFu) ^ 0xFFFFu;
+    if (got != want) continue;
+    char app[4] = {t.at(imi), t.at(imi + 1), t.at(imi + 2), '\0'};
+    const char* app_name = nullptr;
+    if (app[0] == 'A' && app[1] == 'T') app_name = "ATC data";
+    else if (app[0] == 'C' && app[1] == 'R') app_name = "ATC connect request";
+    else if (app[0] == 'C' && app[1] == 'C') app_name = "ATC connect confirm";
+    else if (app[0] == 'D' && app[1] == 'R') app_name = "ATC disconnect";
+    else if (std::strcmp(app, "ADS") == 0) app_name = "surveillance report (ADS)";
+    else if (std::strcmp(app, "AFN") == 0) app_name = "logon (AFN)";
+    else if (std::strcmp(app, "DIS") == 0) app_name = "disconnect";
+    const char dir = t.at(at + 1);
+    set_headline(r, "ATC DATA LINK MESSAGE (ARINC 622)");
+    add_line(r, "%s   Ground address %.7s   %s", dir == 'B' ? "Downlink" : dir == 'A' ? "Uplink" : "Message", t.p + ga, app_name ? app_name : app);
+    add_line(r, "Aircraft %.*s   %u data byte%s   checksum OK", static_cast<int>(reg_len), t.p + rest, static_cast<unsigned>((data_len + 1) / 2),
+             (data_len + 1) / 2 == 1 ? "" : "s");
+    add_line(r, "Content as received: %.*s (needs the ATC message table)", static_cast<int>(data_len), t.p + data_at);
+    set_summary(r, "ATC %s %s %.*s", app, dir == 'B' ? "down" : dir == 'A' ? "up" : "", static_cast<int>(reg_len), t.p + rest);
+    return true;
+  }
+  return false;
+}
+
+// D-ATIS request, label B9: "/KSEA.TI2/024KSEAA3BC3" after the 10 character header (ARINC 623 appendix B; 6 live samples all pass the CRC).
+// After "TI2/" come: preferred characters per display line (3 digits), airport (4 letters), request type (1 letter) and a 4 digit hex
+// CRC, the same CRC-16 as above over "TI2/" and the eight data characters.
+bool interpret_atis_request(const Text& t, Interpretation& r) {
+  if (t.at(10) != '/' || !is_upper(t.at(11)) || t.at(15) != '.' || t.at(16) != 'T' || t.at(17) != 'I' || !is_digit(t.at(18)) || t.at(19) != '/') return false;
+  if (t.n != 20 + 8 + 4 || !all_digits(t.p + 20, 3)) return false;
+  for (size_t i = 23; i < 27; ++i)
+    if (!is_upper(t.at(i))) return false;
+  const char kind = t.at(27);
+  for (size_t i = 28; i < 32; ++i)
+    if (!is_hex_digit(t.at(i))) return false;
+  const unsigned want = (hex_value(t.at(28)) << 12) | (hex_value(t.at(29)) << 8) | (hex_value(t.at(30)) << 4) | hex_value(t.at(31));
+  const unsigned got = crc16_arinc(reinterpret_cast<const unsigned char*>(t.p + 16), 12, 0xFFFFu) ^ 0xFFFFu;
+  if (got != want) return false;
+  const char* what = nullptr;
+  switch (kind) {
+    case 'A': what = "arrival ATIS"; break;
+    case 'D': what = "departure ATIS"; break;
+    case 'C': what = "arrival ATIS, automatic updates"; break;
+    case 'E': what = "en-route weather broadcast"; break;
+    case 'T': what = "stop automatic updates"; break;
+    default: return false;
+  }
+  set_headline(r, "AIRPORT WEATHER (ATIS) REQUEST");
+  add_line(r, "Aircraft asks station %.4s for %.4s %s", t.p + 11, t.p + 23, what);
+  add_line(r, "Display width %.3s characters   checksum OK", t.p + 20);
+  set_summary(r, "ATIS request %.4s", t.p + 23);
+  return true;
+}
+
 bool interpret_h1(const MessageRecord& m, const Text& t, Interpretation& r) {
   const Header h = parse_header(m, t);
   if (!h.ok || t.at(10) != '#' || t.n < 13) return false;
@@ -947,7 +1048,8 @@ bool interpret_h1(const MessageRecord& m, const Text& t, Interpretation& r) {
   const bool reserved_b = t.at(13) == 'B';   // ARINC 620: the character after the sub-label is reserved and coded 'B'
   const size_t body = reserved_b ? 14 : 13;
   bool done = false;
-  if (a == 'M' && (b == '1' || b == '2' || b == '3' || b == 'D')) done = interpret_fmc_position(t, body, r);
+  if (t.at(body) == '/' && interpret_arinc622(t, body, r)) done = true;
+  else if (a == 'M' && (b == '1' || b == '2' || b == '3' || b == 'D')) done = interpret_fmc_position(t, body, r);
   else if (a == 'D' && b == 'F') done = interpret_dfdau(t, body, r);
   else if (a == 'C' && b == 'F') done = interpret_cf(t, body, r);
   if (done) {
@@ -1021,6 +1123,15 @@ bool interpret(const MessageRecord& m, Interpretation& r) {
   else if (l[0] == '2' && l[1] == '1') {
     const Header h = parse_header(m, t);
     if (h.ok && interpret_label21(t, 10, r)) {
+      Interpretation tmp = r;
+      r.line_count = 0;
+      add_header_line(r, h);
+      for (size_t i = 0; i < tmp.line_count && r.line_count < kInterpLines; ++i) add_line(r, "%s", tmp.lines[i]);
+      ok = true;
+    }
+  } else if (l[0] == 'B' && l[1] == '9') {
+    const Header h = parse_header(m, t);
+    if (h.ok && interpret_atis_request(t, r)) {
       Interpretation tmp = r;
       r.line_count = 0;
       add_header_line(r, h);

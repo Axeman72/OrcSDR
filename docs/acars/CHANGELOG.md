@@ -5,6 +5,8 @@ This file tracks ACARS dashboard and decoder changes. The repository has no repo
 ## 2026-10-29 (later) - Live VDL2 captures and two new formats
 
 ## 2026-10-29 (evening) - Review of the overnight run, `#DFB` sample blocks and label 33
+
+- Later: label 17 uses the label 32 layout; Southwest climb position block (`CL`); ARINC 622 envelope parser with CRC check (`#M1B/BA ...AT1...`); D-ATIS request decoder for label B9 (`.TI2/`). Basis: `research/FORMAT_DOCS_RESEARCH.md`. CRC verified independently on the spec examples and live blocks. 713 messages in the next 1h52m on the new firmware (no gaps, 29 ms per block). Seen but not yet decoded: self-describing engine/air-data lines from GS0001 (`M1B ... 7.25000 mbar T20 (FROM ADC2)`), Alaska `#DFBE329KSMFKSEAN43046W121575...` and `#DFBD3B029KPDXKLASN44543W12201...`.
 - Overnight run: unit up 6.75 h, 712 messages counted, 1063 verified frames, no gaps or drops, decoder 28.2 ms average and 143 ms worst per 65 ms block. Only the last 300 blocks (13:31-14:21Z) survive: the SD archive is a 300-block ring and the screen holds 48, so the earlier part of the night is lost (counters only).
 - Interpreter: Southwest `#DFB` header block (type, date, flight, route) and sample blocks (time, altitude, speed, Mach), and label 33 position reports. Host tests pass under ASan/UBSan.
 - Cross-check with OpenSky (authenticated, credentials kept outside the repository): WN0436 N926WN left KEUG (OpenSky firstSeen 13:28:28Z); the `M1BPRG` report at 13:35:06Z, N44 06.0 W122 36.2, is 0.2 nm from OpenSky's 13:35:06Z position (44.1011, -122.5991). Our `#DFB` altitudes run ahead of OpenSky's coarsely sampled track by about 15 s of climb (about 800 ft). QX2452 (label 33) could not be matched: OpenSky had not yet listed that flight.
