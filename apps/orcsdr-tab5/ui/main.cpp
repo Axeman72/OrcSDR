@@ -5936,13 +5936,16 @@ void sd_get_begin(const char* path_hex) {
     return;
   }
   g_sd_transfer_active.store(true, std::memory_order_release);
-  if (sd_transfer_radio_busy()) {
+  char path[sizeof(g_sd_get.path)];
+  const bool path_ok = decode_hex_text(path_hex, path, sizeof(path)) && sd_put_path_allowed(path);
+  // The ACARS log is only appended to, so reading it while the receiver runs is safe: the read stops at the size seen here.
+  const bool acars_log = path_ok && strncmp(path, "/orcsdr/acars/", 14) == 0 && !strstr(path, "..");
+  if (sd_transfer_radio_busy() && !acars_log) {
     Serial.println("SD_GET_ERROR radio_busy");
     g_sd_transfer_active.store(false, std::memory_order_release);
     return;
   }
-  char path[sizeof(g_sd_get.path)];
-  if (!decode_hex_text(path_hex, path, sizeof(path)) || !sd_put_path_allowed(path)) {
+  if (!path_ok) {
     Serial.println("SD_GET_ERROR invalid_path");
     g_sd_transfer_active.store(false, std::memory_order_release);
     return;
